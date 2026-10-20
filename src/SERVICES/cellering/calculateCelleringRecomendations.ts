@@ -802,6 +802,13 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         todayDate,
         ["הורדת לחץ", "העלאת לחץ", "להוריד לחץ", "להעלות לחץ", "גיזוז מלמטה"],
     );
+    // Bottom carbonation satisfies the treatment recommendation, but it is
+    // NOT a pressure increase/decrease for the separate pressure KPI.
+    const pressureChangedToday = hasCellarActionOnDate(
+        sortedMeasurements,
+        todayDate,
+        ["הורדת לחץ", "העלאת לחץ", "להוריד לחץ", "להעלות לחץ"],
+    );
     const prvHandledToday = hasCellarActionOnDate(
         sortedMeasurements,
         todayDate,
@@ -1385,9 +1392,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const pressureAdjustmentHandledToday = {
         completed: Boolean(
             stage.name === "קר" &&
-            pressureHandledToday
+            pressureChangedToday
         ),
-        reason: pressureHandledToday
+        reason: pressureChangedToday
             ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז לא תקינה (${lastMeasurement?.carbonation})`
             : "",
         importance: latestCarbSpec.importance,
@@ -1396,6 +1403,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const requiredPressureAdjustment = {
         display: true,
         req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment,
+        // Keep the legacy recommendation key (and today's ignore decisions)
+        // but explicitly distinguish raising/lowering pressure from vent tuning.
+        actionType: coldCarbNeedsPressureAdjustment ? "pressureChange" as const : "ventAdjust" as const,
         reason: coldCarbNeedsPressureAdjustment
             ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם או לוודא שבוצע.`
             : `מומלץ לכוון פורק ל ${effectivePressureTarget}, הלחץ כרגע ${Number(effectivePressureTarget) > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,

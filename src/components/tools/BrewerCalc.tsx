@@ -1,6 +1,7 @@
 
 import { useState } from "react";
 import type { Fermentor } from "../../App";
+import { calculateSalinityCorrection } from "../../SERVICES/tools/salinityCorrection";
 import { CalculatorIconButton, CalculatorModal, CarbonationReadingCalculator, HydrometerCorrectionCalculator } from "./BrewingMeasurementCalculators";
 
 type FVType = "triple" | "double" | "6";
@@ -8,6 +9,11 @@ type FVType = "triple" | "double" | "6";
 type OptionalNumber = number | "";
 
 type CalcValues = {
+    saltCorrection: {
+        label: string;
+        volume: OptionalNumber;
+        salinity: OptionalNumber;
+    };
     BoilVol: {
         label: string;
         testVol: OptionalNumber;
@@ -47,6 +53,7 @@ type CalcValues = {
 export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
     const [hydrometerTarget, setHydrometerTarget] = useState<"testPlato" | "desiredPlato" | null>(null);
     const [calcValues, setCalcValues] = useState<CalcValues>({
+        saltCorrection: { label: "תיקון מליחות", volume: 220, salinity: 4.65 },
         BoilVol: {
             label: "נפח רתיחה",
             testVol: 1200,
@@ -110,6 +117,11 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                     calcValues.BoilVol.testPlato) /
                 calcValues.BoilVol.DesiredPlato
             ) + calcValues.BoilVol.EvaporationFactor
+            : null;
+
+    const saltResult =
+        calcValues.saltCorrection.volume !== "" && calcValues.saltCorrection.salinity !== ""
+            ? calculateSalinityCorrection(calcValues.saltCorrection.volume, calcValues.saltCorrection.salinity)
             : null;
 
     const tankVolume =
@@ -432,6 +444,20 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                         <strong>{calcValues.calcPacagingVol.leftToPack.toFixed(1)}</strong>{" "}
                         {calcValues.calcPacagingVol.leftToPackLabel}
                     </div>
+                </section>
+
+                <section className="spec-card" aria-label="מחשבון תיקון מליחות">
+                    <div className="spec-card-header"><h2>{calcValues.saltCorrection.label}</h2></div>
+                    <div className="spec-fields">
+                        <NumberField label="נפח (ליטרים)" value={calcValues.saltCorrection.volume}
+                            onChange={(value) => updateField("saltCorrection", "volume", value)} />
+                        <NumberField label="מליחות נוכחית" value={calcValues.saltCorrection.salinity}
+                            onChange={(value) => updateField("saltCorrection", "salinity", value)} />
+                    </div>
+                    <div className="calc-result">
+                        כמות להוסיף: <strong>{saltResult === null ? "חסר נתון תקין (מליחות 0–11)" : saltResult.toFixed(2)}</strong>
+                    </div>
+                    <p className="spec-card-subtitle">לפי נוסחת העבודה: נפח × (1 − מליחות ÷ 11) × 0.01. יחידת כמות התוספת בהתאם לשיטת העבודה בגיליון.</p>
                 </section>
 
                 <HydrometerCorrectionCalculator />

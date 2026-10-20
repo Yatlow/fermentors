@@ -196,6 +196,17 @@ function brewingSheetResolveFermentationMetadataRange_(sheet, range) {
   }
 
   const data = sheet.getDataRange().getDisplayValues();
+  // A fixed row is the fermentation date row ONLY for its tank layout.
+  // On a triple brew B59/B106 hold grain LOTS, not dates. The previous
+  // unconditional mapping of all three fallback rows redirected Pilsner
+  // grain writes into B156, destroying an already valid brew date.
+  const blockCount = data.filter(function (cells) {
+    return String(cells[1] || "").trim() === "סוג:" &&
+           String(cells[3] || "").trim() === "אצווה:";
+  }).length;
+  const fallbackRow = blockCount === 3 ? 156 : blockCount === 2 ? 106 : blockCount === 1 ? 59 : 0;
+  if (!fallbackRow || row !== fallbackRow) return range;
+
   for (let r = 0; r < data.length; r++) {
     const current = data[r] || [];
     if (
@@ -235,6 +246,23 @@ function brewingSheetWriteCells_(data) {
     if (!sheet) throw new Error("Brew Sheet has no sheets");
     let range = sheet.getRange(a1);
     range = brewingSheetResolveFermentationMetadataRange_(sheet, range);
+
+    // Last line of defence: never accept a raw material lot or arbitrary text
+    // as the fermentation brew date. Manual edits directly in Sheets are
+    // unaffected; this guard protects writes originating from the app.
+    if (range.getNumRows() === 1 && range.getNumColumns() === 1 &&
+        range.getColumn() === 2) {
+      const incoming = String(item.value == null ? "" : item.value).trim();
+      // Most writes are ingredient lots in column B; avoid an extra Sheet
+      // read for valid dates and empty values. Inspect the label only for
+      // a non-date candidate that could accidentally clobber brew day.
+      if (incoming && !/^(?:\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{1,2}-\d{1,2})$/.test(incoming)) {
+        const rowLabel = String(sheet.getRange(range.getRow(), 1).getDisplayValue() || "").trim();
+        if (/^יום\s*בישול$/i.test(rowLabel)) {
+          throw new Error("Refusing non-date write into fermentation brew-day cell: " + range.getA1Notation());
+        }
+      }
+    }
 
     if (
       item &&
@@ -570,6 +598,18 @@ function brewingSheetCreate_(data) {
         }
       }
       if (fermentationHeader >= 0) {
+        // Some already affected IPA sheets carry a grain-lot string in the
+        // brew-date cell (e.g. Pilsner #217205) due to legacy row aliasing.
+        // Protect copies defensively, even when the current Master is clean.
+        // Sanitize ONLY a copied new Sheet, ONLY that exact legacy pattern;
+        // do not touch dates typed by the brewery or other fermentation data.
+        for (let r = fermentationHeader + 1; r < Math.min(values.length, fermentationHeader + 7); r++) {
+          if (/^יום\s*בישול\s*$/.test(String((values[r] || [])[0] || "")) &&
+              /^Pilsner\s*#\d+$/i.test(String((values[r] || [])[1] || "").trim())) {
+            sheet.getRange(r + 1, 2).clearContent();
+            console.log("Cleared legacy Master brew-date placeholder at B" + (r + 1));
+          }
+        }
         let hasVolumeLabel = false;
         const searchEnd = Math.min(values.length, fermentationHeader + 8);
         for (let r = fermentationHeader; r < searchEnd && !hasVolumeLabel; r++) {
@@ -650,6 +690,19 @@ function brewingSheetPrintPdf_(data) {
   const style = String(data.style || "").trim();
   const tankType = String(data.tankType || "single").trim();
   const brewDate = String(data.brewDate || "").trim();
+  // The optional substitutions apply to the disposable print workbook only.
+  // Never update the production Sheet or persist personal print variations.
+  const textReplacements = (Array.isArray(data.textReplacements) ? data.textReplacements : [])
+    .slice(0, 12)
+    .map(function (edit) {
+      return { from: String(edit && edit.from || "").trim(), to: String(edit && edit.to || "") };
+    })
+    .filter(function (edit) { return edit.from.length > 0 && edit.from.length <= 120 && edit.to.length <= 200; });
+  function printText(value) {
+    return textReplacements.reduce(function (result, edit) {
+      return result.split(edit.from).join(edit.to);
+    }, String(value));
+  }
   const blockCount = tankType === "triple" ? 3 : tankType === "double" ? 2 : 1;
   const mashRestCount = Number(data.mashRestCount || 2);
   // Master coordinates are intentionally not uniform: the third brew starts
@@ -686,15 +739,15 @@ function brewingSheetPrintPdf_(data) {
     cover.setRowHeights(10, 9, 30);
     cover.getRange("A1:H44").setFontFamily("Rubik").setHorizontalAlignment("center")
       .setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
-    cover.getRange("A4:H5").merge().setValue("מס מיכל: " + tankNumber).setFontSize(22).setFontWeight("bold");
-    cover.getRange("A10:H18").merge().setValue("#" + batchNumber).setFontSize(68).setFontWeight("bold")
+    cover.getRange("A4:H5").merge().setValue(printText("מס מיכל: " + tankNumber)).setFontSize(22).setFontWeight("bold");
+    cover.getRange("A10:H18").merge().setValue(printText("#" + batchNumber)).setFontSize(68).setFontWeight("bold")
       .setVerticalAlignment("middle");
     const typeLabel = tankType === "single" ? "בודד" : tankType === "double" ? "כפול" : "משולש";
-    cover.getRange("A21:H25").merge().setValue(style + " " + typeLabel).setFontSize(30).setFontWeight("bold")
+    cover.getRange("A21:H25").merge().setValue(printText(style + " " + typeLabel)).setFontSize(30).setFontWeight("bold")
       .setVerticalAlignment("middle");
-    cover.getRange("A31:H33").merge().setValue("תאריך בישול: " + (brewDate || "________________"))
+    cover.getRange("A31:H33").merge().setValue(printText("תאריך בישול: " + (brewDate || "________________")))
       .setFontSize(17).setVerticalAlignment("middle");
-    cover.getRange("A38:H40").merge().setValue("נפח וסוכר התחלתי: ________________ / ________________")
+    cover.getRange("A38:H40").merge().setValue(printText("נפח וסוכר התחלתי: ________________ / ________________"))
       .setFontSize(17).setVerticalAlignment("middle");
     cover.getRange("A1:H44").setBorder(true, true, true, true, null, null);
 
@@ -848,6 +901,13 @@ function brewingSheetPrintPdf_(data) {
           }
         }
       });
+      if (textReplacements.length) {
+        display.forEach(function (row) {
+          row.forEach(function (cell, col) {
+            if (cell !== "" && cell != null) row[col] = printText(cell);
+          });
+        });
+      }
       printRange.setValues(display);
 
       // Fit all cells in memory and apply font sizes once.

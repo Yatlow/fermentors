@@ -58,13 +58,14 @@ type HealthAlert = {
     tankNumber?: string;
     batchNumber?: string;
     recommendationKey?: string;
-    scheduledActionType?: "carbTest" | "yeastDrop" | "pressureChange";
+    scheduledActionType?: "carbTest" | "yeastDrop" | "pressureChange" | "ventAdjust";
     importance?: number;
     dismissible?: boolean;
     userDecision?: boolean;
 };
 
 type Recommendation = {
+    actionType?: "pressureChange" | "ventAdjust";
     req?: boolean | "" | 0 | null;
     display?: boolean;
     reason?: string;
@@ -147,7 +148,7 @@ function recommendationShortLabel(key: string, fallback = "המלצת סלרינ
     if (key === "diacetylRest") return "מנוחת דיאצטיל";
     if (key === "neglectedStatus") return "טיפול במיכל";
     if (key === "coolDown") return "קירור";
-    if (key === "pressureAdjustment") return "שינוי לחץ";
+    if (key === "pressureAdjustment") return fallback === "כיוון פורק" ? "כיוון פורק" : "שינוי לחץ";
     if (key.startsWith("scheduled-")) return "המלצה מתוזמנת";
     return fallback;
 }
@@ -445,9 +446,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         );
                         const hasTodayYeast = /שמרים|שמרי/.test(todayNotes);
                         const hasTodayCooling = /קירור/.test(todayNotes);
-                        const handledPressureAfterCarb =
-                            recommendations?.pressureAdjustmentHandledToday?.completed === true;
-                        const carbCompletedToday = hasTodayCarbonation || handledPressureAfterCarb;
+                        const carbCompletedToday = hasTodayCarbonation;
 
                         const naturalCarb = Boolean(
                             recommendations?.requiresCarbTest?.req &&
@@ -549,7 +548,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             key
                         );
                         const carbRecommendationKeys = [
-                            "carbTest", "bottomCarbonationFollowUp",
+                            "carbTest",
                             ...unresolvedScheduled.filter((row) => row.actionType === "carbTest")
                                 .map((row) => `scheduled-${row.id}`),
                         ];
@@ -623,6 +622,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                 req: true,
                                 display: true,
                                 importance: 3,
+                                actionType: row.actionType,
                                 userDecision: row.source === "user" || row.actionType === "pressureChange",
                                 reason: row.source === "user" || row.actionType === "pressureChange"
                                     ? `החלטת סלרינג: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`
@@ -648,7 +648,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                 tankNumber: number,
                                 batchNumber: String(tank.batchNumber),
                                 recommendationKey: recommendation.recommendationKey,
-                                scheduledActionType: manualDue.find(row => `scheduled-${row.id}` === recommendation.recommendationKey)?.actionType,
+                                scheduledActionType: recommendation.actionType,
                                 importance,
                                 dismissible: true,
                                 userDecision: recommendation.userDecision,
@@ -718,7 +718,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             { key: "vent-adjust", label: "כיוון פורק", pattern: /כיוון פורק|כיוון הפורק|כיוונתי פורק/ },
                             { key: "pressure-close", label: "סגירת נשם / מיכל", pattern: /סגירת נשם|סגירת הנשם|סגירת מיכל|סגרתי נשם/ },
                             { key: "diacetyl", label: "מנוחת דיאצטיל", pattern: /מנוחת דיאצ[י׳']?טיל|דיאצטיל/ },
-                            { key: "pressure-change", label: "שינוי לחץ", pattern: /שינוי לחץ|שיניתי לחץ|שינוי בלחץ/ },
+                            { key: "pressure-change", label: "שינוי לחץ", pattern: /העלאת לחץ|הורדת לחץ|להעלות לחץ|להוריד לחץ/ },
                             { key: "other", label: "פעולה אחרת", pattern: /(?:^|[|\\n])\\s*אחר\\s*[:：-]/ },
                         ];
                         reportedActions.forEach(({ key, label, pattern }) => {
@@ -729,6 +729,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         // Award the daily action only when bottom carbonation STARTED today.
                         // Closing yesterday's session today is not a new start.
                         if (todayNotes.includes("תחילת גיזוז מלמטה")) addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
+                        if (todayNotes.includes("סגירת גיזוז מלמטה")) addCompleted(`bottom-carb-close-${tank.id}`, "סגירת גיזוז מלמטה");
                         if (recommendations?.pressureAdjustmentHandledToday?.completed && !completedScheduledPressure) {
                             const importance = Math.max(
                                 1,
@@ -1006,7 +1007,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 tankNumber: alert.tankNumber,
                 batchNumber: alert.batchNumber,
                 recommendationKey: alert.recommendationKey,
-                title: recommendationShortLabel(alert.recommendationKey, alert.title),
+                title: alert.scheduledActionType === "ventAdjust"
+                    ? "כיוון פורק"
+                    : recommendationShortLabel(alert.recommendationKey, alert.title),
                 detail: alert.detail,
                 importance: alert.importance ?? 1,
             });
@@ -1190,7 +1193,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                         diacetylRest: "דיאציטיל", coolDown: "קירור",
                                         pressureAdjustment: "לחץ",
                                     };
-                                    const scheduledMapping: Record<string, string> = { carbTest: "גיזוז", yeastDrop: "שמרים", pressureChange: "לחץ" };
+                                    const scheduledMapping: Record<string, string> = { carbTest: "גיזוז", yeastDrop: "שמרים", pressureChange: "לחץ", ventAdjust: "פורק" };
                                     const noteType = alert.scheduledActionType ? scheduledMapping[alert.scheduledActionType] : alert.recommendationKey === "pressureAdjustment" && alert.detail.includes("לכוון פורק") ? "פורק" : mapping[alert.recommendationKey];
                                     const tank = brews.find(t => String(t.tankNumber) === String(alert.tankNumber));
                                     const isWarm = tank && Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";

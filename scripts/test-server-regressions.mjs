@@ -610,3 +610,82 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
 }
 
 console.log("Critical server regression tests passed");
+
+
+/* Regression: triple brew grain lot at B59/B106 was remapped into the brew
+   date B156 by treating every Master fallback row as a fermentation row. */
+{
+  const cellsFor = (blocks, fermentationRow) => {
+    const cells = Array.from({ length: Math.max(190, fermentationRow + 1) }, () => []);
+    for (const headerRow of [4, 54, 102].slice(0, blocks)) {
+      cells[headerRow - 1][1] = "סוג:";
+      cells[headerRow - 1][3] = "אצווה:";
+    }
+    cells[fermentationRow - 1][0] = "יום בישול ";
+    cells[fermentationRow - 1][2] = "סוכר תחילי";
+    cells[fermentationRow - 1][4] = "שעת הוספת שמרים";
+    return cells;
+  };
+  const mockSheet = (cells) => {
+    const writes = [];
+    const address = (row, col) => ({
+      getRow: () => row, getColumn: () => col,
+      getNumRows: () => 1, getNumColumns: () => 1,
+      getA1Notation: () => `${String.fromCharCode(64 + col)}${row}`,
+      getDisplayValue: () => String(cells[row - 1]?.[col - 1] || ""),
+      setValue(value) { cells[row - 1][col - 1] = value; writes.push({ row, col, value }); },
+    });
+    return {
+      writes,
+      getDataRange: () => ({ getDisplayValues: () => cells }),
+      getRange(row, col) {
+        if (typeof row === "string") {
+          const match = /([A-Z]+)(\d+)/.exec(row);
+          if (!match) throw Error("invalid range");
+          return address(Number(match[2]), match[1].charCodeAt(0) - 64);
+        }
+        return address(row, col);
+      },
+      getLastRow: () => cells.length,
+    };
+  };
+
+  const service = loadAppsScript("server/BREWING_SHEET_SERVICE.js");
+  for (const [blocks, fermentationRow, legitFallback] of [
+    [1, 63, 59], [2, 114, 106], [3, 168, 156],
+  ]) {
+    const sheet = mockSheet(cellsFor(blocks, fermentationRow));
+    for (const oldRow of [59, 106, 156]) {
+      const resolved = service.brewingSheetResolveFermentationMetadataRange_(
+        sheet, sheet.getRange(oldRow, 2),
+      );
+      assert.equal(resolved.getRow(), oldRow === legitFallback ? fermentationRow : oldRow,
+        `layout ${blocks}: only B${legitFallback} can alias fermentation metadata`);
+    }
+  }
+
+  const triple = mockSheet(cellsFor(3, 156));
+  const writingService = loadAppsScript("server/BREWING_SHEET_SERVICE.js", {
+    SpreadsheetApp: {
+      openById: () => ({ getSheetByName: () => triple, getSheets: () => [triple] }),
+      flush: () => {},
+    },
+  });
+  writingService.brewingSheetWriteCells_({
+    spreadsheetId: "mock-triple", writes: [
+      { range: "'גיליון1'!B59", value: "Pilsner #217205" },
+      { range: "'גיליון1'!B156", value: "19/10/2026" },
+    ],
+  });
+  assert.equal(triple.writes[0].row, 59, "grain lot must stay in second brew, not replace the date");
+  assert.equal(triple.writes[1].row, 156);
+  assert.equal(triple.getRange(156, 2).getDisplayValue(), "19/10/2026");
+  assert.throws(
+    () => writingService.brewingSheetWriteCells_({
+      spreadsheetId: "mock-triple",
+      writes: [{ range: "'גיליון1'!B156", value: "Pilsner #217205" }],
+    }),
+    /Refusing non-date write/,
+    "defense in depth: a grain label must never overwrite the brew date",
+  );
+}

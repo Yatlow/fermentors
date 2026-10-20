@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   loadBrewingExecution,
+  saveBrewingExecutionLocal,
   loadBrewingExecutionFromFirestore,
   subscribeToBrewingExecution,
   saveBrewingExecutionToFirestore,
@@ -24,6 +25,8 @@ import {
 import BeerLoader from "../general/Loading";
 import { CalculatorIconButton, CalculatorModal } from "../tools/BrewingMeasurementCalculators";
 import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
+import { shouldRecalculateHopAmount } from "../../SERVICES/brewing/hopVolumeRecalculation";
+import { applyHydrometerResult, type HydrometerDestination, type HydrometerField } from "../../SERVICES/brewing/hydrometerResultTarget";
 import {
   activeLot,
   type IngredientDefinition,
@@ -955,7 +958,7 @@ export default function BrewFormStepper({
   const [acidHistoryError, setAcidHistoryError] = useState("");
   const [acidHistory, setAcidHistory] = useState<MashAcidHistoryRow[]>([]);
   const [boilCalcOpen, setBoilCalcOpen] = useState(false);
-  const [hydrometerTarget, setHydrometerTarget] = useState<"frPlato" | "lrPlato" | "kettlePlato" | "endBoilPlato" | "fermentorSamplePlato" | "boilSamplePlato" | null>(null);
+  const [hydrometerTarget, setHydrometerTarget] = useState<HydrometerDestination | null>(null);
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null);
   const [lastPullAt, setLastPullAt] = useState<Date | null>(null);
   const [syncMismatches, setSyncMismatches] = useState<SyncMismatch[]>([]);
@@ -2913,8 +2916,6 @@ export default function BrewFormStepper({
       key === "kettleVolume" &&
       kettleVolumeActuallyChanged &&
       !options.skipHopPrompt &&
-      // A: first entry from empty must never prompt; later real edits should.
-      // B/C: same rule naturally applies because previousKettleVolume must exist.
       boilHops.length > 0;
 
     if (shouldOfferHopRecalc) {
@@ -2926,38 +2927,40 @@ export default function BrewFormStepper({
     }
 
     if (key === "kettleVolume" && parsed !== null) {
-      committedKettleVolumeRef.current[blockKey] = parsed;
-      let nextExecution = setBrewingExecutionField(
-        execution,
-        currentBlock,
-        key,
-        value,
-      );
-
-      boilHops.forEach((hop, index) => {
-        const amountKey = `hop${index + 1}.amountGrams`;
-        const existingAmount = num(fields[amountKey] || "");
-        // New Sheets intentionally start raw-hop quantity at 0. Treat that
-        // placeholder as uncalculated so the first kettle-volume entry fills it.
-        if (!options.forceHopRecalc && existingAmount !== null && existingAmount > 0) return;
-
-        const dose = hopDose(hop, parsed);
-        if (dose.grams === null) return;
-
-        const grams = String(roundToFive(dose.grams));
-        nextExecution = setBrewingExecutionField(
-          nextExecution,
-          currentBlock,
-          amountKey,
-          grams,
-        );
-        writes.push({
-          range: `'גיליון1'!A${rawHopSheetRow(index)}`,
-          value: Number(grams),
-        });
+      // On the first valid volume entry, always calculate ALL recipe hop
+      // amounts. A copied Master may already contain stale positive amounts.
+      // Subsequent volume changes request confirmation before replacing them.
+      const isInitialVolume = previousKettleVolume === null;
+      const calculatedHops = boilHops.map((hop, index) => ({
+        key: `hop${index + 1}.amountGrams`,
+        grams: hopDose(hop, parsed).grams,
+        row: rawHopSheetRow(index),
+      }));
+      const replacements: Array<{ key: string; value: string }> = [];
+      calculatedHops.forEach(({ key: hopKey, grams, row }) => {
+        if (grams === null) return;
+        const existingAmount = num(fields[hopKey] || "");
+        if (!shouldRecalculateHopAmount(
+          isInitialVolume ? null : previousKettleVolume,
+          existingAmount,
+          Boolean(options.forceHopRecalc),
+        )) return;
+        const gramsText = String(roundToFive(grams));
+        replacements.push({ key: hopKey, value: gramsText });
+        writes.push({ range: `'גיליון1'!A${row}`, value: Number(gramsText) });
       });
 
-      setExecution(nextExecution);
+      latestLocalEditAt.current = Date.now();
+      // Merge atomically into the latest React execution instead of
+      // constructing several whole-execution snapshots from an old render.
+      setExecution((previous) => {
+        let next = setBrewingExecutionField(previous, blockKey, key, value);
+        replacements.forEach(({ key: hopKey, value: grams }) => {
+          next = setBrewingExecutionField(next, blockKey, hopKey, grams);
+        });
+        return next;
+      });
+      committedKettleVolumeRef.current[blockKey] = parsed;
       await writeSheet(key, writes);
       return;
     }
@@ -3752,6 +3755,12 @@ export default function BrewFormStepper({
     setExecution(setBrewingExecutionActiveStep(setBrewingExecutionActiveBlock(execution, index), 0));
     setActiveStepState(0);
     setMessage("");
+  }
+
+  function openHydrometer(field: HydrometerField) {
+    // The modal can stay open while Firestore changes the selected block.
+    // Pin the original destination instead of using currentBlock on Apply.
+    setHydrometerTarget({ batchNumber: run.batchNumber, blockIndex: currentBlock, field });
   }
 
   function setLocal(key: string, value: string) {
@@ -4649,7 +4658,7 @@ export default function BrewFormStepper({
                     void commitSugar("frPlato", e.target.value, 36, "B")
                   }
                 />
-                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("frPlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => openHydrometer("frPlato")} />
                 </div>
               </label>
             </div>
@@ -4842,7 +4851,7 @@ export default function BrewFormStepper({
                       void commitSugar("lrPlato", e.target.value, 37, "B")
                     }
                   />
-                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("lrPlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => openHydrometer("lrPlato")} />
                 </div>
                 </label>
               </div>
@@ -4871,7 +4880,7 @@ export default function BrewFormStepper({
                     void commitSugar("kettlePlato", e.target.value, 38, "B")
                   }
                 />
-                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("kettlePlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => openHydrometer("kettlePlato")} />
                 </div>
               </label>
 
@@ -4882,6 +4891,12 @@ export default function BrewFormStepper({
                     type="number"
                     required
                   value={localValue("kettleVolume")}
+                    onFocus={() => {
+                      // Capture the pre-edit value before onChange changes
+                      // React state and Firestore/local cache.
+                      committedKettleVolumeRef.current[currentBlock] =
+                        num(fields.kettleVolume || "");
+                    }}
                     onChange={(e) => setLocal("kettleVolume", e.target.value)}
                     onBlur={(e) =>
                       void commitSugar("kettleVolume", e.target.value, 38, "C")
@@ -5113,7 +5128,7 @@ export default function BrewFormStepper({
                     void commitSugar("endBoilPlato", e.target.value, 39, "B")
                   }
                 />
-                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("endBoilPlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => openHydrometer("endBoilPlato")} />
                 </div>
               </label>
               <label>
@@ -5198,7 +5213,7 @@ export default function BrewFormStepper({
                     )
                   }
                 />
-                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("fermentorSamplePlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => openHydrometer("fermentorSamplePlato")} />
                 </div>
               </label>
 
@@ -5767,7 +5782,7 @@ export default function BrewFormStepper({
                   />
                   <CalculatorIconButton
                     label="תיקון טמפרטורה לפלאטו"
-                    onClick={() => setHydrometerTarget("boilSamplePlato")}
+                    onClick={() => openHydrometer("boilSamplePlato")}
                   />
                 </div>
               </label>
@@ -5819,27 +5834,47 @@ export default function BrewFormStepper({
         <CalculatorModal
           kind="hydrometer"
           onClose={() => setHydrometerTarget(null)}
-          onUse={(result) => {
+          onUse={async (result) => {
             const target = hydrometerTarget;
-            const value = result.toFixed(2);
-            if (target === "boilSamplePlato") {
-              setLocal("boilSamplePlato", value);
+            if (target.blockIndex !== currentBlock || target.batchNumber !== run.batchNumber) {
               setHydrometerTarget(null);
+              setMessage("הבישול השתנה מאז פתיחת מחשבון ההידרומטר. יש לפתוח אותו שוב בשדה הרצוי.");
               return;
             }
-            const config = {
-              frPlato: [36, "B"],
-              lrPlato: [37, "B"],
-              kettlePlato: [38, "B"],
-              endBoilPlato: [39, "B"],
-              fermentorSamplePlato: [40, "B"],
-            } as const;
-            const [row, column] = config[target];
-            // The calculator commits through one path only. setLocal followed
-            // by commitSugar used two execution snapshots and could make the
-            // first press appear to be lost after a Firestore echo.
-            setHydrometerTarget(null);
-            void commitSugar(target, value, row, column);
+            try {
+              // Reject missing semantic row mappings before showing success or
+              // updating local state; never fall back to an IPA-specific offset.
+              const prepared = applyHydrometerResult(execution, target, result, {
+                sheetBacked: Boolean(run.sheetId),
+                totalBlocks,
+              });
+              if (target.field !== "boilSamplePlato" &&
+                  !(await approveNumericValue(target.field, prepared.value))) return;
+
+              // Validation may open an asynchronous warning. Keep the exact
+              // A/B/C destination captured at opening and merge the result into
+              // the latest React state instead of an old execution snapshot.
+              latestLocalEditAt.current = Date.now();
+              setExecution((previous) => {
+                const nextBlocks = {
+                  ...previous.blocks,
+                  [String(target.blockIndex)]: {
+                    ...previous.blocks[String(target.blockIndex)],
+                    fields: {
+                      ...(previous.blocks[String(target.blockIndex)]?.fields || {}),
+                      [target.field]: prepared.value,
+                    },
+                  },
+                };
+                return saveBrewingExecutionLocal({ ...previous, blocks: nextBlocks });
+              });
+              setHydrometerTarget(null);
+              if (prepared.writes.length > 0) writeSheet(target.field, prepared.writes);
+            } catch (error) {
+              const detail = error instanceof Error ? error.message : "לא ניתן לשמור את תוצאת ההידרומטר.";
+              setMessage(detail);
+              setSyncError(detail);
+            }
           }}
         />
       )}
