@@ -253,6 +253,7 @@ export default function FermentorInfoBox({
             performed.add("carbTest");
         }
         if (/שמרים|שמרי/.test(todayNotes)) performed.add("yeastDrop");
+        if (/תחילת\s+גיזוז\s+מלמטה/.test(todayNotes)) performed.add("bottomCarbonation");
         if (handledPressureAfterCarb) performed.add("pressureChange");
         if (performed.size === 0) return;
 
@@ -301,7 +302,7 @@ export default function FermentorInfoBox({
         tank.tankNumber,
         tank.batchNumber,
     ).filter((row) => {
-        if (row.actionType === "pressureChange") return true;
+        if (row.actionType === "pressureChange" || row.actionType === "bottomCarbonation") return true;
         return row.actionType === "carbTest"
             ? !naturalCarbRecommendation
             : !naturalYeastRecommendation;
