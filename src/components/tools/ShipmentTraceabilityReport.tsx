@@ -319,7 +319,7 @@ export default function ShipmentTraceabilityReport() {
             {!loading && !listError && visible.length === 0 && <p>אין תעודות מתאימות.</p>}
 
             {selected && <>
-                <div className="shipment-traceability-heading shipment-traceability-details">
+                <div className="shipment-traceability-heading shipment-traceability-details shipment-traceability-sticky-heading">
                     <div>
                         <h3>תעודת משלוח {selected.shipmentNumber}</h3>
                         <p>{shipmentDate(selected)} · {selected.customerName || "ללא שם לקוח"}</p>
@@ -347,13 +347,13 @@ export default function ShipmentTraceabilityReport() {
                             </div>
                             <div className="shipment-traceability-scroll">
                                 <table>
-                                    <thead><tr><th>אצווה</th><th>כמות</th><th>תאריך תפוגה</th><th>מצב נתונים</th></tr></thead>
+                                    <thead><tr><th>אצווה</th><th>כמות</th><th>תאריך תפוגה</th></tr></thead>
                                     <tbody>{group.rows.map((row, i) => (
                                         <tr key={i}>
                                             <td>{row.batchNumber || "לא ידוע"}</td>
                                             <td>{row.quantity} {unit(row)}</td>
                                             <td>{displayShipmentExpiry(row.expiryDateStr)}</td>
-                                            <td>{row.unverified ? "חסר מידע" : "זוהה"}</td>
+        
                                         </tr>
                                     ))}</tbody>
                                 </table>
