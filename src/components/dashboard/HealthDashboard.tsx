@@ -319,7 +319,12 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             : [];
 
                         if (inGracePeriod) {
+                            // Any measured fields can add complementary health credit.
+                            // The full-round KPI gets an optional extra tank only if
+                            // all fields applicable to this tank were measured today.
                             const observed = dailyMeasurementProgress(measurements, true);
+                            const optionalRoundCompleted =
+                                dailyMeasurementProgress(measurements, hotTank).missingFields.length === 0;
 
                             if (observed.completedFieldCount === 0) {
                                 return {
@@ -352,7 +357,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                     completedFieldCount: 0,
                                     bonusCompletedFieldCount: observed.completedFieldCount,
                                 } as MeasurementIssue,
-                                completeMeasurements: true,
+                                completeMeasurements: optionalRoundCompleted,
                                 tankNumber: number,
                             };
                         }
@@ -829,9 +834,11 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             if (cancelled) return;
 
             const eligibleResults = results.filter((result) => result.included);
-            // Voluntary readings during grace earn score credit, never a KPI slot.
-            const requiredRoundResults = eligibleResults.filter(
-                result => !graceTankNumbers.has(result.tankNumber)
+            // Grace rounds are complementary: a fully measured grace tank adds
+            // +1 to BOTH numerator and denominator (14/14 -> 15/15).
+            // An unmeasured or partially measured grace tank adds neither.
+            const countedRoundResults = eligibleResults.filter(
+                result => !graceTankNumbers.has(result.tankNumber) || result.completeMeasurements
             );
             const dailyActionProgress = eligibleResults.reduce<DailyActionProgress>(
                 (sum, result) => ({
@@ -853,8 +860,8 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 dailyActions: eligibleResults.flatMap((result) => result.dailyActions ?? []),
                 dailyActionProgress,
                 measurementProgress: eligibleResults.map((result) => result.measurementProgress),
-                checkedTanks: requiredRoundResults.length,
-                completeMeasurementTankNumbers: requiredRoundResults
+                checkedTanks: countedRoundResults.length,
+                completeMeasurementTankNumbers: countedRoundResults
                     .filter((result) => result.completeMeasurements)
                     .map((result) => result.tankNumber),
             });
