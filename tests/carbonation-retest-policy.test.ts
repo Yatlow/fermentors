@@ -200,7 +200,7 @@ test("repeat-test context does not invent missing readings", () => {
       [{ id: "2026-10-18_1000", pressure: 1.5 }, { id: "2026-10-20_1000", pressure: 1.2 }],
       "2026-10-20",
     ),
-    "לחץ היום: 1.2 bar · לחץ אתמול: לא נמדד",
+    "לחץ היום: 1.2 bar",
   );
   assert.equal(
     carbonationRetestPressureContext(
