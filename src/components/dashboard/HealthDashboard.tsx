@@ -30,6 +30,7 @@ import {
 import { getPlannedPackagingForTank } from "../../SERVICES/planning/plannedPackagingForTanks";
 import {
     dueScheduledForTank,
+    hasUpcomingBottomCarbonationDecision,
     scheduledActionLabel,
     scheduledRecommendationCompletionDate,
     setScheduledCellarRecommendationStatus,
@@ -501,6 +502,14 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         const hasActiveUserPressureDecision = unresolvedScheduled.some(
                             (row) => row.actionType === "pressureChange"
                         );
+                        // A scheduled bottom carbonation (including a future date)
+                        // already treats today's out-of-spec carbonation result.
+                        const hasPlannedBottomCarbonation = hasUpcomingBottomCarbonationDecision(
+                            scheduledRecommendations,
+                            tank.tankNumber,
+                            tank.batchNumber,
+                            today,
+                        );
                         const manualDue = unresolvedScheduled.filter((row) => {
                             if (row.actionType === "pressureChange" || row.actionType === "bottomCarbonation") return true;
                             return row.actionType === "carbTest" ? !naturalCarb : !naturalYeast;
@@ -614,10 +623,11 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         [
                             ...naturalRecommendations.filter(
                                 (recommendation) => !(
-                                    (hasActiveUserPressureDecision &&
-                                     recommendation.recommendationKey === "pressureAdjustment") ||
+                                    (recommendation.recommendationKey === "pressureAdjustment" &&
+                                     (hasActiveUserPressureDecision ||
+                                      (hasPlannedBottomCarbonation && recommendation.actionType === "pressureChange"))) ||
                                     (recommendation.recommendationKey === "bottomCarbonation" &&
-                                     unresolvedScheduled.some((row) => row.actionType === "bottomCarbonation"))
+                                     hasPlannedBottomCarbonation)
                                 )
                             ),
                             ...manualDue.map((row) => ({
