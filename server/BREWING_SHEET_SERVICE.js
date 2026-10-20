@@ -252,10 +252,13 @@ function brewingSheetWriteCells_(data) {
     // unaffected; this guard protects writes originating from the app.
     if (range.getNumRows() === 1 && range.getNumColumns() === 1 &&
         range.getColumn() === 2) {
-      const rowLabel = String(sheet.getRange(range.getRow(), 1).getDisplayValue() || "").trim();
-      if (/^יום\s*בישול$/i.test(rowLabel)) {
-        const incoming = String(item.value == null ? "" : item.value).trim();
-        if (incoming && !/^(?:\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{1,2}-\d{1,2})$/.test(incoming)) {
+      const incoming = String(item.value == null ? "" : item.value).trim();
+      // Most writes are ingredient lots in column B; avoid an extra Sheet
+      // read for valid dates and empty values. Inspect the label only for
+      // a non-date candidate that could accidentally clobber brew day.
+      if (incoming && !/^(?:\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{1,2}-\d{1,2})$/.test(incoming)) {
+        const rowLabel = String(sheet.getRange(range.getRow(), 1).getDisplayValue() || "").trim();
+        if (/^יום\s*בישול$/i.test(rowLabel)) {
           throw new Error("Refusing non-date write into fermentation brew-day cell: " + range.getA1Notation());
         }
       }
