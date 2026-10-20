@@ -213,28 +213,25 @@ export function carbonationRetestPressureContext(
   measurements: CarbonationRetestMeasurement[],
   todayDate: string,
 ): string | null {
-  const todayDay = dayNumber(todayDate);
-  if (todayDay === null) return null;
-  const yesterdayDate = new Date((todayDay - 1) * 86400000).toISOString().slice(0, 10);
-  const readings = [...measurements].sort((a, b) =>
-    String(a.id ?? "").localeCompare(String(b.id ?? ""))
-  );
-  const latestPressureOn = (date: string): number | null => {
-    for (let index = readings.length - 1; index >= 0; index--) {
-      if (measurementDate(readings[index].id) !== date) continue;
-      const pressure = numericCarbonation(readings[index].pressure);
-      if (pressure !== null) return pressure;
-    }
-    return null;
-  };
-  const todayPressure = latestPressureOn(todayDate);
-  if (todayPressure === null) return null;
-  const yesterdayPressure = latestPressureOn(yesterdayDate);
-  const formatPressure = (pressure: number) => Number(pressure.toFixed(2)).toString();
-  const todaySummary = `לחץ היום: ${formatPressure(todayPressure)} bar`;
-  if (yesterdayPressure === null) return todaySummary;
-  const summary = `${todaySummary} · לחץ אתמול: ${formatPressure(yesterdayPressure)} bar`;
-  const delta = Math.round((todayPressure - yesterdayPressure) * 100) / 100;
-  if (delta === 0) return summary;
-  return `${summary} · הפרש: ${delta > 0 ? "עלייה" : "ירידה"} של ${Math.abs(delta).toFixed(2)} bar`;
+  const readings = [...measurements]
+    .filter((measurement) => measurementDate(measurement.id) !== null)
+    .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+    .map((measurement) => ({
+      date: measurementDate(measurement.id),
+      pressure: numericCarbonation(measurement.pressure),
+    }))
+    .filter((measurement): measurement is { date: string; pressure: number } =>
+      measurement.date !== null && measurement.pressure !== null && measurement.date <= todayDate
+    );
+  const todayReadings = readings.filter((reading) => reading.date === todayDate);
+  if (todayReadings.length === 0) return null;
+  const current = todayReadings[todayReadings.length - 1];
+  const previous = readings[readings.length - 2];
+  const format = (value: number) => Number(value.toFixed(2)).toString();
+  const currentText = `לחץ היום: ${format(current.pressure)} bar`;
+  if (!previous) return currentText;
+  const previousLabel = previous.date === todayDate ? "לחץ במדידה הקודמת היום" : `לחץ קודם (${previous.date.split("-").reverse().join("/")})`;
+  const summary = `${currentText} · ${previousLabel}: ${format(previous.pressure)} bar`;
+  const delta = Math.round((current.pressure - previous.pressure) * 100) / 100;
+  return delta === 0 ? summary : `${summary} · הפרש: ${delta > 0 ? "עלייה" : "ירידה"} של ${Math.abs(delta).toFixed(2)} bar`;
 }
