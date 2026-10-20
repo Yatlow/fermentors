@@ -72,6 +72,16 @@ test("grace persists after midnight based on the previous calendar day's veteran
   assert.equal(exempt(start, at, {}), false);
 });
 
+test("a new complete round after midnight also grants grace, without mixing partial days", () => {
+  const start = new Date(2026, 9, 15, 8);
+  const at = new Date(2026, 9, 16, 2);
+  const tanks = allTanks(start);
+  assert.equal(measurementGraceTankIds(tanks, {}, at, fullVeteranFields).has("tank16"), true);
+  const firstSeven = Object.fromEntries(veterans.slice(0, 7).map(v => [v.id, fullyMeasured]));
+  const lastSeven = Object.fromEntries(veterans.slice(7).map(v => [v.id, fullyMeasured]));
+  assert.equal(measurementGraceTankIds(tanks, firstSeven, at, lastSeven).has("tank16"), false);
+});
+
 test("a tank becomes veteran at the next 05:00 after its original 12 hours ended", () => {
   const start = new Date(2026, 9, 15, 8); // Grace ends 20:00
   assert.equal(exempt(start, new Date(2026, 9, 16, 4, 59)), true);
