@@ -1,6 +1,7 @@
 export type CarbonationRetestMeasurement = {
   id?: string | number | null;
   carbonation?: string | number | null;
+  pressure?: string | number | null;
   notes?: string | number | null;
 };
 
@@ -200,4 +201,38 @@ export function carbonationRetestDueReason(
     `בדיקת הגיזוז האחרונה בוצעה ${when} ולא היתה תקינה ` +
     `(${policy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`
   );
+}
+
+
+/**
+ * Pressure context for a repeat carbonation test. Only a real pressure reading
+ * from today enables it; never substitute the current tank snapshot, a target
+ * pressure or a target. Compare the latest pressure today against the previous
+ * recorded pressure, whether minutes or several days earlier.
+ */
+export function carbonationRetestPressureContext(
+  measurements: CarbonationRetestMeasurement[],
+  todayDate: string,
+): string | null {
+  const readings = [...measurements]
+    .filter((measurement) => measurementDate(measurement.id) !== null)
+    .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+    .map((measurement) => ({
+      date: measurementDate(measurement.id),
+      pressure: numericCarbonation(measurement.pressure),
+    }))
+    .filter((measurement): measurement is { date: string; pressure: number } =>
+      measurement.date !== null && measurement.pressure !== null && measurement.date <= todayDate
+    );
+  const todayReadings = readings.filter((reading) => reading.date === todayDate);
+  if (todayReadings.length === 0) return null;
+  const current = todayReadings[todayReadings.length - 1];
+  const previous = readings[readings.length - 2];
+  const format = (value: number) => Number(value.toFixed(2)).toString();
+  const currentText = `לחץ היום: ${format(current.pressure)} bar`;
+  if (!previous) return currentText;
+  const previousLabel = previous.date === todayDate ? "לחץ במדידה הקודמת היום" : `לחץ קודם (${previous.date.split("-").reverse().join("/")})`;
+  const summary = `${currentText} · ${previousLabel}: ${format(previous.pressure)} bar`;
+  const delta = Math.round((current.pressure - previous.pressure) * 100) / 100;
+  return delta === 0 ? summary : `${summary} · הפרש: ${delta > 0 ? "עלייה" : "ירידה"} של ${Math.abs(delta).toFixed(2)} bar`;
 }

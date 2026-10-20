@@ -30,12 +30,14 @@ import {
 import { getPlannedPackagingForTank } from "../../SERVICES/planning/plannedPackagingForTanks";
 import {
     dueScheduledForTank,
+    hasUpcomingBottomCarbonationDecision,
     scheduledActionLabel,
     scheduledRecommendationCompletionDate,
     setScheduledCellarRecommendationStatus,
     subscribeCompletedScheduledCellarRecommendationsToday,
     subscribeScheduledCellarRecommendations,
     type ScheduledCellarRecommendation,
+    type ScheduledCellarActionType,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import {
     ignoreCellarRecommendation,
@@ -58,14 +60,14 @@ type HealthAlert = {
     tankNumber?: string;
     batchNumber?: string;
     recommendationKey?: string;
-    scheduledActionType?: "carbTest" | "yeastDrop" | "pressureChange" | "ventAdjust";
+    scheduledActionType?: ScheduledCellarActionType | "ventAdjust";
     importance?: number;
     dismissible?: boolean;
     userDecision?: boolean;
 };
 
 type Recommendation = {
-    actionType?: "pressureChange" | "ventAdjust";
+    actionType?: ScheduledCellarActionType | "ventAdjust";
     req?: boolean | "" | 0 | null;
     display?: boolean;
     reason?: string;
@@ -500,8 +502,16 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         const hasActiveUserPressureDecision = unresolvedScheduled.some(
                             (row) => row.actionType === "pressureChange"
                         );
+                        // A scheduled bottom carbonation (including a future date)
+                        // already treats today's out-of-spec carbonation result.
+                        const hasPlannedBottomCarbonation = hasUpcomingBottomCarbonationDecision(
+                            scheduledRecommendations,
+                            tank.tankNumber,
+                            tank.batchNumber,
+                            today,
+                        );
                         const manualDue = unresolvedScheduled.filter((row) => {
-                            if (row.actionType === "pressureChange") return true;
+                            if (row.actionType === "pressureChange" || row.actionType === "bottomCarbonation") return true;
                             return row.actionType === "carbTest" ? !naturalCarb : !naturalYeast;
                         });
 
@@ -613,8 +623,11 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         [
                             ...naturalRecommendations.filter(
                                 (recommendation) => !(
-                                    hasActiveUserPressureDecision &&
-                                    recommendation.recommendationKey === "pressureAdjustment"
+                                    (recommendation.recommendationKey === "pressureAdjustment" &&
+                                     (hasActiveUserPressureDecision ||
+                                      (hasPlannedBottomCarbonation && recommendation.actionType === "pressureChange"))) ||
+                                    (recommendation.recommendationKey === "bottomCarbonation" &&
+                                     hasPlannedBottomCarbonation)
                                 )
                             ),
                             ...manualDue.map((row) => ({
@@ -691,6 +704,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         const completedScheduledPressure = scheduledCompletedForDisplay.some(
                             (row) => row.actionType === "pressureChange"
                         );
+                        const completedScheduledBottomCarbonation = scheduledCompletedForDisplay.some(
+                            (row) => row.actionType === "bottomCarbonation"
+                        );
 
                         scheduledCompletedForDisplay.forEach((row) => {
                             const isDecision = row.source === "user" || row.actionType === "pressureChange";
@@ -728,7 +744,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         if (todayNotes.includes("קירור")) addCompleted(`cooling-${tank.id}`, "התחלת קירור");
                         // Award the daily action only when bottom carbonation STARTED today.
                         // Closing yesterday's session today is not a new start.
-                        if (todayNotes.includes("תחילת גיזוז מלמטה")) addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
+                        if (todayNotes.includes("תחילת גיזוז מלמטה") && !completedScheduledBottomCarbonation) addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
                         if (todayNotes.includes("סגירת גיזוז מלמטה")) addCompleted(`bottom-carb-close-${tank.id}`, "סגירת גיזוז מלמטה");
                         if (recommendations?.pressureAdjustmentHandledToday?.completed && !completedScheduledPressure) {
                             const importance = Math.max(
@@ -1193,7 +1209,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                         diacetylRest: "דיאציטיל", coolDown: "קירור",
                                         pressureAdjustment: "לחץ",
                                     };
-                                    const scheduledMapping: Record<string, string> = { carbTest: "גיזוז", yeastDrop: "שמרים", pressureChange: "לחץ", ventAdjust: "פורק" };
+                                    const scheduledMapping: Record<string, string> = { carbTest: "גיזוז", yeastDrop: "שמרים", bottomCarbonation: "גיזוז מלמטה התחלה", pressureChange: "לחץ", ventAdjust: "פורק" };
                                     const noteType = alert.scheduledActionType ? scheduledMapping[alert.scheduledActionType] : alert.recommendationKey === "pressureAdjustment" && alert.detail.includes("לכוון פורק") ? "פורק" : mapping[alert.recommendationKey];
                                     const tank = brews.find(t => String(t.tankNumber) === String(alert.tankNumber));
                                     const isWarm = tank && Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";

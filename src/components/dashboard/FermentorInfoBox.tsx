@@ -11,6 +11,7 @@ import { getBrewAge } from "./TankCard";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import {
     dueScheduledForTank,
+    hasUpcomingBottomCarbonationDecision,
     scheduledActionLabel,
     setScheduledCellarRecommendationStatus,
     subscribeScheduledCellarRecommendations,
@@ -253,6 +254,7 @@ export default function FermentorInfoBox({
             performed.add("carbTest");
         }
         if (/שמרים|שמרי/.test(todayNotes)) performed.add("yeastDrop");
+        if (/תחילת\s+גיזוז\s+מלמטה/.test(todayNotes)) performed.add("bottomCarbonation");
         if (handledPressureAfterCarb) performed.add("pressureChange");
         if (performed.size === 0) return;
 
@@ -295,13 +297,23 @@ export default function FermentorInfoBox({
         (recomendations?.requiiersWedYeastDropOnThus?.req && recomendations?.requiiersWedYeastDropOnThus?.display)
     );
     const naturalFuture = naturalFutureRecommendations(recomendations);
+    const hasPlannedBottomCarbonation = hasUpcomingBottomCarbonationDecision(
+        scheduledRecommendations,
+        tank.tankNumber,
+        tank.batchNumber,
+    );
+    // Suppress only the cold-tank response to an invalid carbonation test;
+    // unrelated warm-tank vent tuning is not a bottom-carbonation treatment.
+    const suppressAutomaticCarbPressureAdvice =
+        hasPlannedBottomCarbonation &&
+        recomendations?.requiredPressureAdjustment?.actionType === "pressureChange";
 
     const dueManualRecommendations = dueScheduledForTank(
         scheduledRecommendations,
         tank.tankNumber,
         tank.batchNumber,
     ).filter((row) => {
-        if (row.actionType === "pressureChange") return true;
+        if (row.actionType === "pressureChange" || row.actionType === "bottomCarbonation") return true;
         return row.actionType === "carbTest"
             ? !naturalCarbRecommendation
             : !naturalYeastRecommendation;
@@ -312,6 +324,7 @@ export default function FermentorInfoBox({
     const pressureDecisionCandidate =
         recomendations?.requiredPressureAdjustment?.req === true &&
         recomendations?.requiredPressureAdjustment?.display === true &&
+        !suppressAutomaticCarbPressureAdvice &&
         !recomendations?.pressureAdjustmentHandledToday?.completed
             ? { reason: String(recomendations.requiredPressureAdjustment.reason ?? "") }
             : undefined;
@@ -329,7 +342,9 @@ export default function FermentorInfoBox({
                 recomendations.requiersDiacytelRest,
                 recomendations.neglectedStatus,
                 recomendations.requiresToCoolDown,
-                ...(!hasActiveUserPressureDecision ? [recomendations.requiredPressureAdjustment] : []),
+                ...(!hasActiveUserPressureDecision && !suppressAutomaticCarbPressureAdvice
+                    ? [recomendations.requiredPressureAdjustment]
+                    : []),
                 recomendations.requiresWarmYeastDropCompletion,
                 recomendations.requiresColdYeastDropCompletion,
                 recomendations.requiiersWedYeastDropOnThus,

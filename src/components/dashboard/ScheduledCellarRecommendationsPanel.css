@@ -124,3 +124,28 @@
   color: #1d4ed8;
   font-weight: 700;
 }
+
+
+/* On tablets the content grows after loading and while editing a scheduled action.
+   Anchor-based positioning with a fixed estimated height can leave Save below
+   the viewport. Center the entire dialog and allow internal scrolling instead.
+   The existing <=700px phone layout remains unchanged. */
+@media (min-width: 701px) and (max-width: 1200px), (min-width: 701px) and (pointer: coarse) {
+  .fermentorInfoOverlay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .fermentorInfoOverlay .fermentorInfoBox {
+    position: relative;
+    top: auto !important;
+    left: auto !important;
+    width: min(440px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    margin: 12px;
+  }
+}

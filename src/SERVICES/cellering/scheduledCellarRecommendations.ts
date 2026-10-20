@@ -13,7 +13,7 @@ import { auth, db } from "../../firebase";
 import { recordGlobalServerRead } from "../globalReadDiagnostics";
 import { hasExplicitPressureChangeAction } from "../dashboard/actionKpis";
 
-export type ScheduledCellarActionType = "carbTest" | "yeastDrop" | "pressureChange";
+export type ScheduledCellarActionType = "carbTest" | "yeastDrop" | "pressureChange" | "bottomCarbonation";
 export type PressureChangeDirection = "raise" | "lower";
 export type ScheduledCellarRecommendation = {
   id: string;
@@ -122,6 +122,11 @@ function measurementCompletesScheduledAction(
   if (actionType === "yeastDrop") {
     return /שמרים|שמרי/.test(notes);
   }
+  if (actionType === "bottomCarbonation") {
+    // A planned bottom-carbonation action is fulfilled by starting the procedure,
+    // not by a carbonation test or merely closing a previous procedure.
+    return /תחילת\s+גיזוז\s+מלמטה/.test(notes);
+  }
   return hasExplicitPressureChangeAction(notes);
 }
 
@@ -153,6 +158,7 @@ export function scheduledRecommendationCompletionDate(
 export function scheduledActionLabel(action: ScheduledCellarActionType): string {
   if (action === "carbTest") return "בדיקת גיזוז";
   if (action === "yeastDrop") return "הורדת שמרים";
+  if (action === "bottomCarbonation") return "גיזוז מלמטה";
   return "שינוי לחץ";
 }
 
@@ -315,6 +321,23 @@ export function scheduledForTank(
       row.batchNumber.replace("#", "").trim() === batch
     )
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+}
+
+/**
+ * A planned bottom-carbonation start is already the user's chosen response to
+ * an out-of-spec carbonation test. Only active decisions for this exact batch
+ * scheduled today or later suppress the generic automatic pressure advice.
+ * An expired/cancelled decision must never hide a new action.
+ */
+export function hasUpcomingBottomCarbonationDecision(
+  rows: ScheduledCellarRecommendation[],
+  tankNumber: string | number | null | undefined,
+  batchNumber: string | number | null | undefined,
+  today = todayDateKey(),
+): boolean {
+  return scheduledForTank(rows, tankNumber, batchNumber).some((row) =>
+    row.actionType === "bottomCarbonation" && row.dueDate >= today
+  );
 }
 
 export function dueScheduledForTank(
