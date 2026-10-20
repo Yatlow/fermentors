@@ -1,6 +1,7 @@
 export type CarbonationRetestMeasurement = {
   id?: string | number | null;
   carbonation?: string | number | null;
+  pressure?: string | number | null;
   notes?: string | number | null;
 };
 
@@ -200,4 +201,39 @@ export function carbonationRetestDueReason(
     `בדיקת הגיזוז האחרונה בוצעה ${when} ולא היתה תקינה ` +
     `(${policy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`
   );
+}
+
+
+/**
+ * Pressure context for a repeat carbonation test. Only a real pressure reading
+ * from today enables it; never substitute the current tank snapshot, a target
+ * pressure or an older day's measurement. Prefer the last reading of each day.
+ */
+export function carbonationRetestPressureContext(
+  measurements: CarbonationRetestMeasurement[],
+  todayDate: string,
+): string | null {
+  const todayDay = dayNumber(todayDate);
+  if (todayDay === null) return null;
+  const yesterdayDate = new Date((todayDay - 1) * 86400000).toISOString().slice(0, 10);
+  const readings = [...measurements].sort((a, b) =>
+    String(a.id ?? "").localeCompare(String(b.id ?? ""))
+  );
+  const latestPressureOn = (date: string): number | null => {
+    for (let index = readings.length - 1; index >= 0; index--) {
+      if (measurementDate(readings[index].id) !== date) continue;
+      const pressure = numericCarbonation(readings[index].pressure);
+      if (pressure !== null) return pressure;
+    }
+    return null;
+  };
+  const todayPressure = latestPressureOn(todayDate);
+  if (todayPressure === null) return null;
+  const yesterdayPressure = latestPressureOn(yesterdayDate);
+  const formatPressure = (pressure: number) => Number(pressure.toFixed(2)).toString();
+  const summary = `לחץ היום: ${formatPressure(todayPressure)} bar · לחץ אתמול: ${yesterdayPressure === null ? "לא נמדד" : `${formatPressure(yesterdayPressure)} bar`}`;
+  if (yesterdayPressure === null) return summary;
+  const delta = Math.round((todayPressure - yesterdayPressure) * 100) / 100;
+  if (delta === 0) return summary;
+  return `${summary} · הפרש: ${delta > 0 ? "עלייה" : "ירידה"} של ${Math.abs(delta).toFixed(2)} bar`;
 }
