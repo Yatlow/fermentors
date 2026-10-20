@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   loadBrewingExecution,
+  saveBrewingExecutionLocal,
   loadBrewingExecutionFromFirestore,
   subscribeToBrewingExecution,
   saveBrewingExecutionToFirestore,
@@ -24,6 +25,7 @@ import {
 import BeerLoader from "../general/Loading";
 import { CalculatorIconButton, CalculatorModal } from "../tools/BrewingMeasurementCalculators";
 import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
+import { applyHydrometerResult, type HydrometerDestination, type HydrometerField } from "../../SERVICES/brewing/hydrometerResultTarget";
 import {
   activeLot,
   type IngredientDefinition,
@@ -955,7 +957,7 @@ export default function BrewFormStepper({
   const [acidHistoryError, setAcidHistoryError] = useState("");
   const [acidHistory, setAcidHistory] = useState<MashAcidHistoryRow[]>([]);
   const [boilCalcOpen, setBoilCalcOpen] = useState(false);
-  const [hydrometerTarget, setHydrometerTarget] = useState<"frPlato" | "lrPlato" | "kettlePlato" | "endBoilPlato" | "fermentorSamplePlato" | "boilSamplePlato" | null>(null);
+  const [hydrometerTarget, setHydrometerTarget] = useState<HydrometerDestination | null>(null);
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null);
   const [lastPullAt, setLastPullAt] = useState<Date | null>(null);
   const [syncMismatches, setSyncMismatches] = useState<SyncMismatch[]>([]);
@@ -3754,6 +3756,12 @@ export default function BrewFormStepper({
     setMessage("");
   }
 
+  function openHydrometer(field: HydrometerField) {
+    // The modal can stay open while Firestore changes the selected block.
+    // Pin the original destination instead of using currentBlock on Apply.
+    setHydrometerTarget({ batchNumber: run.batchNumber, blockIndex: currentBlock, field });
+  }
+
   function setLocal(key: string, value: string) {
     const hardError = immediateHardNumericError(key, value);
     if (hardError) {
@@ -4649,7 +4657,7 @@ export default function BrewFormStepper({
                     void commitSugar("frPlato", e.target.value, 36, "B")
                   }
                 />
-                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("frPlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => openHydrometer("frPlato")} />
                 </div>
               </label>
             </div>
@@ -4842,7 +4850,7 @@ export default function BrewFormStepper({
                       void commitSugar("lrPlato", e.target.value, 37, "B")
                     }
                   />
-                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("lrPlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => openHydrometer("lrPlato")} />
                 </div>
                 </label>
               </div>
@@ -4871,7 +4879,7 @@ export default function BrewFormStepper({
                     void commitSugar("kettlePlato", e.target.value, 38, "B")
                   }
                 />
-                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("kettlePlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => openHydrometer("kettlePlato")} />
                 </div>
               </label>
 
@@ -5113,7 +5121,7 @@ export default function BrewFormStepper({
                     void commitSugar("endBoilPlato", e.target.value, 39, "B")
                   }
                 />
-                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("endBoilPlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => openHydrometer("endBoilPlato")} />
                 </div>
               </label>
               <label>
@@ -5198,7 +5206,7 @@ export default function BrewFormStepper({
                     )
                   }
                 />
-                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("fermentorSamplePlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => openHydrometer("fermentorSamplePlato")} />
                 </div>
               </label>
 
@@ -5767,7 +5775,7 @@ export default function BrewFormStepper({
                   />
                   <CalculatorIconButton
                     label="תיקון טמפרטורה לפלאטו"
-                    onClick={() => setHydrometerTarget("boilSamplePlato")}
+                    onClick={() => openHydrometer("boilSamplePlato")}
                   />
                 </div>
               </label>
@@ -5819,27 +5827,47 @@ export default function BrewFormStepper({
         <CalculatorModal
           kind="hydrometer"
           onClose={() => setHydrometerTarget(null)}
-          onUse={(result) => {
+          onUse={async (result) => {
             const target = hydrometerTarget;
-            const value = result.toFixed(2);
-            if (target === "boilSamplePlato") {
-              setLocal("boilSamplePlato", value);
+            if (target.blockIndex !== currentBlock || target.batchNumber !== run.batchNumber) {
               setHydrometerTarget(null);
+              setMessage("הבישול השתנה מאז פתיחת מחשבון ההידרומטר. יש לפתוח אותו שוב בשדה הרצוי.");
               return;
             }
-            const config = {
-              frPlato: [36, "B"],
-              lrPlato: [37, "B"],
-              kettlePlato: [38, "B"],
-              endBoilPlato: [39, "B"],
-              fermentorSamplePlato: [40, "B"],
-            } as const;
-            const [row, column] = config[target];
-            // The calculator commits through one path only. setLocal followed
-            // by commitSugar used two execution snapshots and could make the
-            // first press appear to be lost after a Firestore echo.
-            setHydrometerTarget(null);
-            void commitSugar(target, value, row, column);
+            try {
+              // Reject missing semantic row mappings before showing success or
+              // updating local state; never fall back to an IPA-specific offset.
+              const prepared = applyHydrometerResult(execution, target, result, {
+                sheetBacked: Boolean(run.sheetId),
+                totalBlocks,
+              });
+              if (target.field !== "boilSamplePlato" &&
+                  !(await approveNumericValue(target.field, prepared.value))) return;
+
+              // Validation may open an asynchronous warning. Keep the exact
+              // A/B/C destination captured at opening and merge the result into
+              // the latest React state instead of an old execution snapshot.
+              latestLocalEditAt.current = Date.now();
+              setExecution((previous) => {
+                const nextBlocks = {
+                  ...previous.blocks,
+                  [String(target.blockIndex)]: {
+                    ...previous.blocks[String(target.blockIndex)],
+                    fields: {
+                      ...(previous.blocks[String(target.blockIndex)]?.fields || {}),
+                      [target.field]: prepared.value,
+                    },
+                  },
+                };
+                return saveBrewingExecutionLocal({ ...previous, blocks: nextBlocks });
+              });
+              setHydrometerTarget(null);
+              if (prepared.writes.length > 0) writeSheet(target.field, prepared.writes);
+            } catch (error) {
+              const detail = error instanceof Error ? error.message : "לא ניתן לשמור את תוצאת ההידרומטר.";
+              setMessage(detail);
+              setSyncError(detail);
+            }
           }}
         />
       )}
