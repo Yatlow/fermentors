@@ -9,7 +9,6 @@ import {
     serverRenameBrewSheet,
     serverTrashBrewSheet,
     type BrewingDriveHistoryRow,
-    type BrewPrintTextReplacement,
 } from "../../SERVICES/brewing/brewingSheetServer";
 import {
     loadSharedBrewingLibrary,
@@ -33,7 +32,6 @@ import { enqueueBrewSheetCreation } from "../../SERVICES/brewing/brewSheetCreati
 import BrewingLibrary from "./BrewingLibrary";
 import CreateBrewModal from "./CreateBrewModal";
 import BrewFormStepper from "./BrewFormStepper";
-import BrewPrintTextEditor from "./BrewPrintTextEditor";
 import BeerLoader from "../general/Loading";
 import "./BrewingView.css";
 import type { BrewingTab } from "./brewingTabs";
@@ -84,10 +82,10 @@ function brewPrintKey(run: BrewRun, mashRestCount: number): string {
     ].join(":");
 }
 
-function prepareBrewPrint(run: BrewRun, mashRestCount: number, textReplacements: BrewPrintTextReplacement[] = []): Promise<BrewPrintPdf> {
+function prepareBrewPrint(run: BrewRun, mashRestCount: number): Promise<BrewPrintPdf> {
     const spreadsheetId = extractSpreadsheetId(run.sheetId || run.sheetUrl);
     if (!spreadsheetId) return Promise.reject(new Error("לא נמצא Sheet לאצווה."));
-    const key = brewPrintKey(run, mashRestCount) + JSON.stringify(textReplacements);
+    const key = brewPrintKey(run, mashRestCount);
     const now = Date.now();
     for (const [cachedKey, cached] of brewPrintCache) {
         if (now - cached.createdAt > BREW_PRINT_CACHE_TTL_MS) {
@@ -106,7 +104,6 @@ function prepareBrewPrint(run: BrewRun, mashRestCount: number, textReplacements:
     const request = serverPrintBrewSheetPdf({
         spreadsheetId, batchNumber: run.batchNumber, tankNumber: run.tankNumber,
         style: run.style, tankType: run.tankType, brewDate: run.brewDate, mashRestCount,
-        textReplacements,
     }).catch((error) => { brewPrintCache.delete(key); throw error; });
     brewPrintCache.set(key, { promise: request, createdAt: now });
     return request;
@@ -258,7 +255,6 @@ export default function BrewingView({ brews, tab }: Props) {
     const [creationJobsError, setCreationJobsError] = useState("");
     const [historyLoading, setHistoryLoading] = useState(false);
     const [printingBatch, setPrintingBatch] = useState<string | null>(null);
-    const [printEditRun, setPrintEditRun] = useState<BrewRun | null>(null);
     const [deleteConfirmation, setDeleteConfirmation] = useState<BrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
 
@@ -736,7 +732,7 @@ export default function BrewingView({ brews, tab }: Props) {
 
     }
 
-    async function printBrewCover(run: BrewRun, textReplacements: BrewPrintTextReplacement[] = []) {
+    async function printBrewCover(run: BrewRun) {
         if (printingBatch) return;
 
         // Open the tab synchronously while iOS still considers this part of the
@@ -785,7 +781,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                 recipes.find((recipe) => sameStyle(recipe.style, run.style));
             const mashRestCount = matchingRecipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2;
 
-            const pdf = await prepareBrewPrint(run, mashRestCount, textReplacements);
+            const pdf = await prepareBrewPrint(run, mashRestCount);
 
             const binary = atob(pdf.base64);
             const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
@@ -1229,8 +1225,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                         >
                                             {printingBatch === run.batchNumber ? "מכין הדפסה…" : "הדפס דף בישול"}
                                         </button>
-                                        <button type="button" disabled={printingBatch !== null}
-                                            onClick={() => setPrintEditRun(run)}>ערוך טקסט להדפסה</button>
                                         <button
                                             type="button"
                                             className="brewing-danger-button"
@@ -1441,7 +1435,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                                     {!recipe ? "חסר מתכון תואם" : "עריכת נתוני בישול"}
                                                 </button>
                                                 <button type="button" onClick={() => printBrewCover(run)}>הדפס דף בישול</button>
-                                                <button type="button" disabled={printingBatch !== null} onClick={() => setPrintEditRun(run)}>ערוך טקסט להדפסה</button>
                                                 <button
                                                     type="button"
                                                     disabled={editingTankId === run.tankId}
@@ -1603,7 +1596,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                             <div className="brewing-card-actions">
                                                 <a className="brewing-sheet-link" href={run.sheetUrl} target="_blank" rel="noreferrer">פתח Sheet</a>
                                                 <button type="button" onClick={() => printBrewCover(run)}>הדפס דף בישול</button>
-                                                <button type="button" disabled={printingBatch !== null} onClick={() => setPrintEditRun(run)}>ערוך טקסט להדפסה</button>
                                                 <button type="button" disabled={!recipe} onClick={() => { setMessage(""); setSelectedRun(run); }}>
                                                     {!recipe ? "חסר מתכון תואם" : "עריכת נתוני בישול"}
                                                 </button>
