@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { isInMeasurementGrace, graceExtensionsAtHundred } from "../../SERVICES/dashboard/cellarGrace";
+import { isInMeasurementGrace, pendingGraceExtensions } from "../../SERVICES/dashboard/cellarGrace";
 import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
 import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
@@ -293,6 +293,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             const fullTanks = brews.filter(
                 (tank) => Number(tank.tankNumber) !== 1 && Number(tank.action) === 1
             );
+            const graceTankNumbers = new Set(fullTanks
+                .filter(tank => isInMeasurementGrace(tank, graceSnapshotTank))
+                .map(tank => tankLabel(tank)));
 
             // Keep the last completed recommendations visible during routine updates.
             // Re-enter loading state only for the initial analysis.
@@ -826,6 +829,10 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             if (cancelled) return;
 
             const eligibleResults = results.filter((result) => result.included);
+            // Voluntary readings during grace earn score credit, never a KPI slot.
+            const requiredRoundResults = eligibleResults.filter(
+                result => !graceTankNumbers.has(result.tankNumber)
+            );
             const dailyActionProgress = eligibleResults.reduce<DailyActionProgress>(
                 (sum, result) => ({
                     yeastRequired: sum.yeastRequired + result.dailyActionProgress.yeastRequired,
@@ -846,8 +853,8 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 dailyActions: eligibleResults.flatMap((result) => result.dailyActions ?? []),
                 dailyActionProgress,
                 measurementProgress: eligibleResults.map((result) => result.measurementProgress),
-                checkedTanks: eligibleResults.length,
-                completeMeasurementTankNumbers: eligibleResults
+                checkedTanks: requiredRoundResults.length,
+                completeMeasurementTankNumbers: requiredRoundResults
                     .filter((result) => result.completeMeasurements)
                     .map((result) => result.tankNumber),
             });
@@ -918,6 +925,31 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         [brews]
     );
     const persistedHealthIs100 = cellarStateTank?.cellarHealthIs100 === true;
+    const graceExtensionWriteRef = useRef<string | null>(null);
+
+    // Measurement completion (14/14), not the overall health score (100%),
+    // locks tanks still in their first 12 hours until the end of tomorrow.
+    // Dashboard and reporting views use the same pendingGraceExtensions rule.
+    useEffect(() => {
+        if (analyzing || !cellarStateTank?.id || analysis.checkedTanks === 0 ||
+            analysis.completeMeasurementTankNumbers.length !== analysis.checkedTanks) return;
+
+        const updates = pendingGraceExtensions(brews, cellarStateTank);
+        const entries = Object.entries(updates);
+        if (entries.length === 0) return;
+        const signature = entries.map(([id, end]) => `${id}:${end}`).sort().join("|");
+        if (graceExtensionWriteRef.current === signature) return;
+        graceExtensionWriteRef.current = signature;
+
+        // Merge per-tank exemptions instead of replacing the whole map, so
+        // another connected device cannot erase a concurrent grace extension.
+        void setDoc(doc(db, "fermentors", String(cellarStateTank.id)), {
+            cellarGraceExtensions: updates,
+        }, { merge: true }).catch(error => {
+            graceExtensionWriteRef.current = null;
+            console.error("Failed persisting completed daily round grace:", error);
+        });
+    }, [analyzing, analysis.checkedTanks, analysis.completeMeasurementTankNumbers, brews, cellarStateTank]);
 
     useEffect(() => {
         if (analyzing || !cellarStateTank?.id) return;
@@ -948,12 +980,6 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 cellarHealthIs100: desiredIs100,
                 ...(desiredIs100 ? {
                     cellarHealthCompletedDay: todayKey,
-                    cellarGraceExtensions: { ...(cellarStateTank.cellarGraceExtensions ?? {}), ...Object.fromEntries(Object.entries(graceExtensionsAtHundred(brews, new Date())).filter(([id]) => !cellarStateTank.cellarGraceExtensions?.[id])) },
-                    cellarGraceTankIds: brews.filter((tank) =>
-                        Number(tank.tankNumber) !== 1 &&
-                        Number(tank.action) === 1 &&
-                        isInMeasurementGrace(tank, cellarStateTank)
-                    ).map((tank) => String(tank.id)),
                 } : {}),
             }).then(() => {
                 if (shouldCelebrate) setCelebrationOpen(true);
