@@ -113,3 +113,14 @@ export function elapsedFermentationHours(tank: GraceTank, now: Date = new Date()
   const minutes = Math.floor((now.getTime() - start) / 60000);
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
+
+/** A transfer timer must be shown ONLY for active tanks that are in grace. */
+export function graceElapsedLabel(
+  tank: GraceTank,
+  tankOne: GraceTank | undefined,
+  now: Date = new Date(),
+): string | null {
+  if (Number(tank.action) !== 1 || !isInMeasurementGrace(tank, tankOne, now)) return null;
+  const elapsed = elapsedFermentationHours(tank, now);
+  return elapsed === null ? null : `עברו ${elapsed} שעות מהעברה למיכל`;
+}
