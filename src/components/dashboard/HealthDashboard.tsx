@@ -324,7 +324,11 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 : Promise.resolve([] as Measurement[]));
             const graceFields = await Promise.all(fullTanks.map(async (tank, index) => {
                 try {
-                    return [tank.id, cellarBadgeFieldsForDay(await histories[index], graceReferenceDay)] as const;
+                    const rows = await histories[index];
+                    return [tank.id, {
+                        grace: cellarBadgeFieldsForDay(rows, graceReferenceDay),
+                        today: cellarBadgeFieldsForDay(rows, asOf),
+                    }] as const;
                 } catch (error) {
                     console.warn("Could not load veteran measurements for grace", tank.tankNumber, error);
                     return null;
@@ -332,7 +336,12 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             }));
             if (cancelled) return;
             const availableGraceFields = graceFields.filter((row): row is NonNullable<typeof row> => row !== null);
-            const graceTankIds = measurementGraceTankIds(fullTanks, Object.fromEntries(availableGraceFields), asOf);
+            const graceTankIds = measurementGraceTankIds(
+                fullTanks,
+                Object.fromEntries(availableGraceFields.map(([id, fields]) => [id, fields.grace])),
+                asOf,
+                Object.fromEntries(availableGraceFields.map(([id, fields]) => [id, fields.today])),
+            );
             const graceTankNumbers = new Set(fullTanks
                 .filter(tank => graceTankIds.has(String(tank.id)))
                 .map(tank => tankLabel(tank)));
