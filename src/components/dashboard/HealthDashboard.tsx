@@ -649,7 +649,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                 batchNumber: String(tank.batchNumber),
                                 recommendationKey: recommendation.recommendationKey,
                                 scheduledActionType: manualDue.find(row => `scheduled-${row.id}` === recommendation.recommendationKey)?.actionType
-                                    || (recommendation.recommendationKey === "pressureAdjustment" && tank.stage.name === "בתסיסה" ? "other" : undefined),
+                                    || (recommendation.recommendationKey === "pressureAdjustment" && tank.stage?.name === "בתסיסה" ? "other" : undefined),
                                 importance,
                                 dismissible: true,
                                 userDecision: recommendation.userDecision,
