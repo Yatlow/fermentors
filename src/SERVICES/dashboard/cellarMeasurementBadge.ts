@@ -1,4 +1,4 @@
-import { isInMeasurementGrace } from "./cellarGrace";
+import { measurementGraceTankIds } from "./cellarGrace";
 import { dailyMeasurementProgress, type HealthMeasurement } from "./healthModel";
 
 export type CellarBadgeFields = { temp: boolean; pressure: boolean; plato: boolean; pH: boolean };
@@ -44,13 +44,14 @@ export function pendingCellarMeasurementTankNumbers(
   fieldsByTankId: Record<string, CellarBadgeFields>,
   ignoredToday: CellarBadgeIgnored[] = [],
   now: Date = new Date(),
+  graceDayFieldsByTankId: Record<string, CellarBadgeFields> = fieldsByTankId,
 ): string[] {
-  const graceSnapshotTank = tanks.find((tank) => Number(tank.tankNumber) === 1);
+  const exemptIds = measurementGraceTankIds(tanks, graceDayFieldsByTankId, now, fieldsByTankId);
   const pending = new Set<string>();
 
   for (const tank of tanks) {
     if (Number(tank.tankNumber) === 1 || Number(tank.action) !== 1) continue;
-    if (isInMeasurementGrace(tank, graceSnapshotTank, now)) continue;
+    if (exemptIds.has(String(tank.id))) continue;
 
     const fields = fieldsByTankId[tank.id];
     if (!fields) continue;

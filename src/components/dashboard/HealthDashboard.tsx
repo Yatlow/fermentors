@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { doc, setDoc, updateDoc } from "firebase/firestore";
+import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { completedDailyRoundKpi, isInMeasurementGrace, pendingGraceExtensions } from "../../SERVICES/dashboard/cellarGrace";
+import { completedDailyRoundKpi, fermentationGraceEnd, graceDayStart, measurementGraceTankIds } from "../../SERVICES/dashboard/cellarGrace";
+import { cellarBadgeFieldsForDay } from "../../SERVICES/dashboard/cellarMeasurementBadge";
 import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
 import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
@@ -224,12 +225,6 @@ const severityOrder: Record<Severity, number> = {
 export default function HealthDashboard({ brews, specs, onRecommendedTanksChange, onOpenRecommendationCountChange, onPendingMeasurementTanksChange }: Props & { onPendingMeasurementTanksChange?: (tankNumbers: string[]) => void; onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
     const [expanded, setExpanded] = useState(false);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
-    const graceSnapshotTank = brews.find((tank) => Number(tank.tankNumber) === 1) as
-        | (Fermentor & { cellarHealthCompletedDay?: string; cellarGraceTankIds?: string[] })
-        | undefined;
-    const graceLockedIds = graceSnapshotTank?.cellarHealthCompletedDay === localDateKey(new Date())
-        ? (graceSnapshotTank.cellarGraceTankIds ?? [])
-        : [];
     const [analyzing, setAnalyzing] = useState(true);
     const hasCompletedInitialAnalysis = useRef(false);
     const [measurementRefresh, setMeasurementRefresh] = useState(0);
@@ -277,6 +272,32 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         };
     }, []);
 
+    // Recalculate only at a meaningful grace boundary (12h, 00:00 or 05:00),
+    // rather than re-reading every tank on every minute tick.
+    useEffect(() => {
+        const now = new Date();
+        const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+        const nextFive = graceDayStart(now);
+        nextFive.setDate(nextFive.getDate() + 1);
+        const upcomingTwelveHourEnds = brews
+            .filter(tank => Number(tank.action) === 1)
+            .map(tank => fermentationGraceEnd(tank))
+            .filter((end): end is number => end !== null && end > now.getTime());
+        const next = Math.min(midnight, nextFive.getTime(), ...upcomingTwelveHourEnds);
+        const timer = window.setTimeout(() => {
+            setMeasurementRefresh(current => current + 1);
+        }, Math.max(1000, next - now.getTime() + 200));
+        const refreshOnFocus = () => setMeasurementRefresh(current => current + 1);
+        const refreshOnVisible = () => { if (!document.hidden) refreshOnFocus(); };
+        window.addEventListener("focus", refreshOnFocus);
+        document.addEventListener("visibilitychange", refreshOnVisible);
+        return () => {
+            window.clearTimeout(timer);
+            window.removeEventListener("focus", refreshOnFocus);
+            document.removeEventListener("visibilitychange", refreshOnVisible);
+        };
+    }, [brews, measurementRefresh]);
+
     useEffect(() => {
         let cancelled = false;
         const analysisTimer = setTimeout(() => { void analyzeCellar(); }, 120);
@@ -293,8 +314,36 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             const fullTanks = brews.filter(
                 (tank) => Number(tank.tankNumber) !== 1 && Number(tank.action) === 1
             );
+            // Read each batch only once. Between midnight and 05:00 the
+            // grace decision uses yesterday's measurements, whereas normal
+            // daily progress and the KPI use today's measurements.
+            const asOf = new Date();
+            const graceReferenceDay = graceDayStart(asOf);
+            const histories = fullTanks.map(tank => tank.batchNumber
+                ? getMeasurementsByBatch(tank.batchNumber)
+                : Promise.resolve([] as Measurement[]));
+            const graceFields = await Promise.all(fullTanks.map(async (tank, index) => {
+                try {
+                    const rows = await histories[index];
+                    return [tank.id, {
+                        grace: cellarBadgeFieldsForDay(rows, graceReferenceDay),
+                        today: cellarBadgeFieldsForDay(rows, asOf),
+                    }] as const;
+                } catch (error) {
+                    console.warn("Could not load veteran measurements for grace", tank.tankNumber, error);
+                    return null;
+                }
+            }));
+            if (cancelled) return;
+            const availableGraceFields = graceFields.filter((row): row is NonNullable<typeof row> => row !== null);
+            const graceTankIds = measurementGraceTankIds(
+                fullTanks,
+                Object.fromEntries(availableGraceFields.map(([id, fields]) => [id, fields.grace])),
+                asOf,
+                Object.fromEntries(availableGraceFields.map(([id, fields]) => [id, fields.today])),
+            );
             const graceTankNumbers = new Set(fullTanks
-                .filter(tank => isInMeasurementGrace(tank, graceSnapshotTank))
+                .filter(tank => graceTankIds.has(String(tank.id)))
                 .map(tank => tankLabel(tank)));
 
             // Keep the last completed recommendations visible during routine updates.
@@ -302,7 +351,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             if (!hasCompletedInitialAnalysis.current) setAnalyzing(true);
 
             const results = await Promise.all(
-                fullTanks.map(async (tank) => {
+                fullTanks.map(async (tank, index) => {
                     const number = tankLabel(tank);
                     const tankAlerts: HealthAlert[] = [];
                     const scoreRecommendations: ScoredRecommendation[] = [];
@@ -310,13 +359,10 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                     const dailyActions: DailyCellarAction[] = [];
                     const tankDailyProgress: DailyActionProgress = { ...EMPTY_DAILY_ACTION_PROGRESS };
                     const hotTank = isHotTank(tank);
-                    const inGracePeriod = isInMeasurementGrace(tank, graceSnapshotTank);
-                    const graceMeasurementExempt = graceLockedIds.includes(String(tank.id));
+                    const inGracePeriod = graceTankIds.has(String(tank.id));
 
                     try {
-                        const measurements: Measurement[] = tank.batchNumber
-                            ? await getMeasurementsByBatch(tank.batchNumber)
-                            : [];
+                        const measurements: Measurement[] = await histories[index];
 
                         if (inGracePeriod) {
                             // Any measured fields can add complementary health credit.
@@ -373,11 +419,11 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                 "measurementRound"
                             )
                         );
-                        const scoreProgress = (measurementRoundIgnored || graceMeasurementExempt)
+                        const scoreProgress = measurementRoundIgnored
                             ? { ...progress, missingFields: [], requiredFieldCount: progress.completedFieldCount }
                             : progress;
 
-                        if (!completeMeasurements && !measurementRoundIgnored && !graceMeasurementExempt) {
+                        if (!completeMeasurements && !measurementRoundIgnored) {
                             tankAlerts.push({
                                 id: `measurements-${tank.id}`,
                                 severity: "warning",
@@ -928,39 +974,12 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         [brews]
     );
     const persistedHealthIs100 = cellarStateTank?.cellarHealthIs100 === true;
-    const graceExtensionWriteRef = useRef<string | null>(null);
-
-    // Measurement completion (14/14), not the overall health score (100%),
-    // locks tanks still in their first 12 hours until the end of tomorrow.
-    // Dashboard and reporting views use the same pendingGraceExtensions rule.
-    useEffect(() => {
-        if (analyzing || !cellarStateTank?.id || analysis.checkedTanks === 0 ||
-            analysis.completeMeasurementTankNumbers.length !== analysis.checkedTanks) return;
-
-        const updates = pendingGraceExtensions(brews, cellarStateTank);
-        const entries = Object.entries(updates);
-        if (entries.length === 0) return;
-        const signature = entries.map(([id, end]) => `${id}:${end}`).sort().join("|");
-        if (graceExtensionWriteRef.current === signature) return;
-        graceExtensionWriteRef.current = signature;
-
-        // Merge per-tank exemptions instead of replacing the whole map, so
-        // another connected device cannot erase a concurrent grace extension.
-        void setDoc(doc(db, "fermentors", String(cellarStateTank.id)), {
-            cellarGraceExtensions: updates,
-        }, { merge: true }).catch(error => {
-            graceExtensionWriteRef.current = null;
-            console.error("Failed persisting completed daily round grace:", error);
-        });
-    }, [analyzing, analysis.checkedTanks, analysis.completeMeasurementTankNumbers, brews, cellarStateTank]);
-
     useEffect(() => {
         if (analyzing || !cellarStateTank?.id) return;
 
         previousSettledScoreRef.current = healthScore;
         const todayKey = localDateKey(new Date());
-        // A completed daily round stays completed through the end of its day.
-        // A new fermentation tank leaving its 12-hour grace must not reopen it.
+        // The celebration state is independent of the dynamically calculated grace.
         const desiredIs100 = healthScore === 100;
 
         // Tank 1 is already part of the app's fermentor listener, so this gives
