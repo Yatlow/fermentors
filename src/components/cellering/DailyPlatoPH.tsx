@@ -3,7 +3,7 @@ import { cellarMeasurementWarnings } from "../../SERVICES/cellering/cellarMeasur
 import type { Fermentor, NewReading } from "../../App";
 import RecentMeasurements from "./RecentMeasurements";
 import { beerStyleVisual } from "../../SERVICES/beerStyleVisual";
-import { elapsedFermentationHours, isInMeasurementGrace } from "../../SERVICES/dashboard/cellarGrace";
+import { graceElapsedLabel } from "../../SERVICES/dashboard/cellarGrace";
 
 export type DailyPlatoPHProps = {
   brews: Fermentor[],
@@ -38,8 +38,8 @@ export default function DailyPlatoPH({
           .filter((fv) => (Number(fv?.tankNumber) !== 1 && Number(fv?.currentData?.temp) > 9 && fv?.stage?.name === "בתסיסה"))
           .map((fv) => {
             const reading = newReadings[fv.id] ?? {};
-            const inGrace = Number(fv.action) === 1 && isInMeasurementGrace(fv, graceStateTank, now);
-            const elapsedHours = inGrace ? elapsedFermentationHours(fv, now) : null;
+            const graceLabel = graceElapsedLabel(fv, graceStateTank, now);
+            const inGrace = graceLabel !== null;
             const stageClass = fv.stage?.className ?? "";
             return (
               <div className={`measurement-card ${stageClass}`} key={fv.id}>
@@ -55,8 +55,8 @@ export default function DailyPlatoPH({
 
 
                 {Number(fv.action) === 1 && <div role="status" style={{ fontSize: "0.78rem", padding: "3px 9px", color: inGrace ? "#52687b" : dailyProgress[fv.id]?.plato && dailyProgress[fv.id]?.pH ? "#18743b" : "#866119" }}>
-                  {inGrace && elapsedHours !== null
-                    ? `עברו ${elapsedHours} שעות מהעברה למיכל`
+                  {graceLabel !== null
+                    ? graceLabel
                     : dailyProgress[fv.id]?.plato && dailyProgress[fv.id]?.pH ? "✓ הושלם היום" : dailyProgress[fv.id]?.plato || dailyProgress[fv.id]?.pH ? "◐ בוצע חלקית היום" : "○ טרם בוצע היום"}
                 </div>}
                 <div className="measurement-batch" style={Number(fv.action) === 1 ? { borderInlineStart: `4px solid ${beerStyleVisual(fv.beerStyle).border}`, paddingInlineStart: 8 } : undefined}>
