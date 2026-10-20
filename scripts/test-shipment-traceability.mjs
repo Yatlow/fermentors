@@ -104,3 +104,16 @@ test("complete lot details from referenced existing pallets are identified witho
     assert.equal(result.hasUnverifiedData, false);
     assert.deepEqual(result.warnings, []);
 });
+
+test("shipment report sticks note number and shipping date while dropping status data column", () => {
+    const ui = readFileSync(new URL("../src/components/tools/ShipmentTraceabilityReport.tsx", import.meta.url), "utf8");
+    const css = readFileSync(new URL("../src/components/tools/ShipmentTraceabilityReport.css", import.meta.url), "utf8");
+    assert.match(ui, /shipment-traceability-details shipment-traceability-sticky-heading/);
+    assert.match(ui, /<h3>תעודת משלוח \{selected\.shipmentNumber\}<\/h3>/);
+    assert.match(ui, /<p>\{shipmentDate\(selected\)\}/);
+    const shipmentTable = ui.slice(ui.indexOf('<thead><tr><th>אצווה</th>'));
+    assert.match(shipmentTable, /<th>תאריך תפוגה<\/th><\/tr>/);
+    assert.doesNotMatch(shipmentTable.split('</table>')[0], /מצב נתונים|row\.unverified/);
+    assert.match(css, /\.shipment-traceability-sticky-heading\s*\{[^}]*position:\s*sticky;/s);
+    assert.match(css, /\.shipment-traceability-sticky-heading\s*\{[^}]*z-index:\s*40;/s);
+});
