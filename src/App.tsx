@@ -57,6 +57,7 @@ const BrewingView = lazy(() => import("./components/brewing/BrewingView"));
 const UserConnectionReport = lazy(() => import("./components/reports/UserConnectionReport"));
 const PackagingSheetGenerator = lazy(() => import("./COMPONENTS/PackagingSheetGenerator"));
 const EditProductCatalog = lazy(() => import("./components/tools/EditProductCatalog"));
+const ShipmentTraceabilityReport = lazy(() => import("./components/tools/ShipmentTraceabilityReport"));
 
 export type FirestoreTimestamp = {
     seconds?: number;
@@ -231,7 +232,7 @@ function App() {
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
     const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
     const [selectedReports, setSelectedReports] = useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר" | "חיבורי_משתמשים">("אריזה");
-    const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails" | "packagingSheet" | "catalog">("calculator");
+    const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails" | "packagingSheet" | "catalog" | "shipmentTraceability">("calculator");
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
     const [cellarDailyProgress, setCellarDailyProgress] = useState<Record<string, CellarBadgeFields>>({});
     const [cellarDailyProgressReady, setCellarDailyProgressReady] = useState(false);
@@ -615,6 +616,7 @@ function App() {
                     {selectedView === "ניהול" && <div className="status-filter">
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "calculator" ? "active" : ""}`} onClick={() => setSelectedAdminTools("calculator")}><span>מחשבון למבשלן</span></button>
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "packagingSheet" ? "active" : ""}`} onClick={() => setSelectedAdminTools("packagingSheet")}><span>דף אריזה להדפסה</span></button>
+                        <button type="button" className={`status-filter-button ${selectedAdminTools === "shipmentTraceability" ? "active" : ""}`} onClick={() => setSelectedAdminTools("shipmentTraceability")}><span>דוח משלוחים</span></button>
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "specs" ? "active" : ""}`} onClick={() => setSelectedAdminTools("specs")}><span>הגדרות סלרינג</span></button>
                         {cellarManager && <button type="button" className={`status-filter-button ${selectedAdminTools === "changeBatchNumInFv" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeBatchNumInFv")}><span>שינוי אצווה במיכל- ידנית</span></button>}
                         {cellarManager && <button type="button" className={`status-filter-button ${selectedAdminTools === "changeFvStatus" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeFvStatus")}><span>שינוי סטטוס במיכל- ידנית</span></button>}
@@ -646,6 +648,7 @@ function App() {
                 {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={cellarManager} />}
                 {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
                 {selectedView === "ניהול" && selectedAdminTools === "packagingSheet" && <PackagingSheetGenerator brews={brews} specs={specs} />}
+                {selectedView === "ניהול" && selectedAdminTools === "shipmentTraceability" && <ShipmentTraceabilityReport />}
                 {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={cellarManager} />}
                 {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={cellarManager} />}
                 {selectedView === "ניהול" && selectedAdminTools === "catalog" && <EditProductCatalog isAdmin={admin} />}

@@ -14,6 +14,7 @@ import {
     getDocsFromServer,
 } from "firebase/firestore";
 import { db } from "../../firebase";
+import { getCatalogEntry } from "./PalletCatalog";
 import {
     calcHeightCm,
     MAX_CRATES_PER_PALLET,
@@ -781,7 +782,22 @@ export async function createShipment(palletIds: string[], customerName?: string 
         const nextNumber = currentNumber + 1;
         const shipmentRef = doc(db, SHIPMENTS_COLLECTION, String(nextNumber));
         tx.set(counterRef, { value: nextNumber }, { merge: true });
-        tx.set(shipmentRef, { shipmentNumber: nextNumber, palletIds: uniquePalletIds, totals: Array.from(totalsMap.values()), customerName: customerName?.trim() || null, customerId: customerId?.trim() || null, createdAt: serverTimestamp() });
+        // A shipment is a historical record: persist batch, expiry and product details
+        // alongside IDs so later pallet edits/catalog changes cannot rewrite traceability.
+        const palletSnapshot = pallets.map((p) => {
+            const catalogEntry = getCatalogEntry(p.beerStyle, p.itemType);
+            return {
+                palletId: p.id,
+                beerStyle: p.beerStyle,
+                itemType: p.itemType,
+                quantity: p.quantity,
+                batchNumber: p.batchNumber == null ? null : String(p.batchNumber),
+                expiryDateStr: p.expiryDateStr ?? null,
+                sku: catalogEntry?.sku ?? null,
+                description: catalogEntry?.displayText ?? null,
+            };
+        });
+        tx.set(shipmentRef, { shipmentNumber: nextNumber, palletIds: uniquePalletIds, palletSnapshot, totals: Array.from(totalsMap.values()), sourceType: "pallets", customerName: customerName?.trim() || null, customerId: customerId?.trim() || null, createdAt: serverTimestamp() });
         palletRefs.forEach((ref) => tx.update(ref, { zone: "shipped", markedForShipment: false, autoReservationWeek: null, autoReservationTruckId: null, shippedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
         return nextNumber;
     });
