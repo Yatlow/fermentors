@@ -131,3 +131,30 @@ test("dashboard marks vent recommendation by explicit action type, not tank stag
     assert.doesNotMatch(dashboard, /recommendation\.recommendationKey === "pressureAdjustment" && tank\.stage/);
     assert.match(dashboard, /ventAdjust: "פורק"/);
 });
+
+test("bottom carbonation belongs to other, never pressure or carbonation tests", () => {
+    const pendingClose = pending("bottomCarbonationFollowUp", "1604", "11", { detail: "סגירת גיזוז מלמטה" });
+    assert.deepEqual(count([pendingClose]), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 0, total: 1 },
+    });
+    const complete = [
+        done("bottom-carb-11", "גיזוז מלמטה", "1604", "11"),
+        done("bottom-carb-close-11", "סגירת גיזוז מלמטה", "1604", "11"),
+    ];
+    assert.deepEqual(count([pendingClose], complete), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 2, total: 2 },
+    });
+    assert.deepEqual(count([], [complete[0]]), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 1, total: 1 },
+    });
+});
+test("gas KPI is exclusively actual carbonation tests, not pressure corrections or bottom carbonation", () => {
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    assert.match(dashboard, /const carbCompletedToday = hasTodayCarbonation;/);
+    assert.doesNotMatch(dashboard, /const carbCompletedToday = hasTodayCarbonation \|\|/);
+    assert.doesNotMatch(dashboard, /"carbTest", "bottomCarbonationFollowUp"/);
+    assert.match(dashboard, /addCompleted\(`bottom-carb-close-/);
+});
