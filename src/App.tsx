@@ -6,6 +6,7 @@ import {
     onSnapshot,
     doc,
     updateDoc,
+    setDoc,
     getDoc,
     serverTimestamp,
     type DocumentData,
@@ -26,7 +27,8 @@ import DailyPressureAndTemp from "./components/cellering/DailyPressureAndTemp";
 import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "./SERVICES/getAndPost/gettAllDataByBatch";
 import { cellarBadgeFieldsForDay, pendingCellarMeasurementTankNumbers, type CellarBadgeFields } from "./SERVICES/dashboard/cellarMeasurementBadge";
 import { subscribeIgnoredCellarRecommendationsToday, type IgnoredCellarRecommendation } from "./SERVICES/cellering/ignoredCellarRecommendations";
-import { isInMeasurementGrace } from "./SERVICES/dashboard/cellarGrace";
+import { isInMeasurementGrace, completedRoundGraceExtensions } from "./SERVICES/dashboard/cellarGrace";
+import { localDateKey } from "./SERVICES/dashboard/healthModel";
 import CellaringForecast from "./components/cellering/CellaringForecast";
 import SendMessurmentsHeader from "./components/cellering/SendMessurmentsHeader";
 import DailyPlatoPH from "./components/cellering/DailyPlatoPH";
@@ -236,6 +238,8 @@ function App() {
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
     const [cellarDailyProgress, setCellarDailyProgress] = useState<Record<string, CellarBadgeFields>>({});
     const [cellarDailyProgressReady, setCellarDailyProgressReady] = useState(false);
+    const [cellarDailyProgressKey, setCellarDailyProgressKey] = useState("");
+    const graceExtensionWriteRef = useRef<string | null>(null);
     const [ignoredCellarBadgeRows, setIgnoredCellarBadgeRows] = useState<IgnoredCellarRecommendation[]>([]);
     const [ignoredCellarBadgeReady, setIgnoredCellarBadgeReady] = useState(false);
     const cellarBatchKey = brews.filter(t => Number(t.action) === 1).map(t => String(t.id) + ":" + String(t.batchNumber ?? "")).sort().join("|");
@@ -253,13 +257,14 @@ function App() {
 
         const refresh = async () => {
             const generation = ++latestRefresh;
+            const asOf = new Date();
             const tanks = brews.filter(t => Number(t.action) === 1 && Number(t.tankNumber) !== 1);
             const entries = await Promise.all(tanks.map(async tank => {
                 try {
                     const measurements = tank.batchNumber
                         ? await getMeasurementsByBatch(String(tank.batchNumber))
                         : [];
-                    return [tank.id, cellarBadgeFieldsForDay(measurements)] as const;
+                    return [tank.id, cellarBadgeFieldsForDay(measurements, asOf)] as const;
                 } catch (error) {
                     console.warn("Unable to refresh cellar badge measurements", tank.tankNumber, error);
                     return null;
@@ -269,6 +274,7 @@ function App() {
             // An unavailable history is unknown, NOT a reason to count the
             // tank as unmeasured. This prevents a false badge of all tanks.
             setCellarDailyProgress(Object.fromEntries(entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null)));
+            setCellarDailyProgressKey(`${localDateKey(asOf)}|${cellarBatchKey}`);
             setCellarDailyProgressReady(true);
         };
 
@@ -308,6 +314,29 @@ function App() {
     }, [needsStandaloneCellarBadge]);
 
     const cellarTankOne = brews.find(t => Number(t.tankNumber) === 1);
+
+    // Outside the dashboard, the shared measurement cache is already loaded
+    // for the navigation badges. Use that same snapshot to lock grace when a
+    // full daily round completes; no extra measurement reads are required.
+    useEffect(() => {
+        if (!needsStandaloneCellarBadge || !cellarDailyProgressReady || !cellarTankOne?.id ||
+            cellarDailyProgressKey !== `${localDateKey(new Date())}|${cellarBatchKey}`) return;
+
+        const updates = completedRoundGraceExtensions(brews, cellarDailyProgress, cellarTankOne);
+        const entries = Object.entries(updates);
+        if (entries.length === 0) return;
+        const signature = entries.map(([id, end]) => `${id}:${end}`).sort().join("|");
+        if (graceExtensionWriteRef.current === signature) return;
+        graceExtensionWriteRef.current = signature;
+
+        void setDoc(doc(db, "fermentors", String(cellarTankOne.id)), {
+            cellarGraceExtensions: updates,
+        }, { merge: true }).catch(error => {
+            graceExtensionWriteRef.current = null;
+            console.error("Failed persisting completed daily round grace from cellar reporting:", error);
+        });
+    }, [needsStandaloneCellarBadge, cellarDailyProgressReady, cellarDailyProgressKey, cellarBatchKey, cellarDailyProgress, brews, cellarTankOne]);
+
     const cellarPending = (mode: "לחץ" | "חם") => brews.filter(t => {
         if (Number(t.tankNumber) === 1 || Number(t.action) !== 1 || isInMeasurementGrace(t, cellarTankOne)) return false;
         if (mode === "חם" && !(Number(t.currentData?.temp) > 9 && t.stage?.name === "בתסיסה")) return false;
