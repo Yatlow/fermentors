@@ -802,6 +802,13 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         todayDate,
         ["הורדת לחץ", "העלאת לחץ", "להוריד לחץ", "להעלות לחץ", "גיזוז מלמטה"],
     );
+    // Bottom carbonation satisfies the treatment recommendation, but it is
+    // NOT a pressure increase/decrease for the separate pressure KPI.
+    const pressureChangedToday = hasCellarActionOnDate(
+        sortedMeasurements,
+        todayDate,
+        ["הורדת לחץ", "העלאת לחץ", "להוריד לחץ", "להעלות לחץ"],
+    );
     const prvHandledToday = hasCellarActionOnDate(
         sortedMeasurements,
         todayDate,
@@ -1385,7 +1392,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const pressureAdjustmentHandledToday = {
         completed: Boolean(
             stage.name === "קר" &&
-            pressureHandledToday
+            pressureChangedToday
         ),
         reason: pressureHandledToday
             ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז לא תקינה (${lastMeasurement?.carbonation})`
