@@ -196,6 +196,17 @@ function brewingSheetResolveFermentationMetadataRange_(sheet, range) {
   }
 
   const data = sheet.getDataRange().getDisplayValues();
+  // A fixed row is the fermentation date row ONLY for its tank layout.
+  // On a triple brew B59/B106 hold grain LOTS, not dates. The previous
+  // unconditional mapping of all three fallback rows redirected Pilsner
+  // grain writes into B156, destroying an already valid brew date.
+  const blockCount = data.filter(function (cells) {
+    return String(cells[1] || "").trim() === "סוג:" &&
+           String(cells[3] || "").trim() === "אצווה:";
+  }).length;
+  const fallbackRow = blockCount === 3 ? 156 : blockCount === 2 ? 106 : blockCount === 1 ? 59 : 0;
+  if (!fallbackRow || row !== fallbackRow) return range;
+
   for (let r = 0; r < data.length; r++) {
     const current = data[r] || [];
     if (
@@ -235,6 +246,20 @@ function brewingSheetWriteCells_(data) {
     if (!sheet) throw new Error("Brew Sheet has no sheets");
     let range = sheet.getRange(a1);
     range = brewingSheetResolveFermentationMetadataRange_(sheet, range);
+
+    // Last line of defence: never accept a raw material lot or arbitrary text
+    // as the fermentation brew date. Manual edits directly in Sheets are
+    // unaffected; this guard protects writes originating from the app.
+    if (range.getNumRows() === 1 && range.getNumColumns() === 1 &&
+        range.getColumn() === 2) {
+      const rowLabel = String(sheet.getRange(range.getRow(), 1).getDisplayValue() || "").trim();
+      if (/^יום\s*בישול$/i.test(rowLabel)) {
+        const incoming = String(item.value == null ? "" : item.value).trim();
+        if (incoming && !/^(?:\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{1,2}-\d{1,2})$/.test(incoming)) {
+          throw new Error("Refusing non-date write into fermentation brew-day cell: " + range.getA1Notation());
+        }
+      }
+    }
 
     if (
       item &&
@@ -570,8 +595,9 @@ function brewingSheetCreate_(data) {
         }
       }
       if (fermentationHeader >= 0) {
-        // Old IPA Masters carry a literal yeast-lot string in the "brew day"
-        // date cell (e.g. Pilsner #217205). This is never a valid brew date.
+        // Some already affected IPA sheets carry a grain-lot string in the
+        // brew-date cell (e.g. Pilsner #217205) due to legacy row aliasing.
+        // Protect copies defensively, even when the current Master is clean.
         // Sanitize ONLY a copied new Sheet, ONLY that exact legacy pattern;
         // do not touch dates typed by the brewery or other fermentation data.
         for (let r = fermentationHeader + 1; r < Math.min(values.length, fermentationHeader + 7); r++) {
