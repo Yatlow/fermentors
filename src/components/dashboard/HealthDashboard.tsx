@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { doc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { isInMeasurementGrace, pendingGraceExtensions } from "../../SERVICES/dashboard/cellarGrace";
+import { completedDailyRoundKpi, isInMeasurementGrace, pendingGraceExtensions } from "../../SERVICES/dashboard/cellarGrace";
 import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
 import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
@@ -837,9 +837,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             // Grace rounds are complementary: a fully measured grace tank adds
             // +1 to BOTH numerator and denominator (14/14 -> 15/15).
             // An unmeasured or partially measured grace tank adds neither.
-            const countedRoundResults = eligibleResults.filter(
-                result => !graceTankNumbers.has(result.tankNumber) || result.completeMeasurements
-            );
+            const roundKpi = completedDailyRoundKpi(eligibleResults, graceTankNumbers);
             const dailyActionProgress = eligibleResults.reduce<DailyActionProgress>(
                 (sum, result) => ({
                     yeastRequired: sum.yeastRequired + result.dailyActionProgress.yeastRequired,
@@ -860,10 +858,8 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 dailyActions: eligibleResults.flatMap((result) => result.dailyActions ?? []),
                 dailyActionProgress,
                 measurementProgress: eligibleResults.map((result) => result.measurementProgress),
-                checkedTanks: countedRoundResults.length,
-                completeMeasurementTankNumbers: countedRoundResults
-                    .filter((result) => result.completeMeasurements)
-                    .map((result) => result.tankNumber),
+                checkedTanks: roundKpi.checkedTanks,
+                completeMeasurementTankNumbers: roundKpi.completeMeasurementTankNumbers,
             });
             hasCompletedInitialAnalysis.current = true;
             setAnalyzing(false);
