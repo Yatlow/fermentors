@@ -226,5 +226,5 @@ test("compares today's reading to the latest prior day, even several days back",
   assert.match(carbonationRetestPressureContext([
     { id: "2026-10-17_1000", pressure: 0.88 },
     { id: "2026-10-20_1000", pressure: 1.35 },
-  ], "2026-10-20") ?? "", /לחץ קודם \\(17\\/10\\/2026\\): 0.88 bar.*עלייה של 0.47 bar/);
+  ], "2026-10-20") ?? "", /לחץ קודם \(17\/10\/2026\): 0.88 bar.*עלייה של 0.47 bar/);
 });
