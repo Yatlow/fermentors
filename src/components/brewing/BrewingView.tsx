@@ -1617,11 +1617,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                         )}
                 </section>
             )}
-            {printEditRun && (
-                <BrewPrintTextEditor run={printEditRun}
-                    onClose={() => setPrintEditRun(null)}
-                    onPrint={(run, changes) => { void printBrewCover(run, changes); }} />
-            )}
         </main>
     );
 }
