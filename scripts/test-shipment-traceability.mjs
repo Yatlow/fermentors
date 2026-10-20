@@ -20,7 +20,11 @@ const pallet = (id, batchNumber, quantity, expiryDateStr = "2027-02-15") => ({
 });
 
 test("groups identical SKU + lot + expiry and separates different lots", () => {
-    const shipment = { id: "2401", shipmentNumber: 2401, palletIds: ["a", "b", "c"], totals: [
+    const shipment = { id: "2401", shipmentNumber: 2401, palletIds: ["a", "b", "c"], palletSnapshot: [
+        { palletId: "a", ...pallet("a", "1601", 20) },
+        { palletId: "b", ...pallet("b", "1601", 5) },
+        { palletId: "c", ...pallet("c", "1603", 10) },
+    ], totals: [
         { beerStyle: "IPA", itemType: "kegs", totalQuantity: 35 },
     ] };
     const actual = buildShipmentTraceability(shipment, [
