@@ -79,6 +79,8 @@ test("after 12 hours the conditional badge uses veteran completion in the same 0
   // At 00:00, badges reset to today, but the grace decision still uses yesterday.
   const afterMidnight = new Date(2026, 9, 20, 0, 10);
   assert.deepEqual(pendingCellarMeasurementTankNumbers([old, young], today, [], afterMidnight, oldCompleted), ["4"]);
+  // Today's new complete round also qualifies even if yesterday wasn't complete.
+  assert.deepEqual(pendingCellarMeasurementTankNumbers([old, young], oldCompleted, [], afterMidnight, today), []);
   // At 05:00, young becomes a veteran as its original 12h grace ended yesterday.
   assert.deepEqual(pendingCellarMeasurementTankNumbers([old, young], today, [], new Date(2026, 9, 20, 5), oldCompleted), ["4", "16"]);
 });
