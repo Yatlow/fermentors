@@ -1394,7 +1394,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             stage.name === "קר" &&
             pressureChangedToday
         ),
-        reason: pressureHandledToday
+        reason: pressureChangedToday
             ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז לא תקינה (${lastMeasurement?.carbonation})`
             : "",
         importance: latestCarbSpec.importance,
