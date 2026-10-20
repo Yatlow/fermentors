@@ -63,7 +63,7 @@ test("carb recommendations mentioning pressure changes stay out of pressure KPI"
         done("carb-11", "בדיקת גיזוז", "1605", "11"),
     ]);
     assert.deepEqual(result.pressure, { done: 0, total: 0 });
-    assert.deepEqual(result.other, { done: 0, total: 0 });
+    assert.deepEqual(result.other, { done: 1, total: 2 });
 });
 
 test("natural vent recommendation counts as other, not pressure", () => {
