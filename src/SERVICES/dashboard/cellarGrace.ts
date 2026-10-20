@@ -72,7 +72,7 @@ export function pendingGraceExtensions(
   at: Date = new Date(),
 ): Record<string, string> {
   const candidates = graceExtensionsAtHundred(tanks, at);
-  return Object.fromEntries(Object.entries(candidates).filter(([id, end]) => {
+  return Object.fromEntries(Object.entries(candidates).filter(([id]) => {
     const tank = tanks.find(item => String(item.id) === id);
     if (!tank || !isInMeasurementGrace(tank, tankOne, at)) return false;
     const normalEnd = fermentationGraceEnd(tank);
