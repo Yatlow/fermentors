@@ -105,3 +105,14 @@ test("report is only under Reports and no longer snapshots new shipment records"
     assert.doesNotMatch(app, /selectedAdminTools === "shipmentTraceability"/);
     assert.doesNotMatch(service, /palletIds: uniquePalletIds, palletSnapshot/);
 });
+
+test("shipped pallet operations protect the traceability index", () => {
+    const source = readFileSync(new URL("../src/SERVICES/cooler/Palletservice.ts", import.meta.url), "utf8");
+    for (const functionName of ["updatePallet", "updatePalletQuantity", "deletePallet", "splitPallet"]) {
+        const start = source.indexOf("export async function " + functionName + "(");
+        assert.ok(start >= 0, functionName + " exists");
+        const next = source.indexOf("\nexport ", start + 1);
+        const body = source.slice(start, next < 0 ? undefined : next);
+        assert.match(body, /zone === "shipped"/, functionName + " blocks post-shipment mutation");
+    }
+});
