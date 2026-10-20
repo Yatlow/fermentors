@@ -19,7 +19,7 @@ function shipmentDate(shipment: Shipment): string {
     return date ? date.toLocaleDateString("he-IL") : "תאריך לא ידוע";
 }
 
-function unit(row: ShipmentLotRow): string {
+function unit(row: { itemType: ShipmentLotRow["itemType"] }): string {
     return row.itemType === "kegs" ? "חביות" : row.itemType === "crates" ? "ארגזים" : "יח׳";
 }
 
