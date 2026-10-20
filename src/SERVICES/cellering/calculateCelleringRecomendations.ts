@@ -7,7 +7,7 @@ import { findOpenBottomCarbonation } from "./bottomCarbonation";
 import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshold";
 import { shouldShowNeglectedTank } from "./neglectWeekday";
 import { hasCellarActionOnDate } from "./cellarActionState";
-import { carbonationRetestDueReason, carbonationRetestPolicy } from "./carbonationRetestPolicy";
+import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext } from "./carbonationRetestPolicy";
 import { hasStablePlatoForCooling } from "./coolingPlatoStability";
 
 
@@ -1043,9 +1043,12 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     requiresCarbTest.display = true;
                     requiresCarbTest.importance = lastCarbSpec.importance;
 
-                    requiresCarbTest.reason =
-                        carbonationRetestDueReason(retestPolicy) ??
+                    const retestReason = carbonationRetestDueReason(retestPolicy) ??
                         `בדיקת הגיזוז האחרונה לא היתה תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
+                    const pressureContext = carbonationRetestPressureContext(sortedMeasurements, todayDate);
+                    requiresCarbTest.reason = pressureContext
+                        ? `${retestReason}. ${pressureContext}`
+                        : retestReason;
                 } else if (
                     retestPolicy.waitReason === "ordinary_pressure" ||
                     retestPolicy.waitReason === "bottom_carbonation" ||
