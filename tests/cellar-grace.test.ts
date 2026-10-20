@@ -7,6 +7,8 @@ import {
   completedRoundGraceExtensions,
   pendingGraceExtensions,
   elapsedFermentationHours,
+  graceElapsedLabel,
+  completedDailyRoundKpi,
   isInMeasurementGrace,
 } from "../src/SERVICES/dashboard/cellarGrace";
 
@@ -105,4 +107,46 @@ test("elapsed transfer hours is hh:mm, including after 24 hours and zero", () =>
   assert.equal(elapsedFermentationHours(current, new Date(2026, 9, 15, 13, 9)), "05:09");
   assert.equal(elapsedFermentationHours(current, new Date(2026, 9, 16, 10, 30)), "26:30");
   assert.equal(elapsedFermentationHours({ id: "no-time" }, atFullRound), null);
+});
+
+test("grace timer label appears ONLY during active grace, including extension", () => {
+  const startedAt = new Date(2026, 9, 15, 8).toISOString();
+  const live = { ...grace16, fermentationStartedAt: startedAt };
+  assert.equal(graceElapsedLabel(live, root, new Date(2026, 9, 15, 8, 10)), "עברו 00:10 שעות מהעברה למיכל");
+  assert.equal(graceElapsedLabel(live, root, new Date(2026, 9, 15, 21)), null);
+  assert.equal(graceElapsedLabel({ ...live, action: 3 }, root, new Date(2026, 9, 15, 8, 10)), null);
+  assert.equal(graceElapsedLabel({ ...live, fermentationStartedAt: undefined }, root, atFullRound), null);
+  const extended = { ...root, cellarGraceExtensions: { tank16: new Date(2026, 9, 17, 0).toISOString() } };
+  assert.equal(graceElapsedLabel(live, extended, new Date(2026, 9, 16, 10)), "עברו 26:00 שעות מהעברה למיכל");
+  assert.equal(graceElapsedLabel(live, extended, new Date(2026, 9, 17, 0)), null);
+});
+
+test("voluntary complete grace round adds 1/1 bonus while missing or partial stays 14/14", () => {
+  const rows = Array.from({ length: 14 }, (_, index) => ({
+    tankNumber: String(index + 2),
+    completeMeasurements: true,
+  }));
+  const grace = new Set(["16"]);
+
+  const notMeasured = completedDailyRoundKpi([...rows, {
+    tankNumber: "16", completeMeasurements: false,
+  }], grace);
+  assert.equal(notMeasured.checkedTanks, 14);
+  assert.equal(notMeasured.completeMeasurementTankNumbers.length, 14);
+
+  // The optional tank becomes countable only after ALL relevant measurements
+  // are complete; it never changes the required denominator beforehand.
+  const voluntaryCompleted = completedDailyRoundKpi([...rows, {
+    tankNumber: "16", completeMeasurements: true,
+  }], grace);
+  assert.equal(voluntaryCompleted.checkedTanks, 15);
+  assert.equal(voluntaryCompleted.completeMeasurementTankNumbers.length, 15);
+
+  const oneRequiredIncomplete = completedDailyRoundKpi([
+    ...rows.slice(0, 13),
+    { ...rows[13], completeMeasurements: false },
+    { tankNumber: "16", completeMeasurements: false },
+  ], grace);
+  assert.equal(oneRequiredIncomplete.checkedTanks, 14);
+  assert.equal(oneRequiredIncomplete.completeMeasurementTankNumbers.length, 13);
 });
