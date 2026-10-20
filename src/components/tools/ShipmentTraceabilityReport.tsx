@@ -381,7 +381,7 @@ export default function ShipmentTraceabilityReport() {
                 </div>
                 {palletsLoading && <BeerLoader message="טוען אינדקס משטחים ואצוות..." size="small" />}
                 {packagingLoading && <BeerLoader message="מצליב דיווחי אריזה..." size="small" />}
-                {packagingError && <p role="alert" className="shipment-traceability-warning">{packagingError}</p>
+                {packagingError && <p role="alert" className="shipment-traceability-warning">{packagingError}</p>}
                 {palletsError && <p role="alert" className="shipment-traceability-warning">{palletsError}</p>}
                 {listError && <p role="alert" className="shipment-traceability-warning">{listError}</p>}
                 {!palletsLoading && palletsReady && !palletsError && !loading && batches.length === 0 && <p>לא נמצאו אצוות עם נתוני משטחים.</p>}
