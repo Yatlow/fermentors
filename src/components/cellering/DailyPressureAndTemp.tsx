@@ -6,6 +6,7 @@ import { cellarMeasurementWarnings } from "../../SERVICES/cellering/cellarMeasur
 import type { Fermentor, NewReading } from "../../App";
 import RecentMeasurements from "./RecentMeasurements";
 import { beerStyleVisual } from "../../SERVICES/beerStyleVisual";
+import { graceElapsedLabel } from "../../SERVICES/dashboard/cellarGrace";
 
 export type DailyPressureAndTempProps = {
   brews: Fermentor[],
@@ -22,6 +23,13 @@ export default function DailyPressureAndTemp({
 }: DailyPressureAndTempProps) {
 
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [now, setNow] = useState(() => new Date());
+  const graceStateTank = brews.find(tank => Number(tank.tankNumber) === 1);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [yesterdayActions, setYesterdayActions] = useState<Record<string, string[]>>({});
   const [expandedActionTanks, setExpandedActionTanks] = useState<Record<string, boolean>>({});
 
@@ -73,6 +81,8 @@ export default function DailyPressureAndTemp({
           .filter((fv) => Number(fv.tankNumber) !== 1)
           .map((fv) => {
             const reading = newReadings[fv.id] ?? {};
+            const graceLabel = graceElapsedLabel(fv, graceStateTank, now);
+            const inGrace = graceLabel !== null;
             const stageClass = fv.stage?.className ?? "";
             return (
               <div className={`measurement-card ${stageClass}`} key={fv.id}>
@@ -87,8 +97,10 @@ export default function DailyPressureAndTemp({
                 </div>
 
 
-                {Number(fv.action) === 1 && <div role="status" style={{ fontSize: "0.78rem", padding: "3px 9px", color: dailyProgress[fv.id]?.temp && dailyProgress[fv.id]?.pressure ? "#18743b" : "#866119" }}>
-                  {dailyProgress[fv.id]?.temp && dailyProgress[fv.id]?.pressure ? "✓ הושלם היום" : dailyProgress[fv.id]?.temp || dailyProgress[fv.id]?.pressure ? "◐ בוצע חלקית היום" : "○ טרם בוצע היום"}
+                {Number(fv.action) === 1 && <div role="status" style={{ fontSize: "0.78rem", padding: "3px 9px", color: inGrace ? "#52687b" : dailyProgress[fv.id]?.temp && dailyProgress[fv.id]?.pressure ? "#18743b" : "#866119" }}>
+                  {graceLabel !== null
+                    ? graceLabel
+                    : dailyProgress[fv.id]?.temp && dailyProgress[fv.id]?.pressure ? "✓ הושלם היום" : dailyProgress[fv.id]?.temp || dailyProgress[fv.id]?.pressure ? "◐ בוצע חלקית היום" : "○ טרם בוצע היום"}
                 </div>}
                 <div className="measurement-batch" style={Number(fv.action) === 1 ? { borderInlineStart: `4px solid ${beerStyleVisual(fv.beerStyle).border}`, paddingInlineStart: 8 } : undefined}>
                   {Number(fv.action) === 1 ? `אצווה #${fv.batchNumber ?? "-"}` : `מיכל ${fv.stage?.name}`}

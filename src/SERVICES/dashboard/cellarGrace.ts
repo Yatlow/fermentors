@@ -55,3 +55,94 @@ export function isInMeasurementGrace(tank: GraceTank, tankOne?: GraceTank, now =
   return state?.cellarHealthCompletedDay === localDateKey(now) &&
     (state.cellarGraceTankIds ?? []).includes(String(tank.id));
 }
+
+/** A tank can earn measurement credit in grace, but must never add a
+ * required tank to the full-round KPI or the navigation badge. */
+export type DailyRoundFields = { temp: boolean; pressure: boolean; plato: boolean; pH: boolean };
+export type GraceRoundTank = GraceTank & {
+  stage?: { name?: string } | null;
+  currentData?: { temp?: string | number | null } | null;
+};
+
+/** Return only new, non-compounding exemptions for tanks still in their ORIGINAL
+ * 12-hour grace. The extension ends at midnight AFTER the next calendar day. */
+export function pendingGraceExtensions(
+  tanks: GraceTank[],
+  tankOne: GraceTank | undefined,
+  at: Date = new Date(),
+): Record<string, string> {
+  const candidates = graceExtensionsAtHundred(tanks, at);
+  return Object.fromEntries(Object.entries(candidates).filter(([id]) => {
+    const tank = tanks.find(item => String(item.id) === id);
+    if (!tank || !isInMeasurementGrace(tank, tankOne, at)) return false;
+    const normalEnd = fermentationGraceEnd(tank);
+    if (normalEnd === null || normalEnd <= at.getTime()) return false;
+    const existingEnd = timestampMillis(tankOne?.cellarGraceExtensions?.[id]);
+    const start = timestampMillis(tank.fermentationStartedAt);
+    // Never compound the grace for the same fermentation on the next day.
+    // An extension that expired before the current fermentation started
+    // belongs to a previous batch and must not block the new batch.
+    return existingEnd === null || (start !== null && existingEnd <= start);
+  }));
+}
+
+/** Unlike the cellar *health score*, the full daily measurement round is
+ * complete only when every REQUIRED (non-grace) tank has today's readings.
+ * Unknown/unloaded history must never trigger an extension. Can run in any view. */
+export function completedRoundGraceExtensions(
+  tanks: GraceRoundTank[],
+  fieldsByTankId: Record<string, DailyRoundFields>,
+  tankOne: GraceTank | undefined,
+  at: Date = new Date(),
+): Record<string, string> {
+  const required = tanks.filter(tank =>
+    Number(tank.tankNumber) !== 1 &&
+    Number(tank.action) === 1 &&
+    !isInMeasurementGrace(tank, tankOne, at)
+  );
+  if (required.length === 0 || required.some(tank => {
+    const fields = fieldsByTankId[tank.id];
+    if (!fields || !fields.temp || !fields.pressure) return true;
+    const hot = tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
+    return hot && (!fields.plato || !fields.pH);
+  })) return {};
+
+  return pendingGraceExtensions(tanks, tankOne, at);
+}
+
+/** hh:mm elapsed since entry to the fermenter (hours are not modulo 24). */
+export function elapsedFermentationHours(tank: GraceTank, now: Date = new Date()): string | null {
+  const start = timestampMillis(tank.fermentationStartedAt);
+  if (start === null || now.getTime() < start) return null;
+  const minutes = Math.floor((now.getTime() - start) / 60000);
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+/** A transfer timer must be shown ONLY for active tanks that are in grace. */
+export function graceElapsedLabel(
+  tank: GraceTank,
+  tankOne: GraceTank | undefined,
+  now: Date = new Date(),
+): string | null {
+  if (Number(tank.action) !== 1 || !isInMeasurementGrace(tank, tankOne, now)) return null;
+  const elapsed = elapsedFermentationHours(tank, now);
+  return elapsed === null ? null : `עברו ${elapsed} שעות מהעברה למיכל`;
+}
+
+/** Only completed voluntary grace rounds participate in the full-round KPI.
+ * An incomplete grace round cannot add to the denominator; required tanks
+ * participate whether complete or not. */
+export function completedDailyRoundKpi(
+  results: ReadonlyArray<{ tankNumber: string; completeMeasurements: boolean }>,
+  graceTankNumbers: ReadonlySet<string>,
+): { checkedTanks: number; completeMeasurementTankNumbers: string[] } {
+  const counted = results.filter(row =>
+    !graceTankNumbers.has(row.tankNumber) || row.completeMeasurements
+  );
+  return {
+    checkedTanks: counted.length,
+    completeMeasurementTankNumbers: counted
+      .filter(row => row.completeMeasurements)
+      .map(row => row.tankNumber),
+  };
+}

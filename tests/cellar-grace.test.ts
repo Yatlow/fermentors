@@ -4,6 +4,11 @@ import {
   fermentationGraceEnd,
   graceExtensionEnd,
   graceExtensionsAtHundred,
+  completedRoundGraceExtensions,
+  pendingGraceExtensions,
+  elapsedFermentationHours,
+  graceElapsedLabel,
+  completedDailyRoundKpi,
   isInMeasurementGrace,
 } from "../src/SERVICES/dashboard/cellarGrace";
 
@@ -36,4 +41,124 @@ test("old tanks and inactive tanks are never extended", () => {
     { ...tank, id: "inactive", action: 3 },
   ], at), {});
   assert.equal(fermentationGraceEnd({ id: "missing" }), null);
+});
+
+const complete = { temp: true, pressure: true, plato: true, pH: true };
+const incomplete = { temp: true, pressure: false, plato: true, pH: true };
+const fullRound = Array.from({ length: 14 }, (_, index) => ({
+  id: `required-${index + 1}`,
+  tankNumber: index + 2,
+  action: 1,
+  stage: { name: "בתסיסה" },
+  currentData: { temp: 12 },
+}));
+const grace16 = { ...tank, id: "tank16", tankNumber: 16 };
+const atFullRound = new Date(2026, 9, 15, 10, 30);
+const allComplete = Object.fromEntries(fullRound.map(t => [t.id, complete]));
+
+test("14/14 while tank 16 is in grace locks it until tomorrow ends, independent of Slering score", () => {
+  const graceTank16 = { ...grace16, fermentationStartedAt: new Date(2026, 9, 15, 8).toISOString() };
+  const eligible = [...fullRound, graceTank16, root];
+  const extensions = completedRoundGraceExtensions(eligible, allComplete, root, atFullRound);
+  assert.deepEqual(Object.keys(extensions), ["tank16"]);
+  const locked = { ...root, cellarGraceExtensions: extensions };
+  assert.equal(isInMeasurementGrace(graceTank16, locked, new Date(2026, 9, 16, 23, 59)), true);
+  assert.equal(isInMeasurementGrace(graceTank16, locked, new Date(2026, 9, 17, 0, 0)), false);
+  // A subsequent render, another view, or another tablet must not extend twice.
+  assert.deepEqual(completedRoundGraceExtensions(eligible, allComplete, locked, atFullRound), {});
+});
+
+test("grace tank voluntarily measured or unmeasured never affects 14/14 required rounds", () => {
+  const eligible = [...fullRound, { ...grace16, fermentationStartedAt: new Date(2026, 9, 15, 8).toISOString() }];
+  assert.deepEqual(Object.keys(completedRoundGraceExtensions(eligible, allComplete, root, atFullRound)), ["tank16"]);
+  assert.deepEqual(Object.keys(completedRoundGraceExtensions(eligible, {
+    ...allComplete, tank16: complete,
+  }, root, atFullRound)), ["tank16"]);
+});
+
+test("13/14, missing history or missing warm pH never locks grace", () => {
+  const eligible = [...fullRound, { ...grace16, fermentationStartedAt: new Date(2026, 9, 15, 8).toISOString() }];
+  assert.deepEqual(completedRoundGraceExtensions(eligible, {
+    ...allComplete, "required-4": incomplete,
+  }, root, atFullRound), {});
+  const withMissingHistory = { ...allComplete };
+  delete (withMissingHistory as Record<string, typeof complete>)["required-7"];
+  assert.deepEqual(completedRoundGraceExtensions(eligible, withMissingHistory, root, atFullRound), {});
+  assert.deepEqual(completedRoundGraceExtensions(eligible, {
+    ...allComplete, "required-9": { ...complete, pH: false },
+  }, root, atFullRound), {});
+});
+
+test("once the original grace expires before completion the new tank is required", () => {
+  const graceEnded = { ...grace16, fermentationStartedAt: new Date(2026, 9, 14, 20).toISOString() };
+  assert.deepEqual(completedRoundGraceExtensions([...fullRound, graceEnded], allComplete, root, atFullRound), {});
+  assert.deepEqual(pendingGraceExtensions([graceEnded], root, atFullRound), {});
+});
+
+test("round completion with no required tanks cannot lock arbitrary future grace", () => {
+  const fresh = { ...grace16, fermentationStartedAt: new Date(2026, 9, 15, 8).toISOString() };
+  assert.deepEqual(completedRoundGraceExtensions([fresh, root], {}, root, atFullRound), {});
+});
+
+test("elapsed transfer hours is hh:mm, including after 24 hours and zero", () => {
+  const start = new Date(2026, 9, 15, 8);
+  const current = { ...grace16, fermentationStartedAt: start.toISOString() };
+  assert.equal(elapsedFermentationHours(current, new Date(2026, 9, 15, 8)), "00:00");
+  assert.equal(elapsedFermentationHours(current, new Date(2026, 9, 15, 13, 9)), "05:09");
+  assert.equal(elapsedFermentationHours(current, new Date(2026, 9, 16, 10, 30)), "26:30");
+  assert.equal(elapsedFermentationHours({ id: "no-time" }, atFullRound), null);
+});
+
+test("grace timer label appears ONLY during active grace, including extension", () => {
+  const startedAt = new Date(2026, 9, 15, 8).toISOString();
+  const live = { ...grace16, fermentationStartedAt: startedAt };
+  assert.equal(graceElapsedLabel(live, root, new Date(2026, 9, 15, 8, 10)), "עברו 00:10 שעות מהעברה למיכל");
+  assert.equal(graceElapsedLabel(live, root, new Date(2026, 9, 15, 21)), null);
+  assert.equal(graceElapsedLabel({ ...live, action: 3 }, root, new Date(2026, 9, 15, 8, 10)), null);
+  assert.equal(graceElapsedLabel({ ...live, fermentationStartedAt: undefined }, root, atFullRound), null);
+  const extended = { ...root, cellarGraceExtensions: { tank16: new Date(2026, 9, 17, 0).toISOString() } };
+  assert.equal(graceElapsedLabel(live, extended, new Date(2026, 9, 16, 10)), "עברו 26:00 שעות מהעברה למיכל");
+  assert.equal(graceElapsedLabel(live, extended, new Date(2026, 9, 17, 0)), null);
+});
+
+test("voluntary complete grace round adds 1/1 bonus while missing or partial stays 14/14", () => {
+  const rows = Array.from({ length: 14 }, (_, index) => ({
+    tankNumber: String(index + 2),
+    completeMeasurements: true,
+  }));
+  const grace = new Set(["16"]);
+
+  const notMeasured = completedDailyRoundKpi([...rows, {
+    tankNumber: "16", completeMeasurements: false,
+  }], grace);
+  assert.equal(notMeasured.checkedTanks, 14);
+  assert.equal(notMeasured.completeMeasurementTankNumbers.length, 14);
+
+  // The optional tank becomes countable only after ALL relevant measurements
+  // are complete; it never changes the required denominator beforehand.
+  const voluntaryCompleted = completedDailyRoundKpi([...rows, {
+    tankNumber: "16", completeMeasurements: true,
+  }], grace);
+  assert.equal(voluntaryCompleted.checkedTanks, 15);
+  assert.equal(voluntaryCompleted.completeMeasurementTankNumbers.length, 15);
+
+  const oneRequiredIncomplete = completedDailyRoundKpi([
+    ...rows.slice(0, 13),
+    { ...rows[13], completeMeasurements: false },
+    { tankNumber: "16", completeMeasurements: false },
+  ], grace);
+  assert.equal(oneRequiredIncomplete.checkedTanks, 14);
+  assert.equal(oneRequiredIncomplete.completeMeasurementTankNumbers.length, 13);
+});
+
+test("a grace extension does not compound after midnight, but a later batch may get its own", () => {
+  const first = { ...grace16, fermentationStartedAt: new Date(2026, 9, 15, 23).toISOString() };
+  const completed = completedRoundGraceExtensions([...fullRound, first], allComplete, root, new Date(2026, 9, 15, 23, 10));
+  assert.deepEqual(Object.keys(completed), ["tank16"]);
+  const saved = { ...root, cellarGraceExtensions: completed };
+  assert.deepEqual(completedRoundGraceExtensions([...fullRound, first], allComplete, saved, new Date(2026, 9, 16, 9)), {});
+
+  // A new batch starts after the previous grace already ended.
+  const second = { ...grace16, fermentationStartedAt: new Date(2026, 9, 18, 8).toISOString() };
+  assert.deepEqual(Object.keys(completedRoundGraceExtensions([...fullRound, second], allComplete, saved, new Date(2026, 9, 18, 10))), ["tank16"]);
 });
