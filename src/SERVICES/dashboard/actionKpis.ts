@@ -14,6 +14,7 @@ const classify = (value: string): ActionCategory | null => {
     if (/pressureAdjustment|pressureChange|pressure-adjust|pressure-change|שינוי לחץ|העלאת לחץ|הורדת לחץ/i.test(value)) return "pressure";
     if (/carb|carbonation|גיזוז/i.test(value)) return "carb";
     if (/yeast|שמרים/i.test(value)) return "yeast";
+    if (/^(?:other|ventAdjust)$/i.test(value)) return "other";
     if (/pressureClose|pressure-close|vent-adjust|dryHop|coolDown|cooling|diacetyl|neglectedStatus|סגירת נשם|סגירת מיכל|כיוון פורק|דרייהופ|כשות|קירור|דיאצטיל|פעולה אחרת|reported-other|scheduled-other/i.test(value)) return "other";
     return null;
 };
@@ -33,7 +34,8 @@ const normalizeType = (value: string): string => {
 const identity = (record: ActionRecord, rawKey: string): string => {
     const batch = String(record.batchNumber || record.tankNumber).replace(/^#/, "");
     const scheduledId = rawKey.startsWith("scheduled-") ? rawKey.slice("scheduled-".length) : null;
-    return `${batch}:${scheduledId ? `scheduled:${scheduledId}` : normalizeType(rawKey + " " + (record.title || ""))}`;
+    return `${batch}:${scheduledId ? `scheduled:${scheduledId}` : normalizeType(record.scheduledActionType === "other" && rawKey === "pressureAdjustment"
+        ? "vent-adjust" : rawKey + " " + (record.title || ""))}`;
 };
 
 export function calculateActionKpis(alerts: ActionRecord[], completedActions: ActionRecord[]): Record<"pressure" | "other", ActionCount> {
@@ -42,7 +44,9 @@ export function calculateActionKpis(alerts: ActionRecord[], completedActions: Ac
     for (const alert of alerts) {
         const key = alert.recommendationKey;
         if (!key || key === "measurementRound" || !alert.tankNumber) continue;
-        const category = classify(`${alert.scheduledActionType || key} ${alert.detail || ""}`);
+        // Classify by structured action type, never by explanatory prose. A carbonation
+        // follow-up can mention yesterday\'s pressure change without being a pressure action.
+        const category = classify(alert.scheduledActionType || key);
         if (category === "pressure" || category === "other") required[category].add(identity(alert, key));
     }
     for (const action of completedActions) {
