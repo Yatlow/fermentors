@@ -78,7 +78,11 @@ export function pendingGraceExtensions(
     const normalEnd = fermentationGraceEnd(tank);
     if (normalEnd === null || normalEnd <= at.getTime()) return false;
     const existingEnd = timestampMillis(tankOne?.cellarGraceExtensions?.[id]);
-    return existingEnd === null || existingEnd < Date.parse(end);
+    const start = timestampMillis(tank.fermentationStartedAt);
+    // Never compound the grace for the same fermentation on the next day.
+    // An extension that expired before the current fermentation started
+    // belongs to a previous batch and must not block the new batch.
+    return existingEnd === null || (start !== null && existingEnd <= start);
   }));
 }
 
