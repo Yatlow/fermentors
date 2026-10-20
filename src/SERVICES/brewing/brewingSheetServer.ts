@@ -87,8 +87,6 @@ export async function serverReadBrewSheetRange(
   return result;
 }
 
-export type BrewPrintTextReplacement = { from: string; to: string };
-
 export async function serverPrintBrewSheetPdf(input: {
   spreadsheetId: string;
   batchNumber: string;
@@ -97,7 +95,6 @@ export async function serverPrintBrewSheetPdf(input: {
   tankType: "single" | "double" | "triple";
   brewDate?: string;
   mashRestCount?: number;
-  textReplacements?: BrewPrintTextReplacement[];
 }) {
   const response = await callAppsScriptPost<
     AppsScriptEnvelope<{
