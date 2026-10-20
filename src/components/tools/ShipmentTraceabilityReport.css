@@ -33,3 +33,24 @@
 .traceability-result--matched { color: #166534; background: #dcfce7; }
 .traceability-result--shortage, .traceability-result--excess { color: #991b1b; background: #fee2e2; font-weight: 700; }
 .traceability-result--unknown { color: #92400e; background: #fef3c7; }
+
+/* Keep the shipment number and dispatch date on-screen while scrolling through
+   long SKU/lot tables. The sticky bar stays outside the horizontal table scroller. */
+.shipment-traceability-sticky-heading {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--surface, #fff);
+    border: 1px solid #dbe3eb;
+    border-radius: 9px;
+    padding: 11px 13px;
+    box-shadow: 0 3px 10px rgba(15,23,42,.12);
+}
+@media (max-width: 600px) {
+    .shipment-traceability-sticky-heading {
+        top: 0;
+        padding: 8px 10px;
+        gap: 6px;
+    }
+    .shipment-traceability-sticky-heading h3 { font-size: 1.02rem; }
+}
