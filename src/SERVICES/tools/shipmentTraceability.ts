@@ -71,7 +71,6 @@ export function buildShipmentTraceability(
         const found = new Set(pallets.map((p) => "palletId" in p ? p.palletId : p.id));
         if (!hasSnapshot) {
             missingPallets = (shipment.palletIds ?? []).filter((id) => !found.has(id)).length;
-            warnings.push("תעודה היסטורית: אין צילום נתונים ממועד המשלוח. יש לאמת מול המקור במקרה של ביקורת עקיבות.");
             if (missingPallets > 0) {
                 warnings.push("לא נמצאו " + missingPallets + " משטחים מתעודה ישנה; פירוט האצוות שלהם אינו זמין.");
             }
@@ -96,7 +95,7 @@ export function buildShipmentTraceability(
             observedTotals.set(key, (observedTotals.get(key) ?? 0) + quantity);
             add({
                 sku, description, itemType, batchNumber, expiryDateStr, quantity,
-                unverified: !hasSnapshot || !batchNumber || !expiryDateStr,
+                unverified: !batchNumber || !expiryDateStr,
             });
         }
 
