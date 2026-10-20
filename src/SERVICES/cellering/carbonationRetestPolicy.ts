@@ -231,8 +231,9 @@ export function carbonationRetestPressureContext(
   if (todayPressure === null) return null;
   const yesterdayPressure = latestPressureOn(yesterdayDate);
   const formatPressure = (pressure: number) => Number(pressure.toFixed(2)).toString();
-  const summary = `לחץ היום: ${formatPressure(todayPressure)} bar · לחץ אתמול: ${yesterdayPressure === null ? "לא נמדד" : `${formatPressure(yesterdayPressure)} bar`}`;
-  if (yesterdayPressure === null) return summary;
+  const todaySummary = `לחץ היום: ${formatPressure(todayPressure)} bar`;
+  if (yesterdayPressure === null) return todaySummary;
+  const summary = `${todaySummary} · לחץ אתמול: ${formatPressure(yesterdayPressure)} bar`;
   const delta = Math.round((todayPressure - yesterdayPressure) * 100) / 100;
   if (delta === 0) return summary;
   return `${summary} · הפרש: ${delta > 0 ? "עלייה" : "ירידה"} של ${Math.abs(delta).toFixed(2)} bar`;
