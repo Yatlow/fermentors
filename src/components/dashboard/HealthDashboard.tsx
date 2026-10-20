@@ -446,9 +446,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         );
                         const hasTodayYeast = /שמרים|שמרי/.test(todayNotes);
                         const hasTodayCooling = /קירור/.test(todayNotes);
-                        const handledPressureAfterCarb =
-                            recommendations?.pressureAdjustmentHandledToday?.completed === true;
-                        const carbCompletedToday = hasTodayCarbonation || handledPressureAfterCarb;
+                        const carbCompletedToday = hasTodayCarbonation;
 
                         const naturalCarb = Boolean(
                             recommendations?.requiresCarbTest?.req &&
@@ -550,7 +548,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             key
                         );
                         const carbRecommendationKeys = [
-                            "carbTest", "bottomCarbonationFollowUp",
+                            "carbTest",
                             ...unresolvedScheduled.filter((row) => row.actionType === "carbTest")
                                 .map((row) => `scheduled-${row.id}`),
                         ];
@@ -731,6 +729,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         // Award the daily action only when bottom carbonation STARTED today.
                         // Closing yesterday's session today is not a new start.
                         if (todayNotes.includes("תחילת גיזוז מלמטה")) addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
+                        if (todayNotes.includes("סגירת גיזוז מלמטה")) addCompleted(`bottom-carb-close-${tank.id}`, "סגירת גיזוז מלמטה");
                         if (recommendations?.pressureAdjustmentHandledToday?.completed && !completedScheduledPressure) {
                             const importance = Math.max(
                                 1,
