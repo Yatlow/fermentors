@@ -96,3 +96,11 @@ test("date formatting supports ISO and preserves manually entered dates", () => 
     assert.equal(displayShipmentExpiry("15/02/2027"), "15/02/2027");
     assert.equal(displayShipmentExpiry(null), "לא ידוע");
 });
+
+test("complete lot details from referenced existing pallets are identified without extra snapshot", () => {
+    const shipment = { palletIds: ["a"], totals: [{ beerStyle: "IPA", itemType: "kegs", totalQuantity: 8 }] };
+    const result = buildShipmentTraceability(shipment, [pallet("a", "1601", 8)], catalog);
+    assert.equal(result.rows[0].unverified, false);
+    assert.equal(result.hasUnverifiedData, false);
+    assert.deepEqual(result.warnings, []);
+});
