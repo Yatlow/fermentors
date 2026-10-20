@@ -4383,3 +4383,42 @@
     font-weight: 600;
     overflow-wrap: anywhere;
 }
+
+
+/* Print-only edits: keep substitution fields usable on iPhone without
+   ever changing the production brew form or its Sheet. */
+.brew-print-edit-modal .brew-print-edit-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 34px;
+    align-items: end;
+    gap: 8px;
+}
+.brew-print-edit-modal .brew-print-edit-row label {
+    min-width: 0;
+}
+.brew-print-edit-modal .brew-print-edit-remove,
+.brew-print-edit-modal .brew-print-edit-add {
+    min-height: 40px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-card);
+    color: var(--text-main);
+    font: inherit;
+    cursor: pointer;
+}
+.brew-print-edit-modal .brew-print-edit-add {
+    width: fit-content;
+    padding: 0 12px;
+}
+@media (max-width: 500px) {
+    .brew-print-edit-modal .brew-print-edit-row {
+        grid-template-columns: minmax(0, 1fr) 34px;
+    }
+    .brew-print-edit-modal .brew-print-edit-row label {
+        grid-column: 1;
+    }
+    .brew-print-edit-modal .brew-print-edit-remove {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+    }
+}
