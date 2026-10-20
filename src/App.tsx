@@ -331,7 +331,7 @@ function App() {
     }, [needsStandaloneCellarBadge]);
 
     // One deterministic classification powers reporting cards, badges and the KPI.
-    const cellarGraceTankIds = measurementGraceTankIds(brews, cellarGraceProgress, graceNow);
+    const cellarGraceTankIds = measurementGraceTankIds(brews, cellarGraceProgress, graceNow, cellarDailyProgress);
 
     const cellarPending = (mode: "לחץ" | "חם") => brews.filter(t => {
         if (Number(t.tankNumber) === 1 || Number(t.action) !== 1 || cellarGraceTankIds.has(String(t.id))) return false;
