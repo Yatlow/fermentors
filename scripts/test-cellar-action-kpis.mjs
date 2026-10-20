@@ -218,7 +218,7 @@ test("today's pressure comparison uses actual daily measurements only", () => {
     ];
     assert.match(
         carbonationRetestPressureContext(history, "2026-10-20") ?? "",
-        /לחץ היום: 1.34 bar.*לחץ אתמול: 0.88 bar.*הפרש: עלייה של 0.46 bar/,
+        /לחץ היום: 1.34 bar.*לחץ במדידה הקודמת היום: 1.2 bar.*הפרש: עלייה של 0.14 bar/,
     );
     assert.equal(carbonationRetestPressureContext(history, "2026-10-21"), null);
     const policy = carbonationRetestPolicy([
