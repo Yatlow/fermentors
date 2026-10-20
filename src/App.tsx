@@ -6,7 +6,6 @@ import {
     onSnapshot,
     doc,
     updateDoc,
-    setDoc,
     getDoc,
     serverTimestamp,
     type DocumentData,
@@ -27,7 +26,7 @@ import DailyPressureAndTemp from "./components/cellering/DailyPressureAndTemp";
 import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "./SERVICES/getAndPost/gettAllDataByBatch";
 import { cellarBadgeFieldsForDay, pendingCellarMeasurementTankNumbers, type CellarBadgeFields } from "./SERVICES/dashboard/cellarMeasurementBadge";
 import { subscribeIgnoredCellarRecommendationsToday, type IgnoredCellarRecommendation } from "./SERVICES/cellering/ignoredCellarRecommendations";
-import { isInMeasurementGrace, completedRoundGraceExtensions } from "./SERVICES/dashboard/cellarGrace";
+import { graceDayStart, measurementGraceTankIds } from "./SERVICES/dashboard/cellarGrace";
 import { localDateKey } from "./SERVICES/dashboard/healthModel";
 import CellaringForecast from "./components/cellering/CellaringForecast";
 import SendMessurmentsHeader from "./components/cellering/SendMessurmentsHeader";
@@ -237,9 +236,15 @@ function App() {
     const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails" | "packagingSheet" | "catalog">("calculator");
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
     const [cellarDailyProgress, setCellarDailyProgress] = useState<Record<string, CellarBadgeFields>>({});
+    const [cellarGraceProgress, setCellarGraceProgress] = useState<Record<string, CellarBadgeFields>>({});
+    const [graceNow, setGraceNow] = useState(() => new Date());
+    useEffect(() => {
+        const timer = window.setInterval(() => setGraceNow(new Date()), 60_000);
+        return () => window.clearInterval(timer);
+    }, []);
+    const measurementDayKey = localDateKey(graceNow);
+    const graceDayKey = localDateKey(graceDayStart(graceNow));
     const [cellarDailyProgressReady, setCellarDailyProgressReady] = useState(false);
-    const [cellarDailyProgressKey, setCellarDailyProgressKey] = useState("");
-    const graceExtensionWriteRef = useRef<string | null>(null);
     const [ignoredCellarBadgeRows, setIgnoredCellarBadgeRows] = useState<IgnoredCellarRecommendation[]>([]);
     const [ignoredCellarBadgeReady, setIgnoredCellarBadgeReady] = useState(false);
     const cellarBatchKey = brews.filter(t => Number(t.action) === 1).map(t => String(t.id) + ":" + String(t.batchNumber ?? "")).sort().join("|");
@@ -264,7 +269,10 @@ function App() {
                     const measurements = tank.batchNumber
                         ? await getMeasurementsByBatch(String(tank.batchNumber))
                         : [];
-                    return [tank.id, cellarBadgeFieldsForDay(measurements, asOf)] as const;
+                    return [tank.id, {
+                        today: cellarBadgeFieldsForDay(measurements, asOf),
+                        graceDay: cellarBadgeFieldsForDay(measurements, graceDayStart(asOf)),
+                    }] as const;
                 } catch (error) {
                     console.warn("Unable to refresh cellar badge measurements", tank.tankNumber, error);
                     return null;
@@ -273,8 +281,9 @@ function App() {
             if (cancelled || generation !== latestRefresh) return;
             // An unavailable history is unknown, NOT a reason to count the
             // tank as unmeasured. This prevents a false badge of all tanks.
-            setCellarDailyProgress(Object.fromEntries(entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null)));
-            setCellarDailyProgressKey(`${localDateKey(asOf)}|${cellarBatchKey}`);
+            const available = entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+            setCellarDailyProgress(Object.fromEntries(available.map(([id, fields]) => [id, fields.today])));
+            setCellarGraceProgress(Object.fromEntries(available.map(([id, fields]) => [id, fields.graceDay])));
             setCellarDailyProgressReady(true);
         };
 
@@ -296,10 +305,10 @@ function App() {
             window.removeEventListener("focus", scheduleRefresh);
             document.removeEventListener("visibilitychange", onVisible);
         };
-    // The tank+batch identity controls cache invalidation; snapshots that only
-    // change a temperature must not cause another all-tank measurement scan.
+    // Batch or grace-day/calendar-day rollover invalidates this shared cache.
+    // The minute tick itself never causes repeated Firestore reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [needsStandaloneCellarBadge, cellarBatchKey]);
+    }, [needsStandaloneCellarBadge, cellarBatchKey, measurementDayKey, graceDayKey]);
 
     useEffect(() => {
         if (!needsStandaloneCellarBadge) return;
@@ -313,39 +322,18 @@ function App() {
         );
     }, [needsStandaloneCellarBadge]);
 
-    const cellarTankOne = brews.find(t => Number(t.tankNumber) === 1);
-
-    // Outside the dashboard, the shared measurement cache is already loaded
-    // for the navigation badges. Use that same snapshot to lock grace when a
-    // full daily round completes; no extra measurement reads are required.
-    useEffect(() => {
-        if (!needsStandaloneCellarBadge || !cellarDailyProgressReady || !cellarTankOne?.id ||
-            cellarDailyProgressKey !== `${localDateKey(new Date())}|${cellarBatchKey}`) return;
-
-        const updates = completedRoundGraceExtensions(brews, cellarDailyProgress, cellarTankOne);
-        const entries = Object.entries(updates);
-        if (entries.length === 0) return;
-        const signature = entries.map(([id, end]) => `${id}:${end}`).sort().join("|");
-        if (graceExtensionWriteRef.current === signature) return;
-        graceExtensionWriteRef.current = signature;
-
-        void setDoc(doc(db, "fermentors", String(cellarTankOne.id)), {
-            cellarGraceExtensions: updates,
-        }, { merge: true }).catch(error => {
-            graceExtensionWriteRef.current = null;
-            console.error("Failed persisting completed daily round grace from cellar reporting:", error);
-        });
-    }, [needsStandaloneCellarBadge, cellarDailyProgressReady, cellarDailyProgressKey, cellarBatchKey, cellarDailyProgress, brews, cellarTankOne]);
+    // One deterministic classification powers reporting cards, badges and the KPI.
+    const cellarGraceTankIds = measurementGraceTankIds(brews, cellarGraceProgress, graceNow);
 
     const cellarPending = (mode: "לחץ" | "חם") => brews.filter(t => {
-        if (Number(t.tankNumber) === 1 || Number(t.action) !== 1 || isInMeasurementGrace(t, cellarTankOne)) return false;
+        if (Number(t.tankNumber) === 1 || Number(t.action) !== 1 || cellarGraceTankIds.has(String(t.id))) return false;
         if (mode === "חם" && !(Number(t.currentData?.temp) > 9 && t.stage?.name === "בתסיסה")) return false;
         const p = cellarDailyProgress[t.id];
         if (!p) return false;
         return mode === "לחץ" ? !(p.temp && p.pressure) : !(p.plato && p.pH);
     }).length;
     const uniquePendingMeasurementCount = needsStandaloneCellarBadge && cellarDailyProgressReady && ignoredCellarBadgeReady
-        ? pendingCellarMeasurementTankNumbers(brews, cellarDailyProgress, ignoredCellarBadgeRows).length
+        ? pendingCellarMeasurementTankNumbers(brews, cellarDailyProgress, ignoredCellarBadgeRows, graceNow, cellarGraceProgress).length
         : dashboardPendingMeasurementTanks.length;
     const readingSourceIdentityRef = useRef<Record<string, string>>({});
     const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
@@ -664,8 +652,8 @@ function App() {
                 {selectedView === "רישום" && <>
                     <CellaringForecast brews={brews} specs={specs} />
                     <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
-                    {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} dailyProgress={cellarDailyProgress} />}
-                    {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} dailyProgress={cellarDailyProgress} />}
+                    {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} dailyProgress={cellarDailyProgress} graceTankIds={cellarGraceTankIds} />}
+                    {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} dailyProgress={cellarDailyProgress} graceTankIds={cellarGraceTankIds} />}
                     {selectedWrites === "פעולות" && <NoteToFermentor brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} specs={specs} />}
                     {selectedWrites === "אריזה" && <PackagingForm brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} />}
                 </>}
