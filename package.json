@@ -12,13 +12,14 @@
     "test:dashboard": "node scripts/test-dashboard.mjs",
     "test:planning-snapshots": "node scripts/test-planning-snapshots.mjs",
     "test:cellar-action-kpis": "node scripts/test-cellar-action-kpis.mjs",
-    "test": "npm run test:yesterday-actions && npm run test:cellar-action-kpis && npm run test:salinity && npm run test:hydrometer && npm run test:hop-volume && npm run test:planning && npm run test:dashboard && npm run test:planning-snapshots && npm run test:server-regressions && npm run test:packaging-pallets",
+    "test": "npm run test:yesterday-actions && npm run test:cellar-action-kpis && npm run test:salinity && npm run test:hydrometer && npm run test:hop-volume && npm run test:packaging-print-text && npm run test:planning && npm run test:dashboard && npm run test:planning-snapshots && npm run test:server-regressions && npm run test:packaging-pallets",
     "test:server-regressions": "node scripts/test-server-regressions.mjs",
     "test:packaging-pallets": "node scripts/test-packaging-pallet-defaults.mjs",
     "test:yesterday-actions": "node scripts/test-yesterday-action-notes.mjs",
     "test:salinity": "node scripts/test-salinity-correction.mjs",
     "test:hydrometer": "node scripts/test-hydrometer-target.mjs",
-    "test:hop-volume": "node scripts/test-hop-volume-recalculation.mjs"
+    "test:hop-volume": "node scripts/test-hop-volume-recalculation.mjs",
+    "test:packaging-print-text": "node scripts/test-packaging-print-text.mjs"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",

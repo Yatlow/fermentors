@@ -457,7 +457,6 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                     <div className="calc-result">
                         כמות להוסיף: <strong>{saltResult === null ? "חסר נתון תקין (מליחות 0–11)" : saltResult.toFixed(2)}</strong>
                     </div>
-                    <p className="spec-card-subtitle">לפי נוסחת העבודה: נפח × (1 − מליחות ÷ 11) × 0.01. יחידת כמות התוספת בהתאם לשיטת העבודה בגיליון.</p>
                 </section>
 
                 <HydrometerCorrectionCalculator />
