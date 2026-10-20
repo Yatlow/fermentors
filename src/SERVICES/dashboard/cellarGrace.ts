@@ -124,3 +124,21 @@ export function graceElapsedLabel(
   const elapsed = elapsedFermentationHours(tank, now);
   return elapsed === null ? null : `עברו ${elapsed} שעות מהעברה למיכל`;
 }
+
+/** Only completed voluntary grace rounds participate in the full-round KPI.
+ * An incomplete grace round cannot add to the denominator; required tanks
+ * participate whether complete or not. */
+export function completedDailyRoundKpi(
+  results: ReadonlyArray<{ tankNumber: string; completeMeasurements: boolean }>,
+  graceTankNumbers: ReadonlySet<string>,
+): { checkedTanks: number; completeMeasurementTankNumbers: string[] } {
+  const counted = results.filter(row =>
+    !graceTankNumbers.has(row.tankNumber) || row.completeMeasurements
+  );
+  return {
+    checkedTanks: counted.length,
+    completeMeasurementTankNumbers: counted
+      .filter(row => row.completeMeasurements)
+      .map(row => row.tankNumber),
+  };
+}
