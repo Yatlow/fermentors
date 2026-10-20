@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { collection, doc, getDoc, getDocsFromServer, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDoc, getDocsFromServer, onSnapshot, query, where } from "firebase/firestore";
 import { Download, Search } from "lucide-react";
 import { db } from "../../firebase";
 import { getCatalogEntry } from "../../SERVICES/cooler/PalletCatalog";
@@ -10,7 +10,7 @@ import {
     type ShipmentLotRow,
     type ShipmentTraceability,
 } from "../../SERVICES/tools/shipmentTraceability";
-import { buildBatchTraceability, listTraceableBatches } from "../../SERVICES/tools/batchTraceability";
+import { buildBatchTraceability, listTraceableBatches, type PackagingActualRecord, type BatchSkuSummary } from "../../SERVICES/tools/batchTraceability";
 import BeerLoader from "../general/Loading";
 import "./ShipmentTraceabilityReport.css";
 
@@ -37,6 +37,10 @@ export default function ShipmentTraceabilityReport() {
     const [palletsLoading, setPalletsLoading] = useState(false);
     const [palletsError, setPalletsError] = useState("");
     const [palletsReady, setPalletsReady] = useState(false);
+    const [packagingActuals, setPackagingActuals] = useState<PackagingActualRecord[] | null>(null);
+    const [packagingBatchLoaded, setPackagingBatchLoaded] = useState("");
+    const [packagingLoading, setPackagingLoading] = useState(false);
+    const [packagingError, setPackagingError] = useState("");
     const [search, setSearch] = useState("");
     const [selectedId, setSelectedId] = useState("");
     const [details, setDetails] = useState<ShipmentTraceability | null>(null);
@@ -82,11 +86,53 @@ export default function ShipmentTraceabilityReport() {
         return () => { cancelled = true; };
     }, [mode]);
 
+    // Fetch actual packaging reports for the selected batch only.
+    // packagingLog.quantity is stored in kegs or complete 24-bottle crates.
+    useEffect(() => {
+        if (mode !== "batch" || !batchNumber.trim()) {
+            setPackagingActuals(null);
+            setPackagingBatchLoaded("");
+            setPackagingLoading(false);
+            setPackagingError("");
+            return;
+        }
+        let cancelled = false;
+        setPackagingActuals(null);
+        setPackagingBatchLoaded("");
+        setPackagingLoading(true);
+        setPackagingError("");
+        const timer = window.setTimeout(async () => {
+            try {
+                const batch = batchNumber.trim().replace(/^#/, "");
+                const alternatives: Array<string | number> = [batch, "#" + batch];
+                const numeric = Number(batch);
+                if (/^\d+$/.test(batch) && Number.isSafeInteger(numeric)) alternatives.push(numeric);
+                // Single-field query, no composite index or full-history scan.
+                const snapshot = await getDocsFromServer(query(
+                    collection(db, "packagingLog"), where("batchNumber", "in", alternatives),
+                ));
+                if (cancelled) return;
+                setPackagingActuals(snapshot.docs.map((item) => ({
+                    id: item.id, ...item.data(),
+                } as PackagingActualRecord)));
+                setPackagingBatchLoaded(batchNumber);
+            } catch (error) {
+                console.error("Unable to load actual packaging reports for traceability", error);
+                if (!cancelled) setPackagingError("לא ניתן לטעון דיווחי אריזה בפועל. לא ניתן לבצע בקרת התאמה מהימנה.");
+            } finally {
+                if (!cancelled) setPackagingLoading(false);
+            }
+        }, 200);
+        return () => { cancelled = true; window.clearTimeout(timer); };
+    }, [batchNumber, mode]);
+
     const batches = useMemo(() => listTraceableBatches(shipments, pallets), [shipments, pallets]);
     const batchDetail = useMemo(
-        () => mode === "batch" && palletsReady && !palletsLoading && !palletsError && !loading && !listError && batchNumber
-            ? buildBatchTraceability(batchNumber, shipments, pallets, getCatalogEntry) : null,
-        [mode, palletsReady, palletsLoading, palletsError, loading, listError, batchNumber, shipments, pallets],
+        () => mode === "batch" && palletsReady && !palletsLoading && !palletsError &&
+            !packagingLoading && !packagingError && packagingBatchLoaded === batchNumber &&
+            !loading && !listError && batchNumber.trim()
+            ? buildBatchTraceability(batchNumber.trim(), shipments, pallets, getCatalogEntry, packagingActuals) : null,
+        [mode, palletsReady, palletsLoading, palletsError, packagingLoading, packagingError, packagingBatchLoaded, packagingActuals, loading, listError, batchNumber, shipments, pallets],
     );
 
     const selected = useMemo(
@@ -179,6 +225,20 @@ export default function ShipmentTraceabilityReport() {
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
+    function reconciliationLabel(item: BatchSkuSummary): string {
+        if (item.reconciliationStatus === "unknown") return "לא ניתן לאמת";
+        if (item.reconciliationStatus === "matched") return "תואם";
+        if (item.reconciliationStatus === "shortage") return "חוסר בלתי מוסבר";
+        return "עודף בלתי מוסבר";
+    }
+
+    function varianceLabel(item: BatchSkuSummary): string {
+        if (item.variance === null) return "לא ידוע";
+        if (item.variance === 0) return "0";
+        return (item.variance > 0 ? "חסרות " : "עודף ") +
+            Math.abs(item.variance) + " " + unit(item);
+    }
+
     function downloadBatchCsv() {
         if (!batchDetail) return;
         const data: Array<Array<string | number>> = [
@@ -188,6 +248,13 @@ export default function ShipmentTraceabilityReport() {
             batchNumber, row.shipmentNumber, row.shipmentDate?.toLocaleDateString("he-IL") ?? "לא ידוע",
             row.customerName, row.sku, row.description, row.quantity, unit(row),
             displayShipmentExpiry(row.expiryDateStr), row.unverified ? "חסר מידע" : "מזוהה",
+        ]));
+        data.push([]);
+        data.push(["אצווה", "מק״ט", "פריט", "נארז בפועל", "נשלח", "נותר", "פער", "סטטוס התאמה", "יחידה"]);
+        batchDetail.summaries.forEach((row) => data.push([
+            batchNumber, row.sku, row.description, row.packaged ?? "לא ידוע",
+            row.shipped, row.remaining, row.variance ?? "לא ידוע",
+            reconciliationLabel(row), unit(row),
         ]));
         data.push([]);
         data.push(["אצווה", "מק״ט", "פריט", "כמות נותרת", "יחידה", "תפוגה", "מיקום"]);
@@ -300,16 +367,21 @@ export default function ShipmentTraceabilityReport() {
                 <div className="shipment-traceability-picker">
                     <label>
                         <span>בחירת אצווה</span>
-                        <select value={batchNumber} onChange={(event) => setBatchNumber(event.target.value)} disabled={palletsLoading || Boolean(palletsError) || loading || Boolean(listError)}>
-                            <option value="">בחר אצווה</option>
-                            {batches.map((batch) => <option key={batch} value={batch}>{batch}</option>)}
-                        </select>
+                        <input type="text" list="traceability-batches" value={batchNumber}
+                            onChange={(event) => setBatchNumber(event.target.value)}
+                            placeholder="מספר אצווה – בחר או הקלד"
+                            disabled={palletsLoading || Boolean(palletsError) || loading || Boolean(listError)} />
+                        <datalist id="traceability-batches">
+                            {batches.map((batch) => <option key={batch} value={batch} />)}
+                        </datalist>
                     </label>
                     {batchDetail && <button type="button" className="status-filter-button" onClick={downloadBatchCsv}>
                         <Download size={17} aria-hidden="true" /> ייצוא CSV
                     </button>}
                 </div>
                 {palletsLoading && <BeerLoader message="טוען אינדקס משטחים ואצוות..." size="small" />}
+                {packagingLoading && <BeerLoader message="מצליב דיווחי אריזה..." size="small" />}
+                {packagingError && <p role="alert" className="shipment-traceability-warning">{packagingError}</p>
                 {palletsError && <p role="alert" className="shipment-traceability-warning">{palletsError}</p>}
                 {listError && <p role="alert" className="shipment-traceability-warning">{listError}</p>}
                 {!palletsLoading && palletsReady && !palletsError && !loading && batches.length === 0 && <p>לא נמצאו אצוות עם נתוני משטחים.</p>}
@@ -317,7 +389,7 @@ export default function ShipmentTraceabilityReport() {
                     <div className="shipment-traceability-heading shipment-traceability-details">
                         <div>
                             <h3>עקיבות אצווה {batchDetail.batchNumber}</h3>
-                            <p>כמויות המשלוחים מתוך התעודות; המלאי הנותר מחושב מהמשטחים שטרם נשלחו.</p>
+                            <p>נארז מתוך דיווחי אריזה בפועל · נשלח מתוך תעודות · יתרה מתוך משטחים פעילים.</p>
                         </div>
                     </div>
                     {batchDetail.hasUnverifiedShipments && <p className="shipment-traceability-warning">
@@ -326,17 +398,38 @@ export default function ShipmentTraceabilityReport() {
                     {batchDetail.missingHistoricalPallets > 0 && <p className="shipment-traceability-warning">
                         נמצאו {batchDetail.missingHistoricalPallets} הפניות למשטחים היסטוריים חסרים במערכת; ייתכן שיש משלוחים שאי אפשר לשייך לאצווה.
                     </p>}
+                    {batchDetail.invalidPackagingRecords > 0 && <p role="alert" className="shipment-traceability-warning">
+                        {batchDetail.invalidPackagingRecords} דיווחי אריזה מכילים כמות, סוג פריט או סגנון לא תקינים; אין להתייחס להתאמה כחיובית בלי בדיקתם.
+                    </p>}
+                    {batchDetail.summaries.some((row) => row.reconciliationStatus === "shortage") &&
+                        <p role="alert" className="shipment-traceability-warning">
+                            קיימים פערי מלאי בלתי מוסברים: כמות האריזה גבוהה מסכום המשלוחים המזוהים והמלאי הקיים.
+                            ייתכן שמדובר ביציאה לא מתועדת או בדיווח חסר; אין לייחס את הפער למשלוח מסוים ללא נתונים.
+                        </p>}
+                    {batchDetail.summaries.some((row) => row.reconciliationStatus === "excess") &&
+                        <p role="alert" className="shipment-traceability-warning">
+                            קיימים עודפים: כמות המשלוחים והמלאי יחד גדולה מכמות האריזה המדווחת.
+                        </p>}
+                    {batchDetail.summaries.some((row) => row.reconciliationStatus === "unknown") &&
+                        <p className="shipment-traceability-warning">
+                            אין דיווחי אריזה תקפים לחלק מהמק״טים. בדיקת ההתאמה שלהם אינה זמינה ולא תיחשב תקינה.
+                        </p>}
                     {batchDetail.summaries.length === 0
                         ? <p>אין משלוחים או מלאי משטחים מזוהים לאצווה זו.</p>
                         : <div className="shipment-traceability-group">
                             <div className="shipment-traceability-group-title"><strong>סיכום לפי מק״ט</strong></div>
                             <div className="shipment-traceability-scroll"><table>
-                                <thead><tr><th>מק״ט / פריט</th><th>נשלח</th><th>נותר אצלנו</th></tr></thead>
+                                <thead><tr><th>מק״ט / פריט</th><th>נארז בפועל</th><th>נשלח</th><th>נותר אצלנו</th><th>פער</th><th>בדיקת התאמה</th></tr></thead>
                                 <tbody>{batchDetail.summaries.map((row) => (
                                     <tr key={JSON.stringify([row.sku, row.itemType])}>
                                         <td><strong>{row.sku}</strong> · {row.description}</td>
+                                        <td>{row.packaged === null ? "לא ידוע" : row.packaged + " " + unit(row)}</td>
                                         <td>{row.shipped} {unit(row)}</td>
                                         <td>{row.remaining} {unit(row)}</td>
+                                        <td>{varianceLabel(row)}</td>
+                                        <td><span className={"traceability-result traceability-result--" + row.reconciliationStatus}>
+                                            {reconciliationLabel(row)}
+                                        </span></td>
                                     </tr>
                                 ))}</tbody>
                             </table></div>
