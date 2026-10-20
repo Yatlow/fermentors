@@ -53,15 +53,34 @@ test("ignored round matches tank and batch and does not suppress another batch",
     [{ ...ignored[0], batchNumber: "previous-batch" }], TODAY), ["7", "8"]);
 });
 
-test("fermentation grace and same-day grace snapshots suppress the badge", () => {
+test("12-hour grace suppresses missing badge, but legacy snapshot alone cannot", () => {
   const tankOne = {
     id: "tank-1", tankNumber: 1, action: 0,
     cellarHealthCompletedDay: "2026-10-19",
     cellarGraceTankIds: ["tank-7"],
   };
-  const tanks = [tankOne, tank("tank-7", 7, 18)];
-  const byTank = { "tank-7": cellarBadgeFieldsForDay([], TODAY) };
-  assert.deepEqual(pendingCellarMeasurementTankNumbers(tanks, byTank, [], TODAY), []);
+  const missing = { "tank-7": cellarBadgeFieldsForDay([], TODAY) };
+  const startedRecently = tank("tank-7", 7, 18, {
+    fermentationStartedAt: new Date(2026, 9, 19, 8).toISOString(),
+  });
+  assert.deepEqual(pendingCellarMeasurementTankNumbers([tankOne, startedRecently], missing, [], TODAY), []);
+  assert.deepEqual(pendingCellarMeasurementTankNumbers([tankOne, tank("tank-7", 7, 18)], missing, [], TODAY), ["7"]);
+});
+
+test("after 12 hours the conditional badge uses veteran completion in the same 05:00 grace cycle", () => {
+  const checkedAt = new Date(2026, 9, 19, 22);
+  const old = tank("old", 4, 15);
+  const young = tank("new", 16, 15, { fermentationStartedAt: new Date(2026, 9, 19, 8).toISOString() });
+  const today = { old: cellarBadgeFieldsForDay([], checkedAt), new: cellarBadgeFieldsForDay([], checkedAt) };
+  const oldCompleted = { ...today, old: { temp: true, pressure: true, plato: true, pH: true } };
+  assert.deepEqual(pendingCellarMeasurementTankNumbers([old, young], today, [], checkedAt), ["4", "16"]);
+  assert.deepEqual(pendingCellarMeasurementTankNumbers([old, young], oldCompleted, [], checkedAt), []);
+
+  // At 00:00, badges reset to today, but the grace decision still uses yesterday.
+  const afterMidnight = new Date(2026, 9, 20, 0, 10);
+  assert.deepEqual(pendingCellarMeasurementTankNumbers([old, young], today, [], afterMidnight, oldCompleted), ["4"]);
+  // At 05:00, young becomes a veteran as its original 12h grace ended yesterday.
+  assert.deepEqual(pendingCellarMeasurementTankNumbers([old, young], today, [], new Date(2026, 9, 20, 5), oldCompleted), ["4", "16"]);
 });
 
 test("an unloaded or inactive tank is never presumed to be missing everything", () => {
