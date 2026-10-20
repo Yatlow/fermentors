@@ -187,7 +187,7 @@ export default function ShipmentTraceabilityReport() {
         batchDetail.shipments.forEach((row) => data.push([
             batchNumber, row.shipmentNumber, row.shipmentDate?.toLocaleDateString("he-IL") ?? "לא ידוע",
             row.customerName, row.sku, row.description, row.quantity, unit(row),
-            displayShipmentExpiry(row.expiryDateStr), row.unverified ? "היסטורי/חסר אימות" : "מאומת",
+            displayShipmentExpiry(row.expiryDateStr), row.unverified ? "חסר מידע" : "מזוהה",
         ]));
         data.push([]);
         data.push(["אצווה", "מק״ט", "פריט", "כמות נותרת", "יחידה", "תפוגה", "מיקום"]);
@@ -270,7 +270,7 @@ export default function ShipmentTraceabilityReport() {
                     )}
                     {selected.palletSnapshot === undefined && (selected.palletIds?.length ?? 0) > 0 &&
                         <p className="shipment-traceability-warning">
-                            תעודה היסטורית: הפרטים שוחזרו מנתוני המשטחים הנוכחיים. ייתכן ששונו מאז המשלוח.
+                            הפרטים מוצגים על פי רשומות המשטחים המקושרות. שינוי בפרטי משטח ישפיע גם על דוח זה.
                         </p>}
                     {groups.length === 0 ? <p>לא נמצאו פריטים בתעודה.</p> : groups.map((group) => (
                         <div className="shipment-traceability-group" key={JSON.stringify([group.sku, group.description, group.itemType])}>
@@ -321,7 +321,7 @@ export default function ShipmentTraceabilityReport() {
                         </div>
                     </div>
                     {batchDetail.hasUnverifiedShipments && <p className="shipment-traceability-warning">
-                        חלק מתעודות המשלוח היסטוריות ומסתמכות על נתוני משטחים נוכחיים, ולא על צילום ממועד המשלוח.
+                        בחלק מהמשלוחים חסרים פרטי אצווה או תפוגה; הפרטים החסרים מסומנים בטבלה.
                     </p>}
                     {batchDetail.missingHistoricalPallets > 0 && <p className="shipment-traceability-warning">
                         נמצאו {batchDetail.missingHistoricalPallets} הפניות למשטחים היסטוריים חסרים במערכת; ייתכן שיש משלוחים שאי אפשר לשייך לאצווה.
@@ -353,7 +353,7 @@ export default function ShipmentTraceabilityReport() {
                                     <td>{row.sku} · {row.description}</td>
                                     <td>{row.quantity} {unit(row)}</td>
                                     <td>{displayShipmentExpiry(row.expiryDateStr)}</td>
-                                    <td>{row.unverified ? "היסטורי / חסר אימות" : "מאומת"}</td>
+                                    <td>{row.unverified ? "חסר מידע" : "מזוהה"}</td>
                                 </tr>
                             )) : <tr><td colSpan={7}>לא נמצאו משלוחים מזוהים לאצווה זו.</td></tr>}</tbody>
                         </table></div>
