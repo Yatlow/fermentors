@@ -169,7 +169,7 @@ test("repeat-test context shows latest today's and yesterday's pressure and rise
   ];
   assert.equal(
     carbonationRetestPressureContext(readings, "2026-10-20"),
-    "לחץ היום: 1.35 bar · לחץ אתמול: 0.88 bar · הפרש: עלייה של 0.47 bar",
+    "לחץ היום: 1.35 bar · לחץ במדידה הקודמת היום: 1.2 bar · הפרש: עלייה של 0.15 bar",
   );
 });
 
@@ -219,4 +219,12 @@ test("repeat-test pressure context handles a month transition", () => {
     ) ?? "",
     /הפרש: ירידה של 0.10 bar/,
   );
+});
+
+
+test("compares today's reading to the latest prior day, even several days back", () => {
+  assert.match(carbonationRetestPressureContext([
+    { id: "2026-10-17_1000", pressure: 0.88 },
+    { id: "2026-10-20_1000", pressure: 1.35 },
+  ], "2026-10-20") ?? "", /לחץ קודם \\(17\\/10\\/2026\\): 0.88 bar.*עלייה של 0.47 bar/);
 });
