@@ -46,7 +46,7 @@ export function pendingCellarMeasurementTankNumbers(
   now: Date = new Date(),
   graceDayFieldsByTankId: Record<string, CellarBadgeFields> = fieldsByTankId,
 ): string[] {
-  const exemptIds = measurementGraceTankIds(tanks, graceDayFieldsByTankId, now);
+  const exemptIds = measurementGraceTankIds(tanks, graceDayFieldsByTankId, now, fieldsByTankId);
   const pending = new Set<string>();
 
   for (const tank of tanks) {
