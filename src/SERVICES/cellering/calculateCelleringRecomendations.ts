@@ -1403,6 +1403,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const requiredPressureAdjustment = {
         display: true,
         req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment,
+        // Keep the legacy recommendation key (and today's ignore decisions)
+        // but explicitly distinguish raising/lowering pressure from vent tuning.
+        actionType: coldCarbNeedsPressureAdjustment ? "pressureChange" as const : "ventAdjust" as const,
         reason: coldCarbNeedsPressureAdjustment
             ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם או לוודא שבוצע.`
             : `מומלץ לכוון פורק ל ${effectivePressureTarget}, הלחץ כרגע ${Number(effectivePressureTarget) > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
