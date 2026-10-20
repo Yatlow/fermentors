@@ -64,7 +64,8 @@ function completedApplicableFields(tank: GraceRoundTank, fields: DailyRoundField
  * - A tank whose 12 hours ended on/before the last 05:00 is a veteran.
  *
  * fieldsByTankId must be measured on graceDayStart(at)'s LOCAL CALENDAR DATE.
- * Before 05:00 that is yesterday; the normal daily KPI still uses today.
+ * Before 05:00 that is yesterday. A wholly complete NEW calendar day's round
+ * may also grant the exemption, but never combine half-rounds across days.
  * Missing/unavailable veteran history never grants a conditional exemption.
  * No Firestore state, retroactive writes, or circular dependency is needed.
  */
@@ -72,6 +73,7 @@ export function measurementGraceTankIds(
   tanks: GraceRoundTank[],
   fieldsByTankId: Record<string, DailyRoundFields>,
   at: Date = new Date(),
+  calendarTodayFieldsByTankId: Record<string, DailyRoundFields> = fieldsByTankId,
 ): Set<string> {
   const nowMs = at.getTime();
   const cycleStartMs = graceDayStart(at).getTime();
@@ -80,9 +82,9 @@ export function measurementGraceTankIds(
     const end = fermentationGraceEnd(tank);
     return end === null || end <= cycleStartMs;
   });
-  const veteransComplete = veterans.every(tank =>
-    completedApplicableFields(tank, fieldsByTankId[tank.id])
-  );
+  const completeRound = (fields: Record<string, DailyRoundFields>) =>
+    veterans.every(tank => completedApplicableFields(tank, fields[tank.id]));
+  const veteransComplete = completeRound(fieldsByTankId) || completeRound(calendarTodayFieldsByTankId);
 
   return new Set(active.filter(tank => {
     const start = timestampMillis(tank.fermentationStartedAt);
