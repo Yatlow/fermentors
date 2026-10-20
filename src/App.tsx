@@ -239,8 +239,16 @@ function App() {
     const [cellarGraceProgress, setCellarGraceProgress] = useState<Record<string, CellarBadgeFields>>({});
     const [graceNow, setGraceNow] = useState(() => new Date());
     useEffect(() => {
-        const timer = window.setInterval(() => setGraceNow(new Date()), 60_000);
-        return () => window.clearInterval(timer);
+        const refreshClock = () => setGraceNow(new Date());
+        const onVisible = () => { if (!document.hidden) refreshClock(); };
+        const timer = window.setInterval(refreshClock, 60_000);
+        window.addEventListener("focus", refreshClock);
+        document.addEventListener("visibilitychange", onVisible);
+        return () => {
+            window.clearInterval(timer);
+            window.removeEventListener("focus", refreshClock);
+            document.removeEventListener("visibilitychange", onVisible);
+        };
     }, []);
     const measurementDayKey = localDateKey(graceNow);
     const graceDayKey = localDateKey(graceDayStart(graceNow));
