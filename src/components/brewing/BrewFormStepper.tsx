@@ -1530,6 +1530,9 @@ export default function BrewFormStepper({
   }
 
   function selectMaterialLot(ingredientId: string, lotId: string) {
+    // Lot selection and approval are genuine edits, not mere navigation.
+    // Guard against an in-flight Firestore hydration/echo replacing them.
+    latestLocalEditAt.current = Date.now();
     let next = setBrewingExecutionField(
       execution,
       currentBlock,
@@ -1671,6 +1674,7 @@ export default function BrewFormStepper({
       );
     }
 
+    latestLocalEditAt.current = Date.now();
     let next = setBrewingExecutionField(execution, currentBlock, "brewDate", value);
     next = setBrewingExecutionField(next, currentBlock, "brewDate.manual", options.manual === false ? "" : value);
     setExecution(next);
@@ -1678,6 +1682,7 @@ export default function BrewFormStepper({
   }
 
   async function confirmMaterials() {
+    latestLocalEditAt.current = Date.now();
     let nextExecution = execution;
     const writes: Array<{
       range: string;
