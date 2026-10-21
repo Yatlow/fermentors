@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   loadBrewingExecution,
@@ -15,7 +15,7 @@ import {
   type BrewExecution,
 } from "../../SERVICES/brewing/brewExecution";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
-import { mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldAcceptRemoteBrewingExecution } from "../../SERVICES/brewing/brewSyncGuards";
+import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials } from "../../SERVICES/brewing/brewSyncGuards";
 import { recordedBrewPosition, reviewedStepsFromRecordedWork } from "../../SERVICES/brewing/brewValidationProgress";
 import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
 import {
@@ -1008,9 +1008,19 @@ export default function BrewFormStepper({
   const initialProductionPullKey = useRef("");
   const lastHandledSheetEditRevision = useRef<number | null>(null);
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSheetWrites = useRef(new Set<Promise<void>>());
+  const latestExecutionRef = useRef(execution);
+  const remoteBaselineRef = useRef<BrewExecution | null>(null);
+  const isReadyToPersistRef = useRef(false);
+  const closeInFlightRef = useRef(false);
+  const [closingBrewForm, setClosingBrewForm] = useState(false);
   const latestLocalEditAt = useRef(0);
   const [firestoreHydrated, setFirestoreHydrated] = useState(false);
   const [initialSheetReconciled, setInitialSheetReconciled] = useState(false);
+  useLayoutEffect(() => {
+    latestExecutionRef.current = execution;
+    isReadyToPersistRef.current = firestoreHydrated && initialSheetReconciled;
+  }, [execution, firestoreHydrated, initialSheetReconciled]);
   const ingredientLibrary = ingredients;
   const [previousBatchDate, setPreviousBatchDate] = useState("");
 
@@ -1039,15 +1049,11 @@ export default function BrewFormStepper({
     // Sheet edits are persisted into the canonical brews/{batch}.brewingExecution
     // document, so an open production form updates live.
     return subscribeToBrewingExecution(run.batchNumber, (remote) => {
-      // Compare only actual in-session edits, not stale cache timestamps.
-      if (!shouldAcceptRemoteBrewingExecution(remote, latestLocalEditAt.current)) return;
-      // A remote snapshot updates values, not the brewer's currently viewed tab.
-      // activeBlockIndex/activeStepIndex in Firestore are only navigation metadata.
-      setExecution(previous => ({
-        ...remote,
-        activeBlockIndex: previous.activeBlockIndex,
-        activeStepIndex: previous.activeStepIndex,
-      }));
+      const baseline = remoteBaselineRef.current;
+      remoteBaselineRef.current = remote;
+      // Reconcile each field independently: a newer unrelated Firestore/Sheet
+      // update must not replace a field the brewer edited but hasn't saved.
+      setExecution(previous => mergeBrewRemotePreservingLocalEdits(previous, baseline, remote));
     });
   }, [run.batchNumber]);
 
@@ -1060,6 +1066,7 @@ export default function BrewFormStepper({
       .then((remote) => {
         if (cancelled) return;
         if (remote && latestLocalEditAt.current <= hydrationStartedAt) {
+          remoteBaselineRef.current = remote;
           const position = recordedBrewPosition(
             Number(run.action) === 0 ? run.brewProgress : null,
             remote.blocks,
@@ -1488,7 +1495,9 @@ export default function BrewFormStepper({
 
     setSyncing(key);
     setMessage("");
-    void writeBrewSheetCells(run.sheetId, writes)
+    const pending = writeBrewSheetCells(run.sheetId, writes);
+    pendingSheetWrites.current.add(pending);
+    void pending
       .then(() => {
         setLastPushAt(new Date());
         setSyncMismatches([]);
@@ -1502,7 +1511,10 @@ export default function BrewFormStepper({
         setSyncError(detail);
         setMessage(detail);
       })
-      .finally(() => setSyncing(""));
+      .finally(() => {
+        pendingSheetWrites.current.delete(pending);
+        setSyncing("");
+      });
   }
 
   async function commit(
