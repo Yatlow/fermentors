@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   loadBrewingExecution,
@@ -15,9 +15,10 @@ import {
   type BrewExecution,
 } from "../../SERVICES/brewing/brewExecution";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
-import { mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldAcceptRemoteBrewingExecution } from "../../SERVICES/brewing/brewSyncGuards";
+import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldPersistBrewUnmount, hasUnsavedBrewFields } from "../../SERVICES/brewing/brewSyncGuards";
 import { recordedBrewPosition, reviewedStepsFromRecordedWork } from "../../SERVICES/brewing/brewValidationProgress";
 import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
+import { persistBrewBeforeExit } from "../../SERVICES/brewing/brewExitPersistence";
 import {
   readBrewSheetRange,
   resetBrewSheetBaseline,
@@ -1008,9 +1009,23 @@ export default function BrewFormStepper({
   const initialProductionPullKey = useRef("");
   const lastHandledSheetEditRevision = useRef<number | null>(null);
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSheetWrites = useRef(new Set<Promise<void>>());
+  const latestExecutionRef = useRef(execution);
+  const remoteBaselineRef = useRef<BrewExecution | null>(null);
+  const isReadyToPersistRef = useRef(false);
+  const closeInFlightRef = useRef(false);
+  const formMountedRef = useRef(true);
+  const [closingBrewForm, setClosingBrewForm] = useState(false);
+  const [exitSaveError, setExitSaveError] = useState("");
   const latestLocalEditAt = useRef(0);
   const [firestoreHydrated, setFirestoreHydrated] = useState(false);
   const [initialSheetReconciled, setInitialSheetReconciled] = useState(false);
+  useLayoutEffect(() => {
+    latestExecutionRef.current = execution;
+    // Firebase hydration is enough to save user edits. A slow/aborted Sheet
+    // read must not disable Firestore autosaves even for a moment.
+    isReadyToPersistRef.current = firestoreHydrated;
+  }, [execution, firestoreHydrated]);
   const ingredientLibrary = ingredients;
   const [previousBatchDate, setPreviousBatchDate] = useState("");
 
@@ -1039,15 +1054,11 @@ export default function BrewFormStepper({
     // Sheet edits are persisted into the canonical brews/{batch}.brewingExecution
     // document, so an open production form updates live.
     return subscribeToBrewingExecution(run.batchNumber, (remote) => {
-      // Compare only actual in-session edits, not stale cache timestamps.
-      if (!shouldAcceptRemoteBrewingExecution(remote, latestLocalEditAt.current)) return;
-      // A remote snapshot updates values, not the brewer's currently viewed tab.
-      // activeBlockIndex/activeStepIndex in Firestore are only navigation metadata.
-      setExecution(previous => ({
-        ...remote,
-        activeBlockIndex: previous.activeBlockIndex,
-        activeStepIndex: previous.activeStepIndex,
-      }));
+      const baseline = remoteBaselineRef.current;
+      remoteBaselineRef.current = remote;
+      // Reconcile each field independently: a newer unrelated Firestore/Sheet
+      // update must not replace a field the brewer edited but hasn't saved.
+      setExecution(previous => mergeBrewRemotePreservingLocalEdits(previous, baseline, remote));
     });
   }, [run.batchNumber]);
 
@@ -1060,6 +1071,7 @@ export default function BrewFormStepper({
       .then((remote) => {
         if (cancelled) return;
         if (remote && latestLocalEditAt.current <= hydrationStartedAt) {
+          remoteBaselineRef.current = remote;
           const position = recordedBrewPosition(
             Number(run.action) === 0 ? run.brewProgress : null,
             remote.blocks,
@@ -1085,7 +1097,8 @@ export default function BrewFormStepper({
     // Do not queue an older unconfirmed draft while an explicit material
     // confirmation is in flight. It could otherwise be written AFTER the
     // acknowledged approval and remove the marker again.
-    if (!firestoreHydrated || !initialSheetReconciled || savingMaterialsBlock !== null) return;
+    if (!firestoreHydrated || savingMaterialsBlock !== null ||
+        !hasUnsavedBrewFields(execution, remoteBaselineRef.current)) return;
     if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     firestoreSaveTimer.current = setTimeout(() => {
       void Promise.all([
@@ -1098,7 +1111,59 @@ export default function BrewFormStepper({
     return () => {
       if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     };
-  }, [execution, firestoreHydrated, initialSheetReconciled, run.style, savingMaterialsBlock]);
+  }, [execution, firestoreHydrated, run.style, savingMaterialsBlock]);
+
+  // Switching main app tabs can unmount the form without pressing its Back
+  // button. Persist the last rendered draft and dispatch a final write instead
+  // of silently cancelling the outstanding 250ms debounced write.
+  useEffect(() => {
+    formMountedRef.current = true;
+    return () => {
+      formMountedRef.current = false;
+      if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
+      // Material approval has its own acknowledged Firestore write. A stale
+      // unmount snapshot must never queue behind it and undo "yes".
+      if (!shouldPersistBrewUnmount(
+        isReadyToPersistRef.current,
+        closeInFlightRef.current,
+        materialsSaveInFlight.current,
+      )) return;
+      const latest = saveBrewingExecutionLocal(latestExecutionRef.current);
+      void saveBrewingExecutionToFirestore(latest).catch((error) =>
+        console.error("Brew form unmount persistence failed", error),
+      );
+    };
+  }, []);
+
+  async function closeBrewSafely() {
+    if (closeInFlightRef.current || savingMaterialsBlock !== null ||
+        !firestoreHydrated || !initialSheetReconciled) return;
+    closeInFlightRef.current = true;
+    setClosingBrewForm(true);
+    setExitSaveError("");
+    if (firestoreSaveTimer.current) {
+      clearTimeout(firestoreSaveTimer.current);
+      firestoreSaveTimer.current = null;
+    }
+    try {
+      // A Sheet write may still be in its independent 650ms batching queue.
+      // Never reopen against an older Sheet while these writes are pending.
+      await persistBrewBeforeExit(
+        () => latestExecutionRef.current,
+        Array.from(pendingSheetWrites.current),
+        saveBrewingExecutionLocal,
+        saveBrewingExecutionToFirestore,
+        (snapshot) => saveBrewAcidHistoryToFirestore(snapshot, run.style),
+      );
+      onClose();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "שגיאת תקשורת";
+      setExitSaveError(`שמירת הבישול לא הושלמה. הטופס נשאר פתוח כדי למנוע אובדן נתונים: ${reason}`);
+      closeInFlightRef.current = false;
+    } finally {
+      setClosingBrewForm(false);
+    }
+  }
 
   const isIpaStyle = String(run.style || "").toUpperCase().includes("IPA");
 
@@ -1488,7 +1553,9 @@ export default function BrewFormStepper({
 
     setSyncing(key);
     setMessage("");
-    void writeBrewSheetCells(run.sheetId, writes)
+    const pending = writeBrewSheetCells(run.sheetId, writes);
+    pendingSheetWrites.current.add(pending);
+    void pending
       .then(() => {
         setLastPushAt(new Date());
         setSyncMismatches([]);
@@ -1502,7 +1569,10 @@ export default function BrewFormStepper({
         setSyncError(detail);
         setMessage(detail);
       })
-      .finally(() => setSyncing(""));
+      .finally(() => {
+        pendingSheetWrites.current.delete(pending);
+        setSyncing("");
+      });
   }
 
   async function commit(
@@ -3463,7 +3533,8 @@ export default function BrewFormStepper({
     }
 
     try {
-      let nextExecution = execution;
+      let nextExecution = latestExecutionRef.current;
+      const remoteAtReadStart = remoteBaselineRef.current;
 
       // A pull is authoritative for Sheet-backed fields. Drop any cached
       // expectedValue snapshot first so the full read below becomes the new
@@ -3474,10 +3545,15 @@ export default function BrewFormStepper({
         run.sheetId,
         "'גיליון1'!A1:H220",
       );
+      if (!formMountedRef.current) return false;
       // Only actual in-session edits invalidate this read. A stale local
       // cache can have a newer timestamp from merely navigating the form;
       // treating that as a keystroke prevented legacy recovery entirely.
-      if (latestLocalEditAt.current > readStartedAt) {
+      if (latestLocalEditAt.current > readStartedAt ||
+          remoteBaselineRef.current !== remoteAtReadStart ||
+          pendingSheetWrites.current.size > 0) {
+        // A newer in-app edit, remote revision or pending app→Sheet write
+        // invalidates this snapshot; never persist it over fresh process data.
         return false;
       }
       const fermentationIndex = fullSheetRows.findIndex((row) =>
@@ -3489,6 +3565,7 @@ export default function BrewFormStepper({
         totalBlocks,
       );
 
+      const startupConflicts: SyncMismatch[] = [];
       for (let index = 1; index <= totalBlocks; index += 1) {
         const discovered = discoveredBlocks[index - 1];
         if (!discovered) {
@@ -3523,53 +3600,39 @@ export default function BrewFormStepper({
           ),
         );
 
-        // Initial discovery must also recover missing Sheet-backed values.
-        // Existing non-empty values remain authoritative, but an empty or
-        // partially lost Firestore execution (e.g. batch 1605) must be
-        // rehydrated from the intact Sheet. Never replace a populated field
-        // during a silent startup reconciliation.
+        // A silent startup read is recovery only, never a broad overwrite of
+        // acknowledged Firestore data. Explicit pulls can still use the Sheet
+        // as an authoritative source when the brewer chooses to reconcile.
+        const startup = reconcileBrewStartupFields(existing, pulled);
         const mappingDiscoveryOnly = positionAfterPull && silent;
         if (mappingDiscoveryOnly) {
-          for (const [key, value] of Object.entries(pulled)) {
-            if (key.startsWith("__sheetRow.")) continue;
-            if (String(value ?? "").trim() === "") {
-              delete pulled[key];
-              continue;
-            }
-            // The Sheet is authoritative for measured process data. An old
-            // execution may contain values read from the wrong template row;
-            // retaining them silently perpetuates that corruption.
-            // Keep explicit material confirmations and locally-only fields.
-            if (!isSheetBackedExecutionKey(key) &&
-                String(existing[key] ?? "").trim() !== "") {
-              pulled[key] = existing[key];
-            }
-          }
+          startupConflicts.push(
+            ...startup.conflicts
+              .filter(({ key }) => isSheetBackedExecutionKey(key) &&
+                !key.startsWith("sheetRawMaterial.") && !key.startsWith("sheetMaterial."))
+              .map(({ key, appValue, sheetValue }) => ({
+                blockIndex: index,
+                key,
+                label: key,
+                appValue,
+                sheetValue,
+              })),
+          );
         }
 
-        // A Sheet pull must not erase an explicit material confirmation merely
-        // because the legacy Sheet cannot reconstruct every lot identifier.
-        // B/C also intentionally have no separate yeast confirmation.
         const preservedMaterialFields = Object.fromEntries(
           Object.entries(existing).filter(([key, value]) => {
             if (!String(value || "").trim()) return false;
-            if (key === "materialsConfirmed") return true;
-            if (!key.startsWith("materialLot.")) return false;
-            return !pulled[key];
+            return key === "materialsConfirmed" ||
+              (key.startsWith("materialLot.") && !pulled[key]);
           }),
         );
-
         nextExecution = replaceBrewingExecutionBlockFields(
           nextExecution,
           index,
-          {
-            // A partially populated Sheet response must not erase fields
-            // already committed locally (including rinse grants).
-            ...existing,
-            ...localOnlyFields,
-            ...preservedMaterialFields,
-            ...pulled,
-          },
+          mappingDiscoveryOnly
+            ? startup.fields
+            : { ...existing, ...localOnlyFields, ...preservedMaterialFields, ...pulled },
         );
       }
 
@@ -3579,7 +3642,7 @@ export default function BrewFormStepper({
 
       setExecution(nextExecution);
       setLastPullAt(new Date());
-      setSyncMismatches([]);
+      setSyncMismatches(startupConflicts);
       setSyncError("");
       setInitialSheetReconciled(true);
       // Persist reconciliation explicitly; do not rely on a later render/effect.
@@ -3777,7 +3840,12 @@ export default function BrewFormStepper({
     // authoritative; syncFromSheet preserves local-only confirmations and
     // aborts if an in-session edit occurs during the read.
     void syncFromSheet(true, { silent: true }).then((ok) => {
-      if (!ok) console.warn("Initial brew Sheet reconciliation did not complete", run.batchNumber);
+      if (!ok) {
+        // An intentionally interrupted Sheet read must never disable all
+        // Firestore autosaves for the rest of this form session.
+        console.warn("Initial brew Sheet read interrupted; continuing with Firestore", run.batchNumber);
+        setInitialSheetReconciled(true);
+      }
     });
     // Live onEdit revision events are the synchronization trigger. A periodic
     // full pull races with local autosave and may replace freshly entered
@@ -4125,6 +4193,14 @@ export default function BrewFormStepper({
 
   return (
     <section className="brew-stepper" style={{ position: "relative" }}>
+      {closingBrewForm && (
+        <div className="brew-firestore-loading-overlay" aria-live="polite" aria-busy="true"
+          style={{ position: "absolute", inset: 0, zIndex: 60, display: "flex",
+            alignItems: "center", justifyContent: "center", minHeight: "60vh",
+            background: "rgba(255,255,255,0.87)", borderRadius: "inherit" }}>
+          <BeerLoader size="spinner" message="משלים שמירת נתוני הבישול ל־Sheet ול־Firestore…" />
+        </div>
+      )}
       {!firestoreHydrated && (
         <div
           className="brew-firestore-loading-overlay"
@@ -4151,8 +4227,9 @@ export default function BrewFormStepper({
           <button
             type="button"
             className="brew-back-button brew-button-secondary"
-            disabled={savingMaterialsBlock !== null}
-            onClick={onClose}
+            disabled={savingMaterialsBlock !== null || closingBrewForm ||
+              !firestoreHydrated || !initialSheetReconciled}
+            onClick={() => void closeBrewSafely()}
           >
             חזרה לאצוות
           </button>
@@ -4192,6 +4269,11 @@ export default function BrewFormStepper({
       {materialsSaveError && (
         <div className="brewing-message brewing-message-error" role="alert">
           {materialsSaveError}
+        </div>
+      )}
+      {exitSaveError && (
+        <div className="brewing-message brewing-message-error" role="alert">
+          {exitSaveError}
         </div>
       )}
       {message && <div className="brewing-message">{message}</div>}
@@ -5965,7 +6047,7 @@ export default function BrewFormStepper({
             }
 
             if (currentStep.id === "summary") {
-              onClose();
+              void closeBrewSafely();
             }
           }}
         >
