@@ -5,6 +5,7 @@ import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { writeReadingsToSheets } from "../../SERVICES/getAndPost/writeReadingToSheets";
 import { updatePackagingInfo } from "../../SERVICES/cellering/updatePackagingInfo";
 import { resolveFinalPackagingTotal } from "../../SERVICES/cellering/resolveFinalPackagingTotal";
+import { getQuickReportPressureDefault } from "../../SERVICES/cellering/quickReportDefaults";
 import { assignDryHopToHopsTable } from "../../SERVICES/cellering/assignDryHop";
 import {
     isDryHopAllowedForStyle,
@@ -170,8 +171,9 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
         setReportTypeOpen(false);
         resetValues();
 
-        if (newType === "סגירת מיכל" && closingPressure !== null) {
-            setValue(String(closingPressure));
+        const defaultPressure = getQuickReportPressureDefault(newType, tank.beerStyle, specs);
+        if (defaultPressure !== null) {
+            setValue(defaultPressure);
         }
         if (newType === "גיזוז מלמטה התחלה") {
             setValue(String(DEFAULT_BOTTOM_CARBONATION_PRESSURE));
