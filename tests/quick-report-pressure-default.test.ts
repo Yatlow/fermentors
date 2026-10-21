@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { SpecChart } from "../src/SERVICES/getAndPost/getSpecsFromFb";
+import type { PressureTargetSpecs } from "../src/SERVICES/cellering/pressureStyleTarget";
 import { getQuickReportPressureDefault } from "../src/SERVICES/cellering/quickReportDefaults";
 
-const specs: SpecChart = {
+const specs: PressureTargetSpecs = {
   pressure: { ipa: 1.6, "פייל": 1.7, "לאגר": 1.1, "הופי": 1.1, "חיטה": 1.6, "סטאוט": 1.5, other: 1.45 },
 };
 
