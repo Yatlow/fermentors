@@ -38,7 +38,7 @@ export function brewStepFromStageName(stageName: string): number {
   const name = stageName.trim();
   if (/WP|ווירפול|תסיסה/i.test(name)) return 4;
   if (/רתיחה|כשות/.test(name)) return 3;
-  if (/L\\.T|לאוטר|סחרור|שטיפה|הוצאה לבישול|סוף העברה|העברה ל/.test(name)) return 2;
+  if (/L\.T|לאוטר|סחרור|שטיפה|הוצאה לבישול|סוף העברה|העברה ל/.test(name)) return 2;
   if (/לתת|מאש|השריה|חימום/.test(name)) return 1;
   return 0;
 }
