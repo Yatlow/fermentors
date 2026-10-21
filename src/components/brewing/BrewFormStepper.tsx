@@ -1107,6 +1107,46 @@ export default function BrewFormStepper({
     };
   }, [execution, firestoreHydrated, initialSheetReconciled, run.style, savingMaterialsBlock]);
 
+  // Switching main app tabs can unmount the form without pressing its Back
+  // button. Persist the last rendered draft and dispatch a final write instead
+  // of silently cancelling the outstanding 250ms debounced write.
+  useEffect(() => {
+    return () => {
+      if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
+      if (!isReadyToPersistRef.current || closeInFlightRef.current) return;
+      const latest = saveBrewingExecutionLocal(latestExecutionRef.current);
+      void saveBrewingExecutionToFirestore(latest).catch((error) =>
+        console.error("Brew form unmount persistence failed", error),
+      );
+    };
+  }, []);
+
+  async function closeBrewSafely() {
+    if (closeInFlightRef.current || savingMaterialsBlock !== null ||
+        !firestoreHydrated || !initialSheetReconciled) return;
+    closeInFlightRef.current = true;
+    setClosingBrewForm(true);
+    if (firestoreSaveTimer.current) {
+      clearTimeout(firestoreSaveTimer.current);
+      firestoreSaveTimer.current = null;
+    }
+    try {
+      // A Sheet write may still be in its independent 650ms batching queue.
+      // Never reopen against an older Sheet while these writes are pending.
+      await Promise.all(Array.from(pendingSheetWrites.current));
+      const latest = saveBrewingExecutionLocal(latestExecutionRef.current);
+      await saveBrewingExecutionToFirestore(latest);
+      await saveBrewAcidHistoryToFirestore(latest, run.style);
+      onClose();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "שגיאת תקשורת";
+      setSyncError(`שמירת הבישול לא הושלמה. הטופס נשאר פתוח כדי למנוע אובדן נתונים: ${reason}`);
+      closeInFlightRef.current = false;
+    } finally {
+      setClosingBrewForm(false);
+    }
+  }
+
   const isIpaStyle = String(run.style || "").toUpperCase().includes("IPA");
 
   const brewMaterials = useMemo(() => {
@@ -4134,6 +4174,14 @@ export default function BrewFormStepper({
 
   return (
     <section className="brew-stepper" style={{ position: "relative" }}>
+      {closingBrewForm && (
+        <div className="brew-firestore-loading-overlay" aria-live="polite" aria-busy="true"
+          style={{ position: "absolute", inset: 0, zIndex: 60, display: "flex",
+            alignItems: "center", justifyContent: "center", minHeight: "60vh",
+            background: "rgba(255,255,255,0.87)", borderRadius: "inherit" }}>
+          <BeerLoader size="spinner" message="משלים שמירת נתוני הבישול ל־Sheet ול־Firestore…" />
+        </div>
+      )}
       {!firestoreHydrated && (
         <div
           className="brew-firestore-loading-overlay"
@@ -4160,8 +4208,9 @@ export default function BrewFormStepper({
           <button
             type="button"
             className="brew-back-button brew-button-secondary"
-            disabled={savingMaterialsBlock !== null}
-            onClick={onClose}
+            disabled={savingMaterialsBlock !== null || closingBrewForm ||
+              !firestoreHydrated || !initialSheetReconciled}
+            onClick={() => void closeBrewSafely()}
           >
             חזרה לאצוות
           </button>
@@ -5974,7 +6023,7 @@ export default function BrewFormStepper({
             }
 
             if (currentStep.id === "summary") {
-              onClose();
+              void closeBrewSafely();
             }
           }}
         >
