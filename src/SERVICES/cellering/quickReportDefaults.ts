@@ -1,5 +1,5 @@
 import type { SpecChart } from "../getAndPost/getSpecsFromFb";
-import { getClosingPressureForStyle } from "./dryHopLogic";
+import { getClosingPressureForStyle } from "./pressureStyleTarget";
 
 /** Use the configured style pressure for valve adjustment and tank closing.
  * If specs are not available, leave the field empty rather than guessing.
