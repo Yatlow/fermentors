@@ -1120,7 +1120,10 @@ export default function BrewFormStepper({
     return () => {
       formMountedRef.current = false;
       if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
-      if (!isReadyToPersistRef.current || closeInFlightRef.current) return;
+      // Material approval has its own acknowledged Firestore write. A stale
+      // unmount snapshot must never queue behind it and undo "yes".
+      if (!isReadyToPersistRef.current || closeInFlightRef.current ||
+          materialsSaveInFlight.current) return;
       const latest = saveBrewingExecutionLocal(latestExecutionRef.current);
       void saveBrewingExecutionToFirestore(latest).catch((error) =>
         console.error("Brew form unmount persistence failed", error),
