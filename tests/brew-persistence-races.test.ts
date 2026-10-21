@@ -4,6 +4,7 @@ import {
   mergeBrewRemotePreservingLocalEdits,
   reconcileBrewStartupFields,
   shouldPersistBrewUnmount,
+  hasUnsavedBrewFields,
   type BrewSyncExecution,
 } from "../src/SERVICES/brewing/brewSyncGuards";
 import { persistBrewBeforeExit } from "../src/SERVICES/brewing/brewExitPersistence";
@@ -115,4 +116,20 @@ test("app tab unmount flushes ordinary drafts but cannot erase an in-flight A/B 
   assert.equal(shouldPersistBrewUnmount(false, false, false), false);
   assert.equal(shouldPersistBrewUnmount(true, true, false), false);
   assert.equal(shouldPersistBrewUnmount(true, false, true), false);
+});
+
+test("opening and browsing a brew never posts unchanged data during startup Sheet read", () => {
+  const baseline = execution({ "mashIn.start": "07:20" }, { "mashIn.start": "09:01" });
+  const onlyNavigation = { ...baseline, activeBlockIndex: 2, activeStepIndex: 4,
+    updatedAt: "2026-10-21T08:55:00Z" };
+  assert.equal(hasUnsavedBrewFields(onlyNavigation, baseline), false);
+  const actualEdit = execution({ ...baseline.blocks["1"].fields, "rest1.start": "07:48" },
+    baseline.blocks["2"].fields);
+  assert.equal(hasUnsavedBrewFields(actualEdit, baseline), true);
+  assert.equal(hasUnsavedBrewFields(baseline, null), true);
+  assert.equal(hasUnsavedBrewFields(execution({}, {}), null), false);
+  assert.equal(hasUnsavedBrewFields(
+    execution({ "__sheetRow.stage.mashIn": "18" }, {}),
+    execution({ "__sheetRow.stage.mashIn": "17" }, {}),
+  ), false);
 });
