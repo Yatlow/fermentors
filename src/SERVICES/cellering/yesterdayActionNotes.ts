@@ -10,10 +10,11 @@ export function yesterdayActionNotes(rows: Measurement[], yesterdayKey: string):
   const add = (label: string) => {
     if (!seen.has(label)) { seen.add(label); actions.push(label); }
   };
-  for (const row of [...rows].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))) {
+  for (const row of [...rows].sort((a, b) => String(b.id ?? "").localeCompare(String(a.id ?? "")))) {
     if (String(row.id ?? "").slice(0, 10) !== yesterdayKey) continue;
     const notes = String(row.notes ?? "");
-    for (const raw of notes.split(/\n|[;；]|\s+·\s+/u)) {
+    // Notes within a daily row are appended oldest-first. Display newest first.
+    for (const raw of notes.split(/\n|[;；]|\s+[·|]\s+/u).reverse()) {
       const note = raw.trim();
       if (!note || /מומלץ|יש לבצע|מתוכנן|צפי|מחר|בעוד\s+\d+|לא בוצע/u.test(note)) continue;
       // Reports usually store only the target; never invent a previous pressure.
