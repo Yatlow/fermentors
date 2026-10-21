@@ -272,18 +272,18 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         };
     }, []);
 
-    // Recalculate only at a meaningful grace boundary (12h, 00:00 or 05:00),
+    // Recalculate only at a meaningful grace boundary (12h, 00:00 or 04:00),
     // rather than re-reading every tank on every minute tick.
     useEffect(() => {
         const now = new Date();
         const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
-        const nextFive = graceDayStart(now);
-        nextFive.setDate(nextFive.getDate() + 1);
+        const nextGraceBoundary = graceDayStart(now);
+        nextGraceBoundary.setDate(nextGraceBoundary.getDate() + 1);
         const upcomingTwelveHourEnds = brews
             .filter(tank => Number(tank.action) === 1)
             .map(tank => fermentationGraceEnd(tank))
             .filter((end): end is number => end !== null && end > now.getTime());
-        const next = Math.min(midnight, nextFive.getTime(), ...upcomingTwelveHourEnds);
+        const next = Math.min(midnight, nextGraceBoundary.getTime(), ...upcomingTwelveHourEnds);
         const timer = window.setTimeout(() => {
             setMeasurementRefresh(current => current + 1);
         }, Math.max(1000, next - now.getTime() + 200));
@@ -314,7 +314,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             const fullTanks = brews.filter(
                 (tank) => Number(tank.tankNumber) !== 1 && Number(tank.action) === 1
             );
-            // Read each batch only once. Between midnight and 05:00 the
+            // Read each batch only once. Between midnight and 04:00 the
             // grace decision uses yesterday's measurements, whereas normal
             // daily progress and the KPI use today's measurements.
             const asOf = new Date();
