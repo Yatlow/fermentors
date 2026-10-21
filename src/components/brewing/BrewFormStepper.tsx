@@ -15,7 +15,7 @@ import {
   type BrewExecution,
 } from "../../SERVICES/brewing/brewExecution";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
-import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldPersistBrewUnmount } from "../../SERVICES/brewing/brewSyncGuards";
+import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldPersistBrewUnmount, hasUnsavedBrewFields } from "../../SERVICES/brewing/brewSyncGuards";
 import { recordedBrewPosition, reviewedStepsFromRecordedWork } from "../../SERVICES/brewing/brewValidationProgress";
 import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
 import { persistBrewBeforeExit } from "../../SERVICES/brewing/brewExitPersistence";
@@ -1097,7 +1097,8 @@ export default function BrewFormStepper({
     // Do not queue an older unconfirmed draft while an explicit material
     // confirmation is in flight. It could otherwise be written AFTER the
     // acknowledged approval and remove the marker again.
-    if (!firestoreHydrated || savingMaterialsBlock !== null) return;
+    if (!firestoreHydrated || savingMaterialsBlock !== null ||
+        !hasUnsavedBrewFields(execution, remoteBaselineRef.current)) return;
     if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     firestoreSaveTimer.current = setTimeout(() => {
       void Promise.all([
