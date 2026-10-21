@@ -980,6 +980,7 @@ export default function BrewFormStepper({
     useState<ValidationNotice | null>(null);
   const [validationConfirmText, setValidationConfirmText] = useState("");
   const [savingMaterialsBlock, setSavingMaterialsBlock] = useState<number | null>(null);
+  const [materialsSaveError, setMaterialsSaveError] = useState("");
   const materialsSaveInFlight = useRef(false);
   const validationConfirmResolver = useRef<((approved: boolean) => void) | null>(
     null,
@@ -1699,6 +1700,7 @@ export default function BrewFormStepper({
     }
     const confirmingBlock = currentBlock;
     setSavingMaterialsBlock(confirmingBlock);
+    setMaterialsSaveError("");
     latestLocalEditAt.current = Date.now();
     let nextExecution = execution;
     const writes: Array<{
@@ -1873,8 +1875,7 @@ export default function BrewFormStepper({
     writeSheet("materialsConfirmed", writes);
     } catch (error) {
       const detail = error instanceof Error ? error.message : "שגיאת תקשורת";
-      setSyncError(detail);
-      setMessage(
+      setMaterialsSaveError(
         `אישור חומרי הגלם של בישול ${String.fromCharCode(64 + confirmingBlock)} לא נשמר ב-Firestore. יש לנסות שוב. ${detail}`,
       );
     } finally {
@@ -4186,6 +4187,11 @@ export default function BrewFormStepper({
       {syncError && (
         <div className="brewing-message brewing-message-error">
           סנכרון ל-Sheet נכשל: {syncError}
+        </div>
+      )}
+      {materialsSaveError && (
+        <div className="brewing-message brewing-message-error" role="alert">
+          {materialsSaveError}
         </div>
       )}
       {message && <div className="brewing-message">{message}</div>}
