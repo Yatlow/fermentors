@@ -156,3 +156,15 @@ export function mergeBrewRemotePreservingLocalEdits<T extends BrewSyncExecution>
   };
   return JSON.stringify(result) === JSON.stringify(previous) ? previous : result as T;
 }
+
+
+/** A detached form may flush its draft, except when another explicit commit
+ * (especially per-block material approval) is still pending. In that case a
+ * stale unmount snapshot would be queued AFTER the new commit and undo it. */
+export function shouldPersistBrewUnmount(
+  firestoreHydrated: boolean,
+  isClosing: boolean,
+  materialConfirmationInFlight: boolean,
+): boolean {
+  return firestoreHydrated && !isClosing && !materialConfirmationInFlight;
+}
