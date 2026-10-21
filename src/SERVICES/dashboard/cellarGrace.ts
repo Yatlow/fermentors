@@ -1,6 +1,6 @@
 /** The cellar grace clock is independent of the 00:00 daily measurement reset. */
 export const FERMENTATION_GRACE_MS = 12 * 60 * 60 * 1000;
-export const GRACE_RESET_HOUR = 5;
+export const GRACE_RESET_HOUR = 4;
 
 type GraceTank = {
   id: string;
@@ -122,4 +122,15 @@ export function completedDailyRoundKpi(
     checkedTanks: counted.length,
     completeMeasurementTankNumbers: counted.filter(row => row.completeMeasurements).map(row => row.tankNumber),
   };
+}
+
+/** A new fermentation tank is eligible for optional Plato/pH readings before
+ * its first temperature has been measured; veteran/cold tanks keep the hot filter. */
+export function shouldShowPlatoPhTank(
+  tank: GraceRoundTank,
+  graceTankIds: ReadonlySet<string>,
+): boolean {
+  if (Number(tank.tankNumber) === 1) return false;
+  const hot = tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
+  return hot || (Number(tank.action) === 1 && tank.stage?.name === "בתסיסה" && graceTankIds.has(String(tank.id)));
 }
