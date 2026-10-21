@@ -15,7 +15,7 @@ import {
   type BrewExecution,
 } from "../../SERVICES/brewing/brewExecution";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
-import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials } from "../../SERVICES/brewing/brewSyncGuards";
+import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldPersistBrewUnmount } from "../../SERVICES/brewing/brewSyncGuards";
 import { recordedBrewPosition, reviewedStepsFromRecordedWork } from "../../SERVICES/brewing/brewValidationProgress";
 import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
 import { persistBrewBeforeExit } from "../../SERVICES/brewing/brewExitPersistence";
@@ -1122,8 +1122,11 @@ export default function BrewFormStepper({
       if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
       // Material approval has its own acknowledged Firestore write. A stale
       // unmount snapshot must never queue behind it and undo "yes".
-      if (!isReadyToPersistRef.current || closeInFlightRef.current ||
-          materialsSaveInFlight.current) return;
+      if (!shouldPersistBrewUnmount(
+        isReadyToPersistRef.current,
+        closeInFlightRef.current,
+        materialsSaveInFlight.current,
+      )) return;
       const latest = saveBrewingExecutionLocal(latestExecutionRef.current);
       void saveBrewingExecutionToFirestore(latest).catch((error) =>
         console.error("Brew form unmount persistence failed", error),
