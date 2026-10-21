@@ -110,6 +110,18 @@ export function graceElapsedLabel(tank: GraceTank, exempt: boolean, at: Date = n
   return elapsed === null ? null : `עברו ${elapsed} שעות מהעברה למיכל`;
 }
 
+/** A voluntary complete measurement takes precedence over the grace clock in the UI.
+ * This is display-only; the grace exemption and KPI denominator remain unchanged. */
+export function dailyMeasurementStatusLabel(
+  complete: boolean,
+  partial: boolean,
+  graceLabel: string | null,
+): string {
+  if (complete) return "✓ הושלם היום";
+  if (graceLabel !== null) return graceLabel;
+  return partial ? "◐ בוצע חלקית היום" : "○ טרם בוצע היום";
+}
+
 /** Fully measured optional tanks add +1/+1; partial ones never add a required tank. */
 export function completedDailyRoundKpi(
   results: ReadonlyArray<{ tankNumber: string; completeMeasurements: boolean }>,
