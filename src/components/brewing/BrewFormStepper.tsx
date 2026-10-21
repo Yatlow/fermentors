@@ -17,6 +17,7 @@ import {
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import { mergeBrewSheetEditDelta, shouldAcceptRemoteBrewingExecution } from "../../SERVICES/brewing/brewSyncGuards";
 import { laterValidationPosition, recordedBrewPosition, reviewedStepsForPosition } from "../../SERVICES/brewing/brewValidationProgress";
+import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
 import {
   readBrewSheetRange,
   resetBrewSheetBaseline,
@@ -648,12 +649,13 @@ function fieldsFromSheetRows(
   const mashWaterRow = findDynamicRow("A", /^MASH\s*IN$/i);
   if (mashWaterRow >= 0) {
     pulled["__sheetRow.water.mashIn"] = String(sheetStartRow + mashWaterRow);
-    const candidates = ["B", "C", "D"]
-      .flatMap((column) => dynamicValue(mashWaterRow, column as "B" | "C" | "D").match(/-?\d+(?:[.,]\d+)?/g) || [])
-      .map((value) => Number(value.replace(",", ".")))
-      .filter(Number.isFinite);
-    const amount = candidates.find((value) => value >= 100);
-    if (amount !== undefined) pulled.lauterWaterAmount = String(amount);
+    const water = mashWaterFromSheetRow(
+      dynamicValue(mashWaterRow, "B"),
+      dynamicValue(mashWaterRow, "C"),
+      dynamicValue(mashWaterRow, "D"),
+    );
+    if (water.amount) pulled.lauterWaterAmount = water.amount;
+    if (water.temperature) pulled.lauterWaterTemp = water.temperature;
   }
 
   const mashInRow = findDynamicRow("D", /^הכנסת לתת$/i);
