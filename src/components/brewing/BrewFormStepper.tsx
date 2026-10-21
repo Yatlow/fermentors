@@ -1081,7 +1081,10 @@ export default function BrewFormStepper({
 
 
   useEffect(() => {
-    if (!firestoreHydrated || !initialSheetReconciled) return;
+    // Do not queue an older unconfirmed draft while an explicit material
+    // confirmation is in flight. It could otherwise be written AFTER the
+    // acknowledged approval and remove the marker again.
+    if (!firestoreHydrated || !initialSheetReconciled || savingMaterialsBlock !== null) return;
     if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     firestoreSaveTimer.current = setTimeout(() => {
       void Promise.all([
@@ -1094,7 +1097,7 @@ export default function BrewFormStepper({
     return () => {
       if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     };
-  }, [execution, firestoreHydrated, initialSheetReconciled, run.style]);
+  }, [execution, firestoreHydrated, initialSheetReconciled, run.style, savingMaterialsBlock]);
 
   const isIpaStyle = String(run.style || "").toUpperCase().includes("IPA");
 
@@ -1688,6 +1691,12 @@ export default function BrewFormStepper({
   async function confirmMaterials() {
     if (materialsSaveInFlight.current) return;
     materialsSaveInFlight.current = true;
+    // Cancelling the existing debounce synchronously also covers the small
+    // interval before React runs the effect cleanup after this click.
+    if (firestoreSaveTimer.current) {
+      clearTimeout(firestoreSaveTimer.current);
+      firestoreSaveTimer.current = null;
+    }
     const confirmingBlock = currentBlock;
     setSavingMaterialsBlock(confirmingBlock);
     latestLocalEditAt.current = Date.now();
@@ -1825,10 +1834,9 @@ export default function BrewFormStepper({
       }
     }
 
-    // Ingredient selections may be displayed immediately, but confirmation
-    // only becomes "yes" once Firestore acknowledges the write. Otherwise a
-    // quick close cancels the debounced autosave and silently loses approval.
-    setExecution(nextExecution);
+    // Do not update React to an unconfirmed draft here: its ordinary
+    // autosave could race behind the confirmed write and erase approval.
+    // The selected lot fields are included in this direct Firestore commit.
     const confirmed = await persistConfirmedBrewMaterials(
       nextExecution,
       confirmingBlock,
