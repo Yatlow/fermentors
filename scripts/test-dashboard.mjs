@@ -21,6 +21,7 @@ const tests = [
   "quick-report-pressure-default",
   "mash-water-sheet-row",
   "brew-sync-guards",
+  "brew-persistence-races",
   "cellaring-action-state-regression",
 ];
 
