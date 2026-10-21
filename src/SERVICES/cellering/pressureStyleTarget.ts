@@ -1,11 +1,11 @@
-import type { SpecChart } from "../getAndPost/getSpecsFromFb";
+export type PressureTargetSpecs = { pressure?: Record<string, number> };
 
 /** Shared source for the configured target pressure of a beer style.
  * Kept independent from UI, Firebase and the brewing ingredient library.
  */
 export function getClosingPressureForStyle(
   beerStyle: string | null | undefined,
-  specs: SpecChart,
+  specs: PressureTargetSpecs,
 ): number | null {
   const pressureSpecs = specs?.pressure;
   if (!pressureSpecs) return null;
