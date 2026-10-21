@@ -10,6 +10,7 @@ import {
   elapsedFermentationHours,
   graceElapsedLabel,
   completedDailyRoundKpi,
+  shouldShowPlatoPhTank,
 } from "../src/SERVICES/dashboard/cellarGrace";
 
 const fullyMeasured = { temp: true, pressure: true, plato: true, pH: true };
@@ -31,20 +32,20 @@ const allTanks = (started: Date) => [...veterans, newTank(started)];
 const exempt = (started: Date, at: Date, fields = fullVeteranFields) =>
   measurementGraceTankIds(allTanks(started), fields, at).has("tank16");
 
-test("05:00 is the grace-day boundary, without changing ordinary calendar days", () => {
-  assert.equal(GRACE_RESET_HOUR, 5);
+test("04:00 is the grace-day boundary, without changing ordinary calendar days", () => {
+  assert.equal(GRACE_RESET_HOUR, 4);
   assert.equal(graceDayStart(new Date(2026, 9, 16, 0)).getDate(), 15);
-  assert.equal(graceDayStart(new Date(2026, 9, 16, 4, 59)).getDate(), 15);
-  assert.equal(graceDayStart(new Date(2026, 9, 16, 5)).getDate(), 16);
-  assert.equal(graceDayStart(new Date(2026, 9, 16, 5)).getHours(), 5);
+  assert.equal(graceDayStart(new Date(2026, 9, 16, 3, 59)).getDate(), 15);
+  assert.equal(graceDayStart(new Date(2026, 9, 16, 4)).getDate(), 16);
+  assert.equal(graceDayStart(new Date(2026, 9, 16, 4)).getHours(), 4);
 });
 
-test("12 hours are an unconditional minimum, including midnight and 05:00", () => {
+test("12 hours are an unconditional minimum, including midnight and 04:00", () => {
   const start = new Date(2026, 9, 15, 22);
   const tank = newTank(start);
   assert.equal(fermentationGraceEnd(tank), start.getTime() + FERMENTATION_GRACE_MS);
   assert.equal(isInInitialMeasurementGrace(tank, new Date(2026, 9, 16, 4, 59)), true);
-  assert.equal(exempt(start, new Date(2026, 9, 16, 5), {}), true);
+  assert.equal(exempt(start, new Date(2026, 9, 16, 4), {}), true);
   assert.equal(exempt(start, new Date(2026, 9, 16, 9, 59), {}), true);
   assert.equal(isInInitialMeasurementGrace(tank, new Date(2026, 9, 16, 10)), false);
 });
@@ -57,7 +58,7 @@ test("a completed veteran round grants optional grace after the initial 12 hours
   assert.equal(exempt(start, at, {}), false, "missing history is not a completed round");
 });
 
-test("completion can grant grace retroactively within the same 05:00 cycle", () => {
+test("completion can grant grace retroactively within the same 04:00 cycle", () => {
   const start = new Date(2026, 9, 15, 8);
   const at = new Date(2026, 9, 15, 22);
   assert.equal(exempt(start, at, {}), false);
@@ -66,7 +67,7 @@ test("completion can grant grace retroactively within the same 05:00 cycle", () 
 
 test("grace persists after midnight based on the previous calendar day's veteran measurements", () => {
   const start = new Date(2026, 9, 15, 8);
-  const at = new Date(2026, 9, 16, 4, 59);
+  const at = new Date(2026, 9, 16, 3, 59);
   assert.equal(graceDayStart(at).getDate(), 15);
   assert.equal(exempt(start, at, fullVeteranFields), true);
   assert.equal(exempt(start, at, {}), false);
@@ -82,19 +83,19 @@ test("a new complete round after midnight also grants grace, without mixing part
   assert.equal(measurementGraceTankIds(tanks, firstSeven, at, lastSeven).has("tank16"), false);
 });
 
-test("a tank becomes veteran at the next 05:00 after its original 12 hours ended", () => {
+test("a tank becomes veteran at the next 04:00 after its original 12 hours ended", () => {
   const start = new Date(2026, 9, 15, 8); // Grace ends 20:00
-  assert.equal(exempt(start, new Date(2026, 9, 16, 4, 59)), true);
-  assert.equal(exempt(start, new Date(2026, 9, 16, 5)), false);
+  assert.equal(exempt(start, new Date(2026, 9, 16, 3, 59)), true);
+  assert.equal(exempt(start, new Date(2026, 9, 16, 4)), false);
 });
 
-test("when 12 hours expire after 05:00, today's veteran round controls grace until tomorrow 05:00", () => {
+test("when 12 hours expire after 04:00, today's veteran round controls grace until tomorrow 04:00", () => {
   const start = new Date(2026, 9, 15, 21); // 12 hours end at 09:00 next day
   assert.equal(exempt(start, new Date(2026, 9, 16, 8, 59), {}), true);
   assert.equal(exempt(start, new Date(2026, 9, 16, 9), {}), false);
   assert.equal(exempt(start, new Date(2026, 9, 16, 9), fullVeteranFields), true);
-  assert.equal(exempt(start, new Date(2026, 9, 17, 4, 59)), true);
-  assert.equal(exempt(start, new Date(2026, 9, 17, 5)), false);
+  assert.equal(exempt(start, new Date(2026, 9, 17, 3, 59)), true);
+  assert.equal(exempt(start, new Date(2026, 9, 17, 4)), false);
 });
 
 test("only the veterans decide: multiple new tanks cannot block each other", () => {
@@ -159,4 +160,18 @@ test("voluntary full grace round adds 1/1; missing/partial grace never raises re
     { tankNumber: "16", completeMeasurements: false }], ids);
   assert.equal(missingVeteran.checkedTanks, 14);
   assert.equal(missingVeteran.completeMeasurementTankNumbers.length, 13);
+});
+
+test("Plato/pH tab includes a grace tank with no first temperature measurement", () => {
+  const start = new Date(2026, 9, 20, 0, 26);
+  const at = new Date(2026, 9, 20, 4, 20);
+  const young = { ...newTank(start), currentData: { temp: undefined } };
+  const graceIds = measurementGraceTankIds([...veterans, young], {}, at);
+  assert.equal(graceIds.has("tank16"), true);
+  assert.equal(shouldShowPlatoPhTank(young, graceIds), true);
+  assert.equal(shouldShowPlatoPhTank(young, new Set()), false);
+  assert.equal(shouldShowPlatoPhTank({ ...young, action: 3 }, graceIds), false);
+  assert.equal(shouldShowPlatoPhTank({ ...young, stage: { name: "קר" } }, graceIds), false);
+  assert.equal(shouldShowPlatoPhTank({ ...young, currentData: { temp: 19 } }, new Set()), true);
+  assert.equal(shouldShowPlatoPhTank({ ...young, tankNumber: 1 }, graceIds), false);
 });
