@@ -448,9 +448,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
     const dryHopCategory = noteType === "דרייהופ" ? getDryHopStyleCategory(tank.beerStyle) : null;
     const dryHopCalc = dryHopCategory ? calcDryHopDose(dryHopCategory, tank.beerVolume) : null;
     const dryHopPressure = specs ? getClosingPressureForStyle(tank.beerStyle, specs) : null;
-    const closingPressure = specs
-        ? getClosingPressureForStyle(tank.beerStyle, specs)
-        : null;
     const availableNoteTypes = NOTE_TYPES
         .filter((t) => t.stage === "both" || t.stage === stage)
         .filter((t) => t.value !== "דרייהופ" || isDryHopAllowedForStyle(tank.beerStyle))
