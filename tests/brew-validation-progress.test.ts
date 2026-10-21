@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reviewedStepsForPosition, laterValidationPosition } from "../src/SERVICES/brewing/brewValidationProgress";
+import { reviewedStepsForPosition, laterValidationPosition, recordedBrewPosition, brewStepFromStageName } from "../src/SERVICES/brewing/brewValidationProgress";
 
 const steps = ["water", "mash", "lautering", "boil", "transfer", "summary"];
 
@@ -39,4 +39,53 @@ test("manual review marks current stage without reviewing future stages",()=>{
  assert.equal(result["2:lautering"],true);
  assert.equal(result["2:boil"],undefined);
  assert.equal(result["3:water"],undefined);
+});
+
+test("peeking at B transfer cannot move the resume point or validation past recorded A transfer", () => {
+  // Previously saved activeBlockIndex: 2, activeStepIndex: 4 were merely UI tabs.
+  const actual = recordedBrewPosition(
+    { blockIndex: 1, stageName: "WP", stageStartTimeText: "06:22" },
+    { "1": { fields: { "wp.start": "06:22", materialsConfirmed: "yes", lauterWaterTemp: "74" } },
+      "2": { fields: {} } },
+    3,
+  );
+  assert.deepEqual(actual, { blockIndex: 1, stepIndex: 4 });
+  const reviewed = reviewedStepsForPosition(actual, steps);
+  assert.equal(reviewed["1:water"], true);
+  assert.equal(reviewed["1:boil"], true);
+  assert.equal(reviewed["1:transfer"], undefined);
+  assert.equal(reviewed["2:water"], undefined);
+  assert.equal(reviewed["2:transfer"], undefined);
+});
+
+test("recorded B progress, not a visit, expands validation to completed A and earlier B", () => {
+  const actual = recordedBrewPosition(
+    { blockIndex: 2, stageName: "רתיחה", stageStartTimeText: "11:45" },
+    { "1": { fields: { "outToFermentor.start": "10:00" } },
+      "2": { fields: { "boil.start": "11:45" } } },
+    3,
+  );
+  assert.deepEqual(actual, { blockIndex: 2, stepIndex: 3 });
+  const reviewed = reviewedStepsForPosition(actual, steps);
+  assert.equal(reviewed["1:transfer"], true);
+  assert.equal(reviewed["2:lautering"], true);
+  assert.equal(reviewed["2:boil"], undefined);
+  assert.equal(reviewed["3:water"], undefined);
+});
+
+test("legacy brews resume at latest recorded timestamp, not last opened B/C screen", () => {
+  assert.deepEqual(recordedBrewPosition(null, {
+    "1": { fields: { "wp.start": "09:30" } },
+    "2": { fields: {} },
+  }, 3), { blockIndex: 1, stepIndex: 4 });
+  assert.deepEqual(recordedBrewPosition(null, {
+    "1": { fields: { "wp.start": "09:30" } },
+    "2": { fields: { "mashIn.start": "11:00" } },
+  }, 3), { blockIndex: 2, stepIndex: 1 });
+  assert.deepEqual(recordedBrewPosition(
+    { blockIndex: 3, stageName: "WP" }, {},
+    3,
+  ), { blockIndex: 1, stepIndex: 0 }, "a stage label without real time must not count");
+  assert.equal(brewStepFromStageName("L.T"), 2);
+  assert.equal(brewStepFromStageName("הוצאה לתסיסה"), 4);
 });
