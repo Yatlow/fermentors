@@ -67,7 +67,7 @@ test("12-hour grace suppresses missing badge, but legacy snapshot alone cannot",
   assert.deepEqual(pendingCellarMeasurementTankNumbers([tankOne, tank("tank-7", 7, 18)], missing, [], TODAY), ["7"]);
 });
 
-test("after 12 hours the conditional badge uses veteran completion in the same 05:00 grace cycle", () => {
+test("after 12 hours the conditional badge uses veteran completion in the same 04:00 grace cycle", () => {
   const checkedAt = new Date(2026, 9, 19, 22);
   const old = tank("old", 4, 15);
   const young = tank("new", 16, 15, { fermentationStartedAt: new Date(2026, 9, 19, 8).toISOString() });
@@ -81,8 +81,8 @@ test("after 12 hours the conditional badge uses veteran completion in the same 0
   assert.deepEqual(pendingCellarMeasurementTankNumbers([old, young], today, [], afterMidnight, oldCompleted), ["4"]);
   // Today's new complete round also qualifies even if yesterday wasn't complete.
   assert.deepEqual(pendingCellarMeasurementTankNumbers([old, young], oldCompleted, [], afterMidnight, today), []);
-  // At 05:00, young becomes a veteran as its original 12h grace ended yesterday.
-  assert.deepEqual(pendingCellarMeasurementTankNumbers([old, young], today, [], new Date(2026, 9, 20, 5), oldCompleted), ["4", "16"]);
+  // At 04:00, young becomes a veteran as its original 12h grace ended yesterday.
+  assert.deepEqual(pendingCellarMeasurementTankNumbers([old, young], today, [], new Date(2026, 9, 20, 4), oldCompleted), ["4", "16"]);
 });
 
 test("an unloaded or inactive tank is never presumed to be missing everything", () => {

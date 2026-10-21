@@ -1,6 +1,6 @@
 /** The cellar grace clock is independent of the 00:00 daily measurement reset. */
 export const FERMENTATION_GRACE_MS = 12 * 60 * 60 * 1000;
-export const GRACE_RESET_HOUR = 5;
+export const GRACE_RESET_HOUR = 4;
 
 type GraceTank = {
   id: string;
@@ -35,7 +35,7 @@ export function fermentationGraceEnd(tank: GraceTank): number | null {
   return start === null ? null : start + FERMENTATION_GRACE_MS;
 }
 
-/** Most recent local 05:00 boundary, using local calendar arithmetic for DST. */
+/** Most recent local 04:00 boundary, using local calendar arithmetic for DST. */
 export function graceDayStart(at: Date = new Date()): Date {
   const boundary = new Date(at.getFullYear(), at.getMonth(), at.getDate(), GRACE_RESET_HOUR);
   if (at.getTime() < boundary.getTime()) boundary.setDate(boundary.getDate() - 1);
@@ -58,13 +58,13 @@ function completedApplicableFields(tank: GraceRoundTank, fields: DailyRoundField
 /**
  * Stateless grace classification:
  * - Always exempt during the first 12 hours.
- * - After 12 hours, a tank whose original grace ended in the current 05:00
+ * - After 12 hours, a tank whose original grace ended in the current 04:00
  *   cycle remains optional ONLY if all veteran tanks have completed the
  *   measurements belonging to that grace day.
- * - A tank whose 12 hours ended on/before the last 05:00 is a veteran.
+ * - A tank whose 12 hours ended on/before the last 04:00 is a veteran.
  *
  * fieldsByTankId must be measured on graceDayStart(at)'s LOCAL CALENDAR DATE.
- * Before 05:00 that is yesterday. A wholly complete NEW calendar day's round
+ * Before 04:00 that is yesterday. A wholly complete NEW calendar day's round
  * may also grant the exemption, but never combine half-rounds across days.
  * Missing/unavailable veteran history never grants a conditional exemption.
  * No Firestore state, retroactive writes, or circular dependency is needed.
@@ -90,7 +90,7 @@ export function measurementGraceTankIds(
     const start = timestampMillis(tank.fermentationStartedAt);
     const end = fermentationGraceEnd(tank);
     if (start === null || end === null || start > nowMs) return false;
-    if (nowMs < end) return true; // Absolute minimum of 12 hours, even over 05:00.
+    if (nowMs < end) return true; // Absolute minimum of 12 hours, even over 04:00.
     return end > cycleStartMs && veteransComplete;
   }).map(tank => String(tank.id)));
 }
@@ -122,4 +122,15 @@ export function completedDailyRoundKpi(
     checkedTanks: counted.length,
     completeMeasurementTankNumbers: counted.filter(row => row.completeMeasurements).map(row => row.tankNumber),
   };
+}
+
+/** A new fermentation tank is eligible for optional Plato/pH readings before
+ * its first temperature has been measured; veteran/cold tanks keep the hot filter. */
+export function shouldShowPlatoPhTank(
+  tank: GraceRoundTank,
+  graceTankIds: ReadonlySet<string>,
+): boolean {
+  if (Number(tank.tankNumber) === 1) return false;
+  const hot = tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
+  return hot || (Number(tank.action) === 1 && tank.stage?.name === "בתסיסה" && graceTankIds.has(String(tank.id)));
 }
