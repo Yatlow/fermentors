@@ -9,6 +9,7 @@ import {
   isInInitialMeasurementGrace,
   elapsedFermentationHours,
   graceElapsedLabel,
+  dailyMeasurementStatusLabel,
   completedDailyRoundKpi,
   shouldShowPlatoPhTank,
 } from "../src/SERVICES/dashboard/cellarGrace";
@@ -174,4 +175,13 @@ test("Plato/pH tab includes a grace tank with no first temperature measurement",
   assert.equal(shouldShowPlatoPhTank({ ...young, stage: { name: "קר" } }, graceIds), false);
   assert.equal(shouldShowPlatoPhTank({ ...young, currentData: { temp: 19 } }, new Set()), true);
   assert.equal(shouldShowPlatoPhTank({ ...young, tankNumber: 1 }, graceIds), false);
+});
+
+test("a completed optional grace round displays today's check instead of elapsed time", () => {
+  const clock = "עברו 03:25 שעות מהעברה למיכל";
+  assert.equal(dailyMeasurementStatusLabel(true, true, clock), "✓ הושלם היום");
+  assert.equal(dailyMeasurementStatusLabel(false, true, clock), clock);
+  assert.equal(dailyMeasurementStatusLabel(false, false, clock), clock);
+  assert.equal(dailyMeasurementStatusLabel(false, true, null), "◐ בוצע חלקית היום");
+  assert.equal(dailyMeasurementStatusLabel(false, false, null), "○ טרם בוצע היום");
 });
