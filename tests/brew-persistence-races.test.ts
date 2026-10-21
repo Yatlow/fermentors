@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   mergeBrewRemotePreservingLocalEdits,
   reconcileBrewStartupFields,
+  shouldPersistBrewUnmount,
   type BrewSyncExecution,
 } from "../src/SERVICES/brewing/brewSyncGuards";
 import { persistBrewBeforeExit } from "../src/SERVICES/brewing/brewExitPersistence";
@@ -107,4 +108,11 @@ test("failed Sheet or Firestore acknowledgments refuse to close the brew form", 
     async () => { throw new Error("Firestore offline"); },
     async () => undefined,
   ), /Firestore offline/);
+});
+
+test("app tab unmount flushes ordinary drafts but cannot erase an in-flight A/B material approval", () => {
+  assert.equal(shouldPersistBrewUnmount(true, false, false), true);
+  assert.equal(shouldPersistBrewUnmount(false, false, false), false);
+  assert.equal(shouldPersistBrewUnmount(true, true, false), false);
+  assert.equal(shouldPersistBrewUnmount(true, false, true), false);
 });
