@@ -168,3 +168,27 @@ export function shouldPersistBrewUnmount(
 ): boolean {
   return firestoreHydrated && !isClosing && !materialConfirmationInFlight;
 }
+
+
+/** Prevent a navigation-only or hydration-only render from scheduling a
+ * Firestore write, which can race and invalidate the startup Sheet read.
+ * Only a real process/material field difference justifies an autosave.
+ */
+export function hasUnsavedBrewFields(
+  execution: BrewSyncExecution,
+  lastRemote: BrewSyncExecution | null,
+): boolean {
+  if (!lastRemote || lastRemote.batchNumber !== execution.batchNumber) {
+    return Object.values(execution.blocks || {}).some(block =>
+      Object.entries(block.fields || {}).some(([key, value]) =>
+        !key.startsWith("__sheetRow.") && String(value ?? "").trim() !== ""
+      )
+    );
+  }
+  return Object.entries(execution.blocks || {}).some(([blockId, block]) =>
+    Object.entries(block.fields || {}).some(([field, value]) =>
+      !field.startsWith("__sheetRow.") &&
+      value !== lastRemote.blocks[blockId]?.fields?.[field]
+    )
+  );
+}
