@@ -38,13 +38,13 @@ test("excludes rows with no action note", () => {
 test("summarizes pressure decrease, yeast pressure and diacetyl rest", () => {
   assert.deepEqual(yesterdayActionNotes([
     { id: "2026-10-18_1000", notes: "הורדת לחץ מ-1.7 ל-1; הורדת שמרים, לחץ אחרי שמרים 1.57; כיבוי קירור למנוחת דיאצטיל" },
-  ], "2026-10-18"), ["הורדת לחץ: מ־1.7 ל־1 bar", "הורדת שמרים: לחץ אחרי הורדת שמרים 1.57 bar", "מנוחת דיאצטיל: המיכל הועבר למנוחת דיאצטיל"]);
+  ], "2026-10-18"), ["מנוחת דיאצטיל: המיכל הועבר למנוחת דיאצטיל", "הורדת שמרים: לחץ אחרי הורדת שמרים 1.57 bar", "הורדת לחץ: מ־1.7 ל־1 bar"]);
 });
 
 test("records completed pressure-relevant valve and vent adjustments", () => {
   assert.deepEqual(yesterdayActionNotes([
     { id: "2026-10-18_0800", notes: "כיוון פורק ל-1.6; נסגר נשם" },
-  ], "2026-10-18"), ["כיוון פורק: ל־1.6 bar", "סגירת נשם: הנשם נסגר"]);
+  ], "2026-10-18"), ["סגירת נשם: הנשם נסגר", "כיוון פורק: ל־1.6 bar"]);
 });
 test("recognizes resuming cooling after diacetyl rest", () => {
   assert.deepEqual(yesterdayActionNotes([
@@ -56,22 +56,35 @@ test("parses actual dashboard action note formats with recorded pressure values"
   assert.deepEqual(yesterdayActionNotes([
     { id: "2026-10-18_0800", notes: "הורדת לחץ ל: 1.5 bar; סגירת נשם, כיוון פורק ל 1.5; הורדת 2 דליי שמרים, לחץ אחרי 0.7 bar" },
   ], "2026-10-18"), [
-    "הורדת לחץ: ל־1.5 bar",
+    "הורדת שמרים: לחץ אחרי הורדת שמרים 0.7 bar",
     "סגירת נשם: הנשם נסגר",
     "כיוון פורק: ל־1.5 bar",
-    "הורדת שמרים: לחץ אחרי הורדת שמרים 0.7 bar",
+    "הורדת לחץ: ל־1.5 bar",
   ]);
 });
 test("parses actual quick-action cooling and diacetyl notes", () => {
   assert.deepEqual(yesterdayActionNotes([
     { id: "2026-10-18_0800", notes: "קירור מיכל ל0.3°; חימום מיכל ל14° למנוחת דיאציטיל" },
   ], "2026-10-18"), [
-    "קירור: המיכל הועבר לקירור",
     "מנוחת דיאצטיל: המיכל הועבר למנוחת דיאצטיל",
+    "קירור: המיכל הועבר לקירור",
   ]);
 });
 test("displays target when no starting pressure exists, not a guessed before-value", () => {
   assert.deepEqual(yesterdayActionNotes([
     { id: "2026-10-18_0800", notes: "העלאת לחץ ל: 1.6 bar" },
   ], "2026-10-18"), ["העלאת לחץ: ל־1.6 bar"]);
+});
+
+test("reverse chronological order across rows and within a daily merged note", () => {
+  assert.deepEqual(yesterdayActionNotes([
+    { id: "2026-10-18_0715", notes: "סגירת נשם" },
+    { id: "2026-10-18_1400", notes: "העלאת לחץ ל-1.2 | כיוון פורק ל-1.4" },
+    { id: "2026-10-18_1100", notes: "הורדת שמרים" },
+  ], "2026-10-18"), [
+    "כיוון פורק: ל־1.4 bar",
+    "העלאת לחץ: ל־1.2 bar",
+    "הורדת שמרים",
+    "סגירת נשם: הנשם נסגר",
+  ]);
 });
