@@ -18,6 +18,7 @@ import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials } from "../../SERVICES/brewing/brewSyncGuards";
 import { recordedBrewPosition, reviewedStepsFromRecordedWork } from "../../SERVICES/brewing/brewValidationProgress";
 import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
+import { persistBrewBeforeExit } from "../../SERVICES/brewing/brewExitPersistence";
 import {
   readBrewSheetRange,
   resetBrewSheetBaseline,
@@ -1014,6 +1015,7 @@ export default function BrewFormStepper({
   const isReadyToPersistRef = useRef(false);
   const closeInFlightRef = useRef(false);
   const [closingBrewForm, setClosingBrewForm] = useState(false);
+  const [exitSaveError, setExitSaveError] = useState("");
   const latestLocalEditAt = useRef(0);
   const [firestoreHydrated, setFirestoreHydrated] = useState(false);
   const [initialSheetReconciled, setInitialSheetReconciled] = useState(false);
@@ -1126,6 +1128,7 @@ export default function BrewFormStepper({
         !firestoreHydrated || !initialSheetReconciled) return;
     closeInFlightRef.current = true;
     setClosingBrewForm(true);
+    setExitSaveError("");
     if (firestoreSaveTimer.current) {
       clearTimeout(firestoreSaveTimer.current);
       firestoreSaveTimer.current = null;
@@ -1133,14 +1136,17 @@ export default function BrewFormStepper({
     try {
       // A Sheet write may still be in its independent 650ms batching queue.
       // Never reopen against an older Sheet while these writes are pending.
-      await Promise.all(Array.from(pendingSheetWrites.current));
-      const latest = saveBrewingExecutionLocal(latestExecutionRef.current);
-      await saveBrewingExecutionToFirestore(latest);
-      await saveBrewAcidHistoryToFirestore(latest, run.style);
+      await persistBrewBeforeExit(
+        () => latestExecutionRef.current,
+        Array.from(pendingSheetWrites.current),
+        saveBrewingExecutionLocal,
+        saveBrewingExecutionToFirestore,
+        (snapshot) => saveBrewAcidHistoryToFirestore(snapshot, run.style),
+      );
       onClose();
     } catch (error) {
       const reason = error instanceof Error ? error.message : "שגיאת תקשורת";
-      setSyncError(`שמירת הבישול לא הושלמה. הטופס נשאר פתוח כדי למנוע אובדן נתונים: ${reason}`);
+      setExitSaveError(`שמירת הבישול לא הושלמה. הטופס נשאר פתוח כדי למנוע אובדן נתונים: ${reason}`);
       closeInFlightRef.current = false;
     } finally {
       setClosingBrewForm(false);
@@ -4250,6 +4256,11 @@ export default function BrewFormStepper({
       {materialsSaveError && (
         <div className="brewing-message brewing-message-error" role="alert">
           {materialsSaveError}
+        </div>
+      )}
+      {exitSaveError && (
+        <div className="brewing-message brewing-message-error" role="alert">
+          {exitSaveError}
         </div>
       )}
       {message && <div className="brewing-message">{message}</div>}
