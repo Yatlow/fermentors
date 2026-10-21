@@ -16,7 +16,7 @@ import {
 } from "../../SERVICES/brewing/brewExecution";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import { mergeBrewSheetEditDelta, shouldAcceptRemoteBrewingExecution } from "../../SERVICES/brewing/brewSyncGuards";
-import { laterValidationPosition, recordedBrewPosition, reviewedStepsForPosition } from "../../SERVICES/brewing/brewValidationProgress";
+import { recordedBrewPosition, reviewedStepsFromRecordedWork } from "../../SERVICES/brewing/brewValidationProgress";
 import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
 import {
   readBrewSheetRange,
@@ -947,6 +947,7 @@ export default function BrewFormStepper({
   ingredients,
   onClose,
 }: Props) {
+  const totalBlocks = getBlockCount(run.tankType);
   const [execution, setExecution] = useState<BrewExecution>(() => {
     const cached = loadBrewingExecution(run.batchNumber);
     const position = recordedBrewPosition(
@@ -981,15 +982,16 @@ export default function BrewFormStepper({
   const validationConfirmResolver = useRef<((approved: boolean) => void) | null>(
     null,
   );
-  // A new form session ignores old review markers AND its last visited tabs.
-  // Only actual brewing work sets the initial validation boundary.
-  const [validationFrontier, setValidationFrontier] = useState(() => recordedBrewPosition(
-    Number(run.action) === 0 ? run.brewProgress : null,
-    loadBrewingExecution(run.batchNumber).blocks,
-    getBlockCount(run.tankType),
-  ));
+  // Independent per-block progress: brewing B can overlap A without implying
+  // that the unfinished transfer of A should already be validated.
   const [sessionReviewedSteps, setSessionReviewedSteps] = useState<Record<string, boolean>>({});
-  const reviewedSteps = reviewedStepsForPosition(validationFrontier, STEPS.map((step) => step.id), sessionReviewedSteps);
+  const reviewedSteps = reviewedStepsFromRecordedWork(
+    Number(run.action) === 0 ? run.brewProgress : null,
+    execution.blocks,
+    totalBlocks,
+    STEPS.map((step) => step.id),
+    sessionReviewedSteps,
+  );
   const [heightCalcOpen, setHeightCalcOpen] = useState(false);
   const [heightCm, setHeightCm] = useState("");
   const [heightBaseLiters, setHeightBaseLiters] = useState("");
@@ -1009,7 +1011,6 @@ export default function BrewFormStepper({
   const ingredientLibrary = ingredients;
   const [previousBatchDate, setPreviousBatchDate] = useState("");
 
-  const totalBlocks = getBlockCount(run.tankType);
   const currentBlock = Math.min(
     Math.max(execution.activeBlockIndex || 1, 1),
     totalBlocks,
@@ -1063,7 +1064,6 @@ export default function BrewFormStepper({
           );
           setExecution({ ...remote, activeBlockIndex: position.blockIndex, activeStepIndex: position.stepIndex });
           setActiveStepState(position.stepIndex);
-          setValidationFrontier(position);
           setSessionReviewedSteps({});
           setValidationNotice(null);
         }
@@ -1943,14 +1943,6 @@ export default function BrewFormStepper({
     startTime: string | null,
     endTime: string | null = null,
   ) {
-    setValidationFrontier(previous => laterValidationPosition(previous, {
-      blockIndex: currentBlock,
-      stepIndex: recordedBrewPosition(
-        { blockIndex: currentBlock, stageName: stage.label, stageStartTimeText: startTime, stageEndTimeText: endTime },
-        execution.blocks,
-        totalBlocks,
-      ).stepIndex,
-    }));
     void saveBrewingProgressToFirestore(run.tankId, {
       blockCount: totalBlocks,
       blockIndex: currentBlock,
@@ -3399,7 +3391,6 @@ export default function BrewFormStepper({
       totalBlocks,
     );
     setActiveStepState(position.stepIndex);
-    setValidationFrontier(position);
     return { ...nextExecution, activeBlockIndex: position.blockIndex, activeStepIndex: position.stepIndex };
   }
 
