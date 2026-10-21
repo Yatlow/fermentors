@@ -15,7 +15,7 @@ import {
   type BrewExecution,
 } from "../../SERVICES/brewing/brewExecution";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
-import { mergeBrewSheetEditDelta, shouldAcceptRemoteBrewingExecution } from "../../SERVICES/brewing/brewSyncGuards";
+import { mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldAcceptRemoteBrewingExecution } from "../../SERVICES/brewing/brewSyncGuards";
 import { recordedBrewPosition, reviewedStepsFromRecordedWork } from "../../SERVICES/brewing/brewValidationProgress";
 import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
 import {
@@ -979,6 +979,8 @@ export default function BrewFormStepper({
   const [validationNotice, setValidationNotice] =
     useState<ValidationNotice | null>(null);
   const [validationConfirmText, setValidationConfirmText] = useState("");
+  const [savingMaterialsBlock, setSavingMaterialsBlock] = useState<number | null>(null);
+  const materialsSaveInFlight = useRef(false);
   const validationConfirmResolver = useRef<((approved: boolean) => void) | null>(
     null,
   );
@@ -1684,6 +1686,10 @@ export default function BrewFormStepper({
   }
 
   async function confirmMaterials() {
+    if (materialsSaveInFlight.current) return;
+    materialsSaveInFlight.current = true;
+    const confirmingBlock = currentBlock;
+    setSavingMaterialsBlock(confirmingBlock);
     latestLocalEditAt.current = Date.now();
     let nextExecution = execution;
     const writes: Array<{
@@ -1691,6 +1697,7 @@ export default function BrewFormStepper({
       value: string | number | boolean | null;
     }> = [];
 
+    try {
     recipe.grains.forEach((grain, index) => {
       const ingredient = ingredientLibrary.find(
         (item) => item.id === grain.ingredientId,
@@ -1818,14 +1825,54 @@ export default function BrewFormStepper({
       }
     }
 
-    nextExecution = setBrewingExecutionField(
-      nextExecution,
-      currentBlock,
-      "materialsConfirmed",
-      "yes",
-    );
+    // Ingredient selections may be displayed immediately, but confirmation
+    // only becomes "yes" once Firestore acknowledges the write. Otherwise a
+    // quick close cancels the debounced autosave and silently loses approval.
     setExecution(nextExecution);
-    await writeSheet("materialsConfirmed", writes);
+    const confirmed = await persistConfirmedBrewMaterials(
+      nextExecution,
+      confirmingBlock,
+      saveBrewingExecutionToFirestore,
+    );
+    const key = String(confirmingBlock);
+    const approvedLots = Object.fromEntries(
+      Object.entries(confirmed.blocks[key]?.fields || {}).filter(
+        ([field]) => field.startsWith("materialLot."),
+      ),
+    );
+    setExecution((previous) => {
+      if (previous.batchNumber !== confirmed.batchNumber) return previous;
+      const block = previous.blocks[key] || { fields: {} };
+      // A different A/B/C block may have been edited while the request was
+      // in flight. Never replace the whole execution with a stale snapshot.
+      return saveBrewingExecutionLocal({
+        ...previous,
+        blocks: {
+          ...previous.blocks,
+          [key]: {
+            ...block,
+            fields: {
+              ...block.fields,
+              ...approvedLots,
+              materialsConfirmed: "yes",
+            },
+          },
+        },
+      });
+    });
+    // Sheet holds lots and quantities, not the approval flag itself.
+    // Only start writing it after the Firestore approval is durable.
+    writeSheet("materialsConfirmed", writes);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "שגיאת תקשורת";
+      setSyncError(detail);
+      setMessage(
+        `אישור חומרי הגלם של בישול ${String.fromCharCode(64 + confirmingBlock)} לא נשמר ב-Firestore. יש לנסות שוב. ${detail}`,
+      );
+    } finally {
+      materialsSaveInFlight.current = false;
+      setSavingMaterialsBlock(null);
+    }
   }
 
   function sheetRowFromMeta(key: string, fallbackRow: number): number {
@@ -4095,6 +4142,7 @@ export default function BrewFormStepper({
           <button
             type="button"
             className="brew-back-button brew-button-secondary"
+            disabled={savingMaterialsBlock !== null}
             onClick={onClose}
           >
             חזרה לאצוות
@@ -4455,7 +4503,7 @@ export default function BrewFormStepper({
                       </span>
                       <select
                         value={selected?.id || ""}
-                        disabled={ingredient.lots.length === 0}
+                        disabled={ingredient.lots.length === 0 || savingMaterialsBlock !== null}
                         onChange={(e) =>
                           selectMaterialLot(
                             ingredient.id,
@@ -4505,13 +4553,16 @@ export default function BrewFormStepper({
                   }
                   onClick={() => void confirmMaterials()}
                   disabled={
+                    savingMaterialsBlock !== null ||
                     brewMaterials.length === 0 ||
                     brewMaterials.some((ingredient) => ingredient.lots.length === 0)
                   }
                 >
-                  {hasField("materialsConfirmed")
-                    ? "✓ חומרי הגלם אושרו — אשר מחדש"
-                    : "אשר אצוות חומרי גלם"}
+                  {savingMaterialsBlock === currentBlock
+                    ? "שומר אישור חומרי גלם…"
+                    : hasField("materialsConfirmed")
+                      ? "✓ חומרי הגלם אושרו — אשר מחדש"
+                      : "אשר אצוות חומרי גלם"}
                 </button>
                 
               </div>
