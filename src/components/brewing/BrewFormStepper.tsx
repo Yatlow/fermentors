@@ -3475,7 +3475,8 @@ export default function BrewFormStepper({
     }
 
     try {
-      let nextExecution = execution;
+      let nextExecution = latestExecutionRef.current;
+      const remoteAtReadStart = remoteBaselineRef.current;
 
       // A pull is authoritative for Sheet-backed fields. Drop any cached
       // expectedValue snapshot first so the full read below becomes the new
@@ -3489,7 +3490,11 @@ export default function BrewFormStepper({
       // Only actual in-session edits invalidate this read. A stale local
       // cache can have a newer timestamp from merely navigating the form;
       // treating that as a keystroke prevented legacy recovery entirely.
-      if (latestLocalEditAt.current > readStartedAt) {
+      if (latestLocalEditAt.current > readStartedAt ||
+          remoteBaselineRef.current !== remoteAtReadStart ||
+          pendingSheetWrites.current.size > 0) {
+        // A newer in-app edit, remote revision or pending app→Sheet write
+        // invalidates this snapshot; never persist it over fresh process data.
         return false;
       }
       const fermentationIndex = fullSheetRows.findIndex((row) =>
@@ -3501,6 +3506,7 @@ export default function BrewFormStepper({
         totalBlocks,
       );
 
+      const startupConflicts: SyncMismatch[] = [];
       for (let index = 1; index <= totalBlocks; index += 1) {
         const discovered = discoveredBlocks[index - 1];
         if (!discovered) {
@@ -3535,53 +3541,39 @@ export default function BrewFormStepper({
           ),
         );
 
-        // Initial discovery must also recover missing Sheet-backed values.
-        // Existing non-empty values remain authoritative, but an empty or
-        // partially lost Firestore execution (e.g. batch 1605) must be
-        // rehydrated from the intact Sheet. Never replace a populated field
-        // during a silent startup reconciliation.
+        // A silent startup read is recovery only, never a broad overwrite of
+        // acknowledged Firestore data. Explicit pulls can still use the Sheet
+        // as an authoritative source when the brewer chooses to reconcile.
+        const startup = reconcileBrewStartupFields(existing, pulled);
         const mappingDiscoveryOnly = positionAfterPull && silent;
         if (mappingDiscoveryOnly) {
-          for (const [key, value] of Object.entries(pulled)) {
-            if (key.startsWith("__sheetRow.")) continue;
-            if (String(value ?? "").trim() === "") {
-              delete pulled[key];
-              continue;
-            }
-            // The Sheet is authoritative for measured process data. An old
-            // execution may contain values read from the wrong template row;
-            // retaining them silently perpetuates that corruption.
-            // Keep explicit material confirmations and locally-only fields.
-            if (!isSheetBackedExecutionKey(key) &&
-                String(existing[key] ?? "").trim() !== "") {
-              pulled[key] = existing[key];
-            }
-          }
+          startupConflicts.push(
+            ...startup.conflicts
+              .filter(({ key }) => isSheetBackedExecutionKey(key) &&
+                !key.startsWith("sheetRawMaterial.") && !key.startsWith("sheetMaterial."))
+              .map(({ key, appValue, sheetValue }) => ({
+                blockIndex: index,
+                key,
+                label: key,
+                appValue,
+                sheetValue,
+              })),
+          );
         }
 
-        // A Sheet pull must not erase an explicit material confirmation merely
-        // because the legacy Sheet cannot reconstruct every lot identifier.
-        // B/C also intentionally have no separate yeast confirmation.
         const preservedMaterialFields = Object.fromEntries(
           Object.entries(existing).filter(([key, value]) => {
             if (!String(value || "").trim()) return false;
-            if (key === "materialsConfirmed") return true;
-            if (!key.startsWith("materialLot.")) return false;
-            return !pulled[key];
+            return key === "materialsConfirmed" ||
+              (key.startsWith("materialLot.") && !pulled[key]);
           }),
         );
-
         nextExecution = replaceBrewingExecutionBlockFields(
           nextExecution,
           index,
-          {
-            // A partially populated Sheet response must not erase fields
-            // already committed locally (including rinse grants).
-            ...existing,
-            ...localOnlyFields,
-            ...preservedMaterialFields,
-            ...pulled,
-          },
+          mappingDiscoveryOnly
+            ? startup.fields
+            : { ...existing, ...localOnlyFields, ...preservedMaterialFields, ...pulled },
         );
       }
 
@@ -3591,7 +3583,7 @@ export default function BrewFormStepper({
 
       setExecution(nextExecution);
       setLastPullAt(new Date());
-      setSyncMismatches([]);
+      setSyncMismatches(startupConflicts);
       setSyncError("");
       setInitialSheetReconciled(true);
       // Persist reconciliation explicitly; do not rely on a later render/effect.
@@ -3789,7 +3781,12 @@ export default function BrewFormStepper({
     // authoritative; syncFromSheet preserves local-only confirmations and
     // aborts if an in-session edit occurs during the read.
     void syncFromSheet(true, { silent: true }).then((ok) => {
-      if (!ok) console.warn("Initial brew Sheet reconciliation did not complete", run.batchNumber);
+      if (!ok) {
+        // An intentionally interrupted Sheet read must never disable all
+        // Firestore autosaves for the rest of this form session.
+        console.warn("Initial brew Sheet read interrupted; continuing with Firestore", run.batchNumber);
+        setInitialSheetReconciled(true);
+      }
     });
     // Live onEdit revision events are the synchronization trigger. A periodic
     // full pull races with local autosave and may replace freshly entered
