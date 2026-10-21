@@ -3,7 +3,7 @@ import { cellarMeasurementWarnings } from "../../SERVICES/cellering/cellarMeasur
 import type { Fermentor, NewReading } from "../../App";
 import RecentMeasurements from "./RecentMeasurements";
 import { beerStyleVisual } from "../../SERVICES/beerStyleVisual";
-import { graceElapsedLabel } from "../../SERVICES/dashboard/cellarGrace";
+import { graceElapsedLabel, shouldShowPlatoPhTank } from "../../SERVICES/dashboard/cellarGrace";
 
 export type DailyPlatoPHProps = {
   brews: Fermentor[],
@@ -36,7 +36,7 @@ export default function DailyPlatoPH({
     <div className="write-messurmant">
       <div className="measurement-grid">
         {brews
-          .filter((fv) => (Number(fv?.tankNumber) !== 1 && Number(fv?.currentData?.temp) > 9 && fv?.stage?.name === "בתסיסה"))
+          .filter((fv) => shouldShowPlatoPhTank(fv, graceTankIds))
           .map((fv) => {
             const reading = newReadings[fv.id] ?? {};
             const graceLabel = graceElapsedLabel(fv, graceTankIds.has(String(fv.id)), now);
