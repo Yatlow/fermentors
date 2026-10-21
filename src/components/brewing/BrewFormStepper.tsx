@@ -1014,6 +1014,7 @@ export default function BrewFormStepper({
   const remoteBaselineRef = useRef<BrewExecution | null>(null);
   const isReadyToPersistRef = useRef(false);
   const closeInFlightRef = useRef(false);
+  const formMountedRef = useRef(true);
   const [closingBrewForm, setClosingBrewForm] = useState(false);
   const [exitSaveError, setExitSaveError] = useState("");
   const latestLocalEditAt = useRef(0);
@@ -1021,8 +1022,10 @@ export default function BrewFormStepper({
   const [initialSheetReconciled, setInitialSheetReconciled] = useState(false);
   useLayoutEffect(() => {
     latestExecutionRef.current = execution;
-    isReadyToPersistRef.current = firestoreHydrated && initialSheetReconciled;
-  }, [execution, firestoreHydrated, initialSheetReconciled]);
+    // Firebase hydration is enough to save user edits. A slow/aborted Sheet
+    // read must not disable Firestore autosaves even for a moment.
+    isReadyToPersistRef.current = firestoreHydrated;
+  }, [execution, firestoreHydrated]);
   const ingredientLibrary = ingredients;
   const [previousBatchDate, setPreviousBatchDate] = useState("");
 
@@ -1094,7 +1097,7 @@ export default function BrewFormStepper({
     // Do not queue an older unconfirmed draft while an explicit material
     // confirmation is in flight. It could otherwise be written AFTER the
     // acknowledged approval and remove the marker again.
-    if (!firestoreHydrated || !initialSheetReconciled || savingMaterialsBlock !== null) return;
+    if (!firestoreHydrated || savingMaterialsBlock !== null) return;
     if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     firestoreSaveTimer.current = setTimeout(() => {
       void Promise.all([
@@ -1107,13 +1110,15 @@ export default function BrewFormStepper({
     return () => {
       if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     };
-  }, [execution, firestoreHydrated, initialSheetReconciled, run.style, savingMaterialsBlock]);
+  }, [execution, firestoreHydrated, run.style, savingMaterialsBlock]);
 
   // Switching main app tabs can unmount the form without pressing its Back
   // button. Persist the last rendered draft and dispatch a final write instead
   // of silently cancelling the outstanding 250ms debounced write.
   useEffect(() => {
+    formMountedRef.current = true;
     return () => {
+      formMountedRef.current = false;
       if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
       if (!isReadyToPersistRef.current || closeInFlightRef.current) return;
       const latest = saveBrewingExecutionLocal(latestExecutionRef.current);
@@ -3533,6 +3538,7 @@ export default function BrewFormStepper({
         run.sheetId,
         "'גיליון1'!A1:H220",
       );
+      if (!formMountedRef.current) return false;
       // Only actual in-session edits invalidate this read. A stale local
       // cache can have a newer timestamp from merely navigating the form;
       // treating that as a keystroke prevented legacy recovery entirely.
