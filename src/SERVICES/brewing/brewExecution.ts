@@ -294,6 +294,11 @@ export async function loadBrewingExecutionFromFirestore(
 ): Promise<BrewExecution | null> {
   const clean = cleanBatchNumber(batchNumber);
   if (!clean) return null;
+  // Reopening immediately after a tab change can race the previous form's
+  // final Firestore write. Do not overwrite localStorage with an older server
+  // snapshot while that write is still queued in this browser.
+  const pendingSave = brewExecutionWriteQueues.get(clean);
+  if (pendingSave) await pendingSave;
   const snapshot = await getDoc(doc(db, "brews", clean));
   if (!snapshot.exists()) return null;
   const data = snapshot.data() as { brewingExecution?: BrewExecution; brewSheetRowMapJson?: string };
