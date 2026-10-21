@@ -1,4 +1,4 @@
-import type { SpecChart } from "../getAndPost/getSpecsFromFb";
+import type { PressureTargetSpecs } from "./pressureStyleTarget";
 import { getClosingPressureForStyle } from "./pressureStyleTarget";
 
 /** Use the configured style pressure for valve adjustment and tank closing.
@@ -8,7 +8,7 @@ import { getClosingPressureForStyle } from "./pressureStyleTarget";
 export function getQuickReportPressureDefault(
   noteType: string,
   beerStyle: string | null | undefined,
-  specs: SpecChart | null,
+  specs: PressureTargetSpecs | null,
 ): string | null {
   if (noteType !== "פורק" && noteType !== "סגירת מיכל") return null;
   if (!specs) return null;
