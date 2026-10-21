@@ -6,7 +6,7 @@ import { cellarMeasurementWarnings } from "../../SERVICES/cellering/cellarMeasur
 import type { Fermentor, NewReading } from "../../App";
 import RecentMeasurements from "./RecentMeasurements";
 import { beerStyleVisual } from "../../SERVICES/beerStyleVisual";
-import { graceElapsedLabel } from "../../SERVICES/dashboard/cellarGrace";
+import { dailyMeasurementStatusLabel, graceElapsedLabel } from "../../SERVICES/dashboard/cellarGrace";
 
 export type DailyPressureAndTempProps = {
   brews: Fermentor[],
@@ -83,6 +83,8 @@ export default function DailyPressureAndTemp({
           .map((fv) => {
             const reading = newReadings[fv.id] ?? {};
             const graceLabel = graceElapsedLabel(fv, graceTankIds.has(String(fv.id)), now);
+            const completed = Boolean(dailyProgress[fv.id]?.temp && dailyProgress[fv.id]?.pressure);
+            const partial = Boolean(dailyProgress[fv.id]?.temp || dailyProgress[fv.id]?.pressure);
             const inGrace = graceLabel !== null;
             const stageClass = fv.stage?.className ?? "";
             return (
@@ -98,10 +100,8 @@ export default function DailyPressureAndTemp({
                 </div>
 
 
-                {Number(fv.action) === 1 && <div role="status" style={{ fontSize: "0.78rem", padding: "3px 9px", color: inGrace ? "#52687b" : dailyProgress[fv.id]?.temp && dailyProgress[fv.id]?.pressure ? "#18743b" : "#866119" }}>
-                  {graceLabel !== null
-                    ? graceLabel
-                    : dailyProgress[fv.id]?.temp && dailyProgress[fv.id]?.pressure ? "✓ הושלם היום" : dailyProgress[fv.id]?.temp || dailyProgress[fv.id]?.pressure ? "◐ בוצע חלקית היום" : "○ טרם בוצע היום"}
+                {Number(fv.action) === 1 && <div role="status" style={{ fontSize: "0.78rem", padding: "3px 9px", color: completed ? "#18743b" : inGrace ? "#52687b" : "#866119" }}>
+                  {dailyMeasurementStatusLabel(completed, partial, graceLabel)}
                 </div>}
                 <div className="measurement-batch" style={Number(fv.action) === 1 ? { borderInlineStart: `4px solid ${beerStyleVisual(fv.beerStyle).border}`, paddingInlineStart: 8 } : undefined}>
                   {Number(fv.action) === 1 ? `אצווה #${fv.batchNumber ?? "-"}` : `מיכל ${fv.stage?.name}`}
