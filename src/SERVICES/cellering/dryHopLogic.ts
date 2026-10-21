@@ -43,18 +43,7 @@ export function roundGramsUp5(grams: number): number {
     return Math.ceil(grams / 5) * 5;
 }
 
-export function getClosingPressureForStyle(
-    beerStyle: string | null | undefined,
-    specs: SpecChart
-): number | null {
-    const pressureSpecs = specs?.pressure;
-    if (!pressureSpecs) return null;
-
-    const normalizedStyle = String(beerStyle || "").trim().toLowerCase().split(/\s+/)[0];
-    const value = pressureSpecs[normalizedStyle] ?? pressureSpecs.other;
-
-    return typeof value === "number" ? value : null;
-}
+export { getClosingPressureForStyle } from "./pressureStyleTarget";
 
 /** AA source of truth: the current/active lot in the ingredient library. */
 export function getHopAa(

@@ -18,6 +18,7 @@ const tests = [
   "cellaring-additional-forecast",
   "brew-progress-display",
   "brew-validation-progress",
+  "quick-report-pressure-default",
   "mash-water-sheet-row",
   "brew-sync-guards",
   "cellaring-action-state-regression",

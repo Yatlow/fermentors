@@ -51,3 +51,39 @@ export function mergeBrewSheetEditDelta(
   }
   return changed ? { ...previous, blocks, updatedAt } : previous;
 }
+
+
+/** Explicit materials approval is NOT a Sheet-derived value. Only record the
+ * confirmation after the Firestore write has acknowledged it. This avoids
+ * showing a successful approval that existed solely in a debounced local cache
+ * and could be discarded on form close.
+ *
+ * A/B/C confirmations are stored independently in their own fields map.
+ */
+export async function persistConfirmedBrewMaterials<T extends BrewSyncExecution>(
+  execution: T,
+  blockIndex: number,
+  persist: (confirmed: T) => Promise<void>,
+): Promise<T> {
+  if (!Number.isInteger(blockIndex) || blockIndex < 1 || blockIndex > 3) {
+    throw new Error("Invalid brew block for materials confirmation");
+  }
+  const block = String(blockIndex);
+  const confirmed = {
+    ...execution,
+    updatedAt: new Date().toISOString(),
+    blocks: {
+      ...execution.blocks,
+      [block]: {
+        ...execution.blocks[block],
+        fields: {
+          ...(execution.blocks[block]?.fields || {}),
+          materialsConfirmed: "yes",
+        },
+      },
+    },
+  } as T;
+  // If this fails, the caller must not mark the confirmation as saved.
+  await persist(confirmed);
+  return confirmed;
+}
