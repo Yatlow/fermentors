@@ -736,3 +736,30 @@ test("week 46 proposals reconcile a physical batch after stale forecast renumber
   assert.ok(model.brewTankOptions.some((option) => option.tankNumber === "14"),
     "confirmed live-batch emptying should overcome stale forecast batch identity");
 });
+
+test("overdue unperformed week 45 packaging cannot fake a week 46 finishing pack", () => {
+  const pale: Product = {
+    ...product, id: "pale-crates", sku: "pale-crates",
+    style: "פייל אייל", monthly: 50, tempo: 20000, tempoDate: week46Today,
+  };
+  const tank: Tank = {
+    id: "tank-14", number: "14", batch: "live-14", style: pale.style,
+    brewed: "2026-10-01", ready: "2026-10-22", liters: 3200, cold: true,
+  };
+  const source = { id: tank.id, tankNumber: 14, batchNumber: tank.batch,
+    brewDate: "01/10/2026", beerStyle: pale.style, action: 1 };
+  const prior = { ...emptyWeek(week45), packaging: [{
+    id: "overdue-but-unperformed", productId: pale.id, quantity: 252,
+    tankId: tank.id, tankNumber: tank.number, batchNumber: tank.batch, date: "2026-11-05",
+  }] };
+  const model = buildWeeklyPlanningModel({
+    settings: { ...settings, products: [pale] },
+    pallets: [], tanks: [tank], plans: [prior], actuals: [],
+    sources: [source], today: "2026-11-06", week: week46,
+    holidays: [], shipments: [],
+  });
+  assert.equal(model.packagingRecommendation.length, 0,
+    "no previous actual packaging: do not recommend only a phantom remainder");
+  assert.ok(!model.brewTankOptions.some((option) => option.tankNumber === "14"),
+    "an overdue plan alone must not free tank 14");
+});
