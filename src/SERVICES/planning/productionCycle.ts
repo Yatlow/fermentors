@@ -494,7 +494,7 @@ export function validateProduction(
  * fact only for release validation, without rewriting the saved plan or linking
  * any legacy packaging to a different future batch.
  */
-function reconcilePhysicalCycleEmptying(
+export function reconcilePhysicalCycleEmptying(
   cycles: TankScheduleCycle[],
   source: TankSource | undefined,
   tank: Tank | undefined,
