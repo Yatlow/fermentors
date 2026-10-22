@@ -690,16 +690,21 @@ test("canonical cycles infer near-empty release, not a partial or overallocated 
   const kegs = { ...crates, id: "k11", productId: kegProduct.id, quantity: 50 };
   const projected = projectTankSchedules([brewWeek, {
     ...emptyWeek(week45), packaging: [crates, kegs],
-  }], localSettings).get("tank-11")!;
+  }], localSettings, week46Today).get("tank-11")!;
   assert.equal(projected[0].emptyDate, "2026-11-05");
   const partial = projectTankSchedules([brewWeek, {
     ...emptyWeek(week45), packaging: [crates],
-  }], localSettings).get("tank-11")!;
+  }], localSettings, week46Today).get("tank-11")!;
   assert.equal(partial[0].emptyDate, undefined);
   const invalid = projectTankSchedules([brewWeek, {
     ...emptyWeek(week45), packaging: [{ ...crates, quantity: 400 }],
-  }], localSettings).get("tank-11")!;
+  }], localSettings, week46Today).get("tank-11")!;
   assert.equal(invalid[0].emptyDate, undefined);
+  const expired = projectTankSchedules([brewWeek, {
+    ...emptyWeek(week45), packaging: [crates, kegs],
+  }], localSettings, week46).get("tank-11")!;
+  assert.equal(expired[0].emptyDate, undefined,
+    "an overdue plan alone cannot certify an already completed emptying");
 });
 
 test("week 46 proposals reconcile a physical batch after stale forecast renumbering", () => {
