@@ -226,6 +226,7 @@ function buildPackagingRecommendation(
   sources: TankSource[],
   week: string,
   weekEnd: string,
+  today: string,
 ) {
   const products = settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
   const actualDays = new Set(actuals.map(actualDate).filter((d): d is string => !!d && d >= week && d <= weekEnd));
@@ -565,7 +566,7 @@ export function buildWeeklyPlanningModel(args: {
   }
   const weekStartRows = buildWeekStartProjection({ settings, pallets, plans, actuals, today, week });
   const shipment = buildShipmentRecommendation(normalized, weekStartRows);
-  const packaging = buildPackagingRecommendation(normalized, rows.afterShipment, tanks, plans, actuals, sources, week, weekEnd);
+  const packaging = buildPackagingRecommendation(normalized, rows.afterShipment, tanks, plans, actuals, sources, week, weekEnd, today);
   const brew = buildBrewRecommendation(normalized, rows.afterPackaging, tanks, forecastPlans, actuals, sources, today, week, weekEnd);
   const packagingTankPool = futureTanks(tanks, plans, settings);
   const allPackagingProducts = normalized.products.filter((p) => p.monthly > 0);
