@@ -233,7 +233,7 @@ function buildPackagingRecommendation(
   const projectedTanks = futureTanks(tanks, plans, settings);
   const eligibleTanks = projectedTanks
     .filter((tank) => tank.ready <= weekEnd)
-    .map((tank) => ({ tank, liters: remainingTankLiters(tank, plans, products, actuals, week, week > today ? today : week) }))
+    .map((tank) => ({ tank, liters: remainingTankLiters(tank, plans, products, actuals, week, today) }))
     .filter((entry) => entry.liters >= 20)
     .sort((a, b) => a.tank.brewed.localeCompare(b.tank.brewed) || Number(a.tank.number) - Number(b.tank.number));
   const remainingByCycle = new Map(eligibleTanks.map(({ tank, liters }) => [cycleKey(tank), liters] as const));
