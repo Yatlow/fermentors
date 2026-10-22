@@ -79,6 +79,35 @@ export function projectTankSchedules(plans: WeekPlan[], settings?: Settings): Ma
     }
   }
 
+  // An almost-complete planned packaging cycle releases the physical tank even
+  // when older planner rows lack the explicit emptyTank marker. Never infer a
+  // release from an undated row, an unknown SKU, or an over-allocated cycle.
+  // Explicit emptyTank remains authoritative for discarded/shrunk residual beer.
+  if (settings) {
+    const plannedBrews = new Map(plans.flatMap((week) => week.brews ?? []).map((brew) => [brew.id, brew]));
+    for (const cycles of byTank.values()) {
+      for (const cycle of cycles) {
+        if (cycle.emptyDate) continue;
+        const brew = plannedBrews.get(cycle.cycleId);
+        const nominalLiters = Number(brew?.liters);
+        const dated = cycle.packaging.filter((run) => run.date && run.quantity > 0);
+        if (!Number.isFinite(nominalLiters) || nominalLiters <= 0 ||
+            !dated.length || dated.length !== cycle.packaging.length) continue;
+        let packedLiters = 0;
+        let complete = true;
+        for (const run of dated) {
+          const product = settings.products.find((candidate) => candidate.id === run.productId);
+          if (!product) { complete = false; break; }
+          packedLiters += run.quantity * (product.type === "crates" ? 24 * 0.33 : 20);
+        }
+        if (complete && packedLiters <= nominalLiters + 0.01 &&
+            nominalLiters - packedLiters < 20) {
+          cycle.emptyDate = dated.map((run) => run.date!).sort().at(-1);
+        }
+      }
+    }
+  }
+
   return byTank;
 }
 
