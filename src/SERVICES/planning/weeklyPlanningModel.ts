@@ -196,12 +196,17 @@ function remainingTankLiters(
   products: Product[],
   actuals: Actual[],
   selectedWeek: string,
+  today: string,
 ) {
   let liters = tank.liters;
   const brewId = plannedBrewId(tank);
   const priorPlans = plans.map((w) => w.id === selectedWeek ? { ...w, packaging: [] } : w);
   for (const run of openRuns(priorPlans, products, actuals)) {
     if (run.remaining <= 0 || run.week >= selectedWeek) continue;
+    // An overdue, unexecuted packing commitment does not consume physical
+    // beer. Completed actuals are already reflected by tanksFrom().liters.
+    if ((run.date && run.date < today) ||
+        (!run.date && addDays(run.week, 6) < today)) continue;
     const belongs = brewId
       ? resolvePackagingBrewId(run, plans) === brewId
       : !!run.tankId && run.tankId === tank.id && !resolvePackagingBrewId(run, plans);
@@ -228,7 +233,7 @@ function buildPackagingRecommendation(
   const projectedTanks = futureTanks(tanks, plans, settings);
   const eligibleTanks = projectedTanks
     .filter((tank) => tank.ready <= weekEnd)
-    .map((tank) => ({ tank, liters: remainingTankLiters(tank, plans, products, actuals, week) }))
+    .map((tank) => ({ tank, liters: remainingTankLiters(tank, plans, products, actuals, week, week > today ? today : week) }))
     .filter((entry) => entry.liters >= 20)
     .sort((a, b) => a.tank.brewed.localeCompare(b.tank.brewed) || Number(a.tank.number) - Number(b.tank.number));
   const remainingByCycle = new Map(eligibleTanks.map(({ tank, liters }) => [cycleKey(tank), liters] as const));
@@ -284,6 +289,20 @@ function buildPackagingRecommendation(
       if (!product || !sameStyle(product.style, tank.style)) return false;
       const runDate = run.date ?? addDays(plan.id, 4);
       if (runDate < tank.brewed || runDate >= week) return false;
+      // After the planned date passes, only a real packaging report proves
+      // this is a partially emptied cycle. Do not treat an overdue plan as
+      // physical production.
+      if (runDate < today && !actuals.some((actual) => {
+        const date = actualDate(actual);
+        return !!date && date >= plan.id && date < week &&
+          String(actual.tankNumber) === String(tank.number) &&
+          sameStyle(actual.beerStyle ?? "", tank.style) &&
+          Number(actual.quantity) > 0 &&
+          actual.packagingType === (product.type === "crates" ? "bottles" : "kegs") &&
+          (!run.batchNumber ||
+            String(actual.batchNumber ?? "").replace("#", "").trim() ===
+              String(run.batchNumber).replace("#", "").trim());
+      })) return false;
       const linked = resolvePackagingBrewId(run, plans);
       if (brewId) return linked === brewId;
       if (linked) return false;
@@ -550,7 +569,7 @@ export function buildWeeklyPlanningModel(args: {
   const brew = buildBrewRecommendation(normalized, rows.afterPackaging, tanks, forecastPlans, actuals, sources, today, week, weekEnd);
   const packagingTankPool = futureTanks(tanks, plans, settings);
   const allPackagingProducts = normalized.products.filter((p) => p.monthly > 0);
-  const tankAvailableLiters = new Map(packagingTankPool.map((tank) => [tank.id, remainingTankLiters(tank, plans, allPackagingProducts, actuals, week)] as const));
+  const tankAvailableLiters = new Map(packagingTankPool.map((tank) => [tank.id, remainingTankLiters(tank, plans, allPackagingProducts, actuals, week, today)] as const));
   return {
     week,
     weekEnd,
