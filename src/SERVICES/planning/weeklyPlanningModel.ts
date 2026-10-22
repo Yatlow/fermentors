@@ -30,7 +30,7 @@ import { buildWeekStartProjection, type WeekStartProjection } from "./weekStartP
 import { projectTankSchedules } from "./tankScheduleProjection";
 import { tankCanHostCycle } from "./tankSchedule";
 import { planningTargetsForStyle } from "./planningTargets";
-import { resolvePackagingBrewId } from "./planIdentity";
+import { brewById, resolvePackagingBrewId } from "./planIdentity";
 
 export type WeeklyStage = "base" | "afterShipment" | "afterPackaging" | "committed";
 
@@ -207,9 +207,26 @@ function remainingTankLiters(
     // beer. Completed actuals are already reflected by tanksFrom().liters.
     if ((run.date && run.date < today) ||
         (!run.date && addDays(run.week, 6) < today)) continue;
+    const linkedId = resolvePackagingBrewId(run, plans);
     const belongs = brewId
-      ? resolvePackagingBrewId(run, plans) === brewId
-      : !!run.tankId && run.tankId === tank.id && !resolvePackagingBrewId(run, plans);
+      ? linkedId === brewId
+      : linkedId
+        ? (() => {
+            // A canonical brew can already be the LIVE physical tank cycle.
+            // In that case futureTanks() suppresses its virtual duplicate,
+            // so its earlier packaging must reduce the physical tank balance.
+            // Require exact cycle identity: never borrow packaging belonging
+            // to another batch or later reuse of the same tank.
+            const linked = brewById(plans, linkedId);
+            const physicalBatch = String(tank.batch ?? "").replace("#", "").trim();
+            const linkedBatch = String(linked?.batchNumber ?? "").replace("#", "").trim();
+            const runBatch = String(run.batchNumber ?? "").replace("#", "").trim();
+            return !!linked && linked.tankId === tank.id &&
+              linked.date === tank.brewed && sameStyle(linked.style, tank.style) &&
+              (!linkedBatch || linkedBatch === physicalBatch) &&
+              (!runBatch || runBatch === physicalBatch);
+          })()
+        : !!run.tankId && run.tankId === tank.id;
     if (!belongs) continue;
     const p = products.find((x) => x.id === run.productId);
     if (p) liters -= run.remaining * litersPerUnit(p);
