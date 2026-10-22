@@ -13,7 +13,7 @@ function readyDateFor(style: string, brewDate: string, settings?: Settings): str
 }
 
 /** Read-only bridge from committed planningWeeks to canonical tank lifecycle. */
-export function projectTankSchedules(plans: WeekPlan[], settings?: Settings): Map<string, TankScheduleCycle[]> {
+export function projectTankSchedules(plans: WeekPlan[], settings?: Settings, forecastAsOf?: string): Map<string, TankScheduleCycle[]> {
   const byTank = new Map<string, TankScheduleCycle[]>();
 
   for (const week of plans) {
@@ -83,7 +83,7 @@ export function projectTankSchedules(plans: WeekPlan[], settings?: Settings): Ma
   // when older planner rows lack the explicit emptyTank marker. Never infer a
   // release from an undated row, an unknown SKU, or an over-allocated cycle.
   // Explicit emptyTank remains authoritative for discarded/shrunk residual beer.
-  if (settings) {
+  if (settings && forecastAsOf) {
     const plannedBrews = new Map(plans.flatMap((week) => week.brews ?? []).map((brew) => [brew.id, brew]));
     for (const cycles of byTank.values()) {
       for (const cycle of cycles) {
@@ -91,8 +91,12 @@ export function projectTankSchedules(plans: WeekPlan[], settings?: Settings): Ma
         const brew = plannedBrews.get(cycle.cycleId);
         const nominalLiters = Number(brew?.liters);
         const dated = cycle.packaging.filter((run) => run.date && run.quantity > 0);
+        // Past, unverified plans are NOT proof that beer was actually packed.
+        // Only future forecast rows can imply an empty date. Real emptying is
+        // proven separately by physical status and actual packaging records.
         if (!Number.isFinite(nominalLiters) || nominalLiters <= 0 ||
-            !dated.length || dated.length !== cycle.packaging.length) continue;
+            !dated.length || dated.length !== cycle.packaging.length ||
+            dated.some((run) => run.date! < forecastAsOf)) continue;
         let packedLiters = 0;
         let complete = true;
         for (const run of dated) {
