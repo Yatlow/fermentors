@@ -9,6 +9,7 @@ import {
 import { shipmentDecisionPickOptions } from "../src/SERVICES/planning/shipmentDecisionPicking";
 import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
 import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
+import { projectTankSchedules } from "../src/SERVICES/planning/tankScheduleProjection";
 import { dailyForecast, futureTanks } from "../src/SERVICES/planning/dailyPlanner";
 import {
   brewLitersForSize,
@@ -572,4 +573,161 @@ test("planned tank cycle keeps canonical net volume without applying shrinkage t
   const future = projected.find((tank) => tank.id === "planned:ipa-triple-cycle");
   assert.ok(future);
   assert.equal(future.liters, 3000, "3000 L fallback is already net packaging volume");
+});
+
+
+const week46Today = "2026-10-22";
+const week45 = "2026-11-01";
+const week46 = "2026-11-08";
+
+test("week 46 stout drain combines same-tank same-SKU parts into one day", () => {
+  const stout: Product = {
+    ...product, id: "stout-crates", sku: "stout-crates", style: "סטאוט",
+    type: "crates", monthly: 42, tempo: 0, tempoDate: week46Today,
+  };
+  const tank: Tank = {
+    id: "tank-3", number: "3", batch: "S3", style: "סטאוט",
+    brewed: "2026-09-01", ready: "2026-10-01", liters: 1093, cold: true,
+  };
+  const model = buildWeeklyPlanningModel({
+    settings: { ...settings, products: [stout] },
+    pallets: [], tanks: [tank], plans: [], actuals: [],
+    sources: [{ id: tank.id, tankNumber: 3, batchNumber: tank.batch,
+      brewDate: "01/09/2026", beerStyle: tank.style, action: 1 }],
+    today: week46Today, week: week46, holidays: [], shipments: [],
+  });
+  const runs = model.packagingRecommendation.filter((run) => run.tankNumber === "3");
+  assert.equal(runs.length, 1, "one SKU on one tank must have a single recommendation");
+  assert.equal(runs[0].quantity, 138);
+  assert.equal(model.packagingDays, 1, "138 crates fit in one 252-crate production day");
+});
+
+test("week 45 IPA 11 near-complete packaging releases it for week 46", () => {
+  const crate: Product = { ...product, monthly: 50, tempo: 20000, tempoDate: week46Today };
+  const keg: Product = { ...crate, id: "ipa-kegs", sku: "ipa-kegs", type: "kegs" };
+  const localSettings = { ...settings, products: [crate, keg] };
+  const tank: Tank = {
+    id: "tank-11", number: "11", batch: "B11", style: "IPA",
+    brewed: "2026-10-01", ready: "2026-10-22", liters: 3000, cold: true,
+  };
+  const source = {
+    id: tank.id, tankNumber: 11, batchNumber: "B11", brewDate: "01/10/2026",
+    beerStyle: "IPA", action: 1, beerVolume: 3333,
+  };
+  const prior = {
+    ...emptyWeek(week45),
+    packaging: [
+      { id: "11-crates", productId: crate.id, quantity: 252,
+        tankId: tank.id, tankNumber: tank.number, batchNumber: tank.batch, date: "2026-11-05" },
+      { id: "11-kegs", productId: keg.id, quantity: 50,
+        tankId: tank.id, tankNumber: tank.number, batchNumber: tank.batch, date: "2026-11-05" },
+    ],
+  };
+  const release = tankReleases([source], [tank], [prior], localSettings, [], week46Today)[0];
+  assert.equal(release.emptyDate, "2026-11-05");
+  assert.equal(release.date, "2026-11-09");
+  const model = buildWeeklyPlanningModel({
+    settings: localSettings, pallets: [], tanks: [tank], plans: [prior],
+    actuals: [], sources: [source], today: week46Today, week: week46,
+    holidays: [], shipments: [],
+  });
+  assert.ok(model.brewTankOptions.some((option) => option.tankNumber === "11"),
+    "tank 11 must be available for week 46, not kept occupied by a 4 L heel");
+});
+
+test("week 46 finishes Pale 14 despite sufficient stock cover, then releases week 47", () => {
+  const pale: Product = {
+    ...product, id: "pale-crates", sku: "pale-crates",
+    style: "פייל אייל", monthly: 50, tempo: 20000, tempoDate: week46Today,
+  };
+  const localSettings = { ...settings, products: [pale] };
+  const tank: Tank = {
+    id: "tank-14", number: "14", batch: "P14", style: pale.style,
+    brewed: "2026-10-01", ready: "2026-10-22", liters: 3200, cold: true,
+  };
+  const source = {
+    id: tank.id, tankNumber: 14, batchNumber: tank.batch,
+    brewDate: "01/10/2026", beerStyle: tank.style, action: 1,
+  };
+  const prior = {
+    ...emptyWeek(week45),
+    packaging: [{ id: "pale-14-first", productId: pale.id, quantity: 252,
+      tankId: tank.id, tankNumber: tank.number, batchNumber: tank.batch, date: "2026-11-05" }],
+  };
+  assert.equal(tankReleases([source], [tank], [prior], localSettings, [], week46Today)[0].date, null,
+    "a partially emptied tank must not become brew-ready");
+  const model = buildWeeklyPlanningModel({
+    settings: localSettings, pallets: [], tanks: [tank], plans: [prior],
+    actuals: [], sources: [source], today: week46Today, week: week46,
+    holidays: [], shipments: [],
+  });
+  const finish = model.packagingRecommendation.filter((run) => run.tankNumber === "14");
+  assert.equal(finish.length, 1);
+  assert.equal(finish[0].quantity, 152, "remaining 1204 L is 152 crates");
+  assert.equal(model.packagingDays, 1);
+  assert.ok(!model.brewTankOptions.some((option) => option.tankNumber === "14"),
+    "tank 14 must not be reused in week 46 before its finishing pack");
+  const completed = { ...emptyWeek(week46), packaging: [{
+    id: "pale-14-final", productId: pale.id, quantity: finish[0].quantity,
+    tankId: tank.id, tankNumber: tank.number, batchNumber: tank.batch,
+    date: "2026-11-12", emptyTank: true,
+  }] };
+  const after = tankReleases([source], [tank], [prior, completed], localSettings, [], week46Today)[0];
+  assert.equal(after.emptyDate, "2026-11-12");
+  assert.equal(after.date, "2026-11-16", "Thursday finish releases on following Monday");
+});
+
+test("canonical cycles infer near-empty release, not a partial or overallocated run", () => {
+  const localSettings = { ...settings, products: [product, kegProduct] };
+  const brewWeek = { ...emptyWeek("2026-10-25"), brews: [{
+    id: "ipa11-cycle", tankId: "tank-11", style: "IPA",
+    date: "2026-10-26", liters: 3000, batchNumber: "B11",
+  }] };
+  const crates = {
+    id: "c11", brewId: "ipa11-cycle", productId: product.id,
+    quantity: 252, tankId: "tank-11", date: "2026-11-05",
+  };
+  const kegs = { ...crates, id: "k11", productId: kegProduct.id, quantity: 50 };
+  const projected = projectTankSchedules([brewWeek, {
+    ...emptyWeek(week45), packaging: [crates, kegs],
+  }], localSettings).get("tank-11")!;
+  assert.equal(projected[0].emptyDate, "2026-11-05");
+  const partial = projectTankSchedules([brewWeek, {
+    ...emptyWeek(week45), packaging: [crates],
+  }], localSettings).get("tank-11")!;
+  assert.equal(partial[0].emptyDate, undefined);
+  const invalid = projectTankSchedules([brewWeek, {
+    ...emptyWeek(week45), packaging: [{ ...crates, quantity: 400 }],
+  }], localSettings).get("tank-11")!;
+  assert.equal(invalid[0].emptyDate, undefined);
+});
+
+test("week 46 proposals reconcile a physical batch after stale forecast renumbering", () => {
+  const pale: Product = { ...product, id: "pale-kegs", sku: "pale-kegs",
+    style: "פייל אייל", type: "kegs", monthly: 50, tempo: 20000, tempoDate: week46Today };
+  const localSettings = { ...settings, products: [pale] };
+  const tank: Tank = {
+    id: "tank-14", number: "14", batch: "live-14", style: pale.style,
+    brewed: "2026-10-01", ready: "2026-10-22", liters: 1190, cold: true,
+  };
+  const source = {
+    id: tank.id, tankNumber: 14, batchNumber: "live-14", brewDate: "01/10/2026",
+    beerStyle: pale.style, action: 1,
+  };
+  const forecast = { ...emptyWeek("2026-09-27"), brews: [{
+    id: "stale-planned-14", tankId: tank.id, style: pale.style,
+    date: "2026-10-01", liters: 3200, batchNumber: "old-forecast-14",
+  }] };
+  const packed = { ...emptyWeek(week45), packaging: [{
+    id: "physical-empty-14", productId: pale.id, quantity: 59,
+    tankId: tank.id, tankNumber: tank.number, batchNumber: tank.batch,
+    date: "2026-11-05", emptyTank: true,
+  }] };
+  const model = buildWeeklyPlanningModel({
+    settings: localSettings, pallets: [], tanks: [tank], plans: [forecast, packed],
+    actuals: [], sources: [source], today: week46Today, week: week46,
+    holidays: [], shipments: [],
+  });
+  assert.ok(model.brewTankOptions.some((option) => option.tankNumber === "14"),
+    "confirmed live-batch emptying should overcome stale forecast batch identity");
 });
