@@ -104,7 +104,7 @@ export function tankReleases(
   actuals: Actual[],
   today: string,
 ): Release[] {
-  const schedules = projectTankSchedules(plans, settings);
+  const schedules = projectTankSchedules(plans, settings, today);
   const legacyInventoryRuns = openRuns(plans, settings.products, actuals)
     .filter((r) => r.date && r.date >= today && r.remaining > 0)
     .filter((r) => !resolvePackagingBrewId(r as PackagingPlan, plans));
@@ -390,7 +390,7 @@ export function validateProduction(
     if (!linkedBrew && !t) return `חסר מיכל מקור לאריזה: שבוע ${r.week ?? "לא ידוע"}, תאריך ${r.date}, מיכל ${String(r.tankNumber ?? r.tankId ?? "לא משויך")}, אצווה ${String(r.batchNumber ?? "לא ידועה")}, אריזה ${String(r.id ?? "ללא מזהה")}`;
 
     const projectedCycle = linkedBrewId
-      ? projectTankSchedules(plans, settings).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
+      ? projectTankSchedules(plans, settings, today).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
       : null;
     const fallbackLeadDays = linkedBrew
       ? Math.max(21, ...settings.products.filter((product) => sameStyle(product.style, linkedBrew.style)).map((product) => product.leadDays))
@@ -494,7 +494,7 @@ export function validateProduction(
  * fact only for release validation, without rewriting the saved plan or linking
  * any legacy packaging to a different future batch.
  */
-function reconcilePhysicalCycleEmptying(
+export function reconcilePhysicalCycleEmptying(
   cycles: TankScheduleCycle[],
   source: TankSource | undefined,
   tank: Tank | undefined,
@@ -538,7 +538,7 @@ export function validateBrewReleases(
   editedWeekId?: string,
 ): string | null {
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today);
-  const schedules = projectTankSchedules(plans, settings);
+  const schedules = projectTankSchedules(plans, settings, today);
 
   for (const b of plans.filter((w) => !editedWeekId || w.id === editedWeekId).flatMap((w) => w.brews).filter((b) => b.date >= today)) {
     if (!b.tankId) continue;

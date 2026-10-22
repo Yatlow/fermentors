@@ -251,7 +251,19 @@ export default function PlanningGantt(props: Props) {
                 quantity: item.quantity,
                 tankId: item.tankId,
                 tankNumber: item.tankNumber,
-                ...(item.brewId ? { brewId: item.brewId } : {}),
+                ...(item.brewId ? { brewId: item.brewId } : (() => {
+                  // Virtual recommendations for the live physical cycle must
+                  // retain its batch so the following week's release can be
+                  // proven, not linked to a future brew by tank number alone.
+                  const physical = tanks.find((tank) => tank.id === item.tankId);
+                  const source = sources.find((tank) => tank.id === item.tankId);
+                  const batch = String(source?.batchNumber ?? "").replace("#", "").trim();
+                  const product = settings.products.find((p) => p.id === item.productId);
+                  return physical && product && batch &&
+                    String(physical.batch).replace("#", "").trim() === batch &&
+                    sameStyle(physical.style, product.style)
+                      ? { batchNumber: batch } : {};
+                })()),
                 source: "recommendation" as const,
                 emptyTank: !all.slice(index + 1).some((later) => later.tankId === item.tankId),
               })),

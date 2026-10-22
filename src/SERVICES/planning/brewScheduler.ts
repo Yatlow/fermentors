@@ -36,7 +36,7 @@ export function brewProposals(
   today: string,
 ): BrewProposal[] {
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today);
-  const schedules = projectTankSchedules(plans, settings);
+  const schedules = projectTankSchedules(plans, settings, today);
   const booked = new Set<string>();
   const result: BrewProposal[] = [];
   const horizon = addDays(weekStart(today), 84);
