@@ -24,7 +24,7 @@ import {
   type ShipmentEvent,
 } from "./dailyPlanner";
 import { buildShipmentRecommendation } from "./shipmentRecommendation";
-import { brewSizeLabel, tankReleases, type BrewSizeLabel, type TankSource } from "./productionCycle";
+import { brewSizeLabel, tankReleases, reconcilePhysicalCycleEmptying, type BrewSizeLabel, type TankSource } from "./productionCycle";
 import { displayStyle, isCoreStyle } from "./planningPresentation";
 import { buildWeekStartProjection, type WeekStartProjection } from "./weekStartProjection";
 import { projectTankSchedules } from "./tankScheduleProjection";
@@ -460,7 +460,13 @@ function buildBrewRecommendation(
   const releaseFitsCanonicalWindow = (release: (typeof capacityReleases)[number], style?: string) => {
     const candidateDate = release.date && release.date > week ? release.date : week;
     if (candidateDate > weekEnd) return false;
-    const cycles = schedules.get(release.tankId) ?? [];
+    const cycles = reconcilePhysicalCycleEmptying(
+      schedules.get(release.tankId) ?? [],
+      sources.find((source) => source.id === release.tankId),
+      tanks.find((tank) => tank.id === release.tankId),
+      release,
+      today,
+    );
     if (!style) return tankCanHostCycle(cycles, candidateDate, candidateDate);
     const leadDays = Math.max(...settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays), 21);
     return tankCanHostCycle(cycles, candidateDate, addDays(candidateDate, leadDays));
