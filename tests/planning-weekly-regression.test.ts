@@ -763,3 +763,114 @@ test("overdue unperformed week 45 packaging cannot fake a week 46 finishing pack
   assert.ok(!model.brewTankOptions.some((option) => option.tankNumber === "14"),
     "an overdue plan alone must not free tank 14");
 });
+
+
+test("tank 4: 56 Wheat kegs in week 45 empty the physical 1120 L cycle and free week 46", () => {
+  const wheatKegs: Product = {
+    ...product, id: "wheat-kegs", sku: "wheat-kegs", style: "חיטה",
+    type: "kegs", monthly: 240, tempo: 0, tempoDate: "2026-10-22",
+  };
+  const localSettings = { ...settings, products: [wheatKegs] };
+  const tank: Tank = {
+    id: "tank-4", number: "4", style: "חיטה", batch: "1614",
+    brewed: "2026-10-12", ready: "2026-11-02", liters: 1120, cold: true,
+  };
+  const source = {
+    id: tank.id, tankNumber: 4, batchNumber: tank.batch,
+    brewDate: "12/10/2026", beerStyle: tank.style, action: 1,
+  };
+  const brewWeek = { ...emptyWeek("2026-10-11"), brews: [{
+    id: "brew-live-wheat-4", tankId: tank.id, style: "חיטה",
+    date: "2026-10-12", batchNumber: tank.batch, liters: 1100,
+  }] };
+  const packedWeek45 = { ...emptyWeek("2026-11-01"), packaging: [{
+    id: "wheat4-56-kegs", productId: wheatKegs.id, quantity: 56,
+    tankId: tank.id, tankNumber: "4", batchNumber: tank.batch,
+    brewId: "brew-live-wheat-4", date: "2026-11-05",
+    // Legacy decisions may not carry an explicit emptyTank marker.
+  }] };
+  const plans = [brewWeek, packedWeek45];
+  const release = tankReleases([source], [tank], plans, localSettings, [], "2026-10-22")[0];
+  assert.equal(release.emptyDate, "2026-11-05");
+  assert.equal(release.date, "2026-11-09");
+
+  const model = buildWeeklyPlanningModel({
+    settings: localSettings, pallets: [], tanks: [tank], plans,
+    actuals: [], sources: [source], today: "2026-10-22",
+    week: "2026-11-08", holidays: [], shipments: [],
+  });
+  assert.equal(model.tankAvailableLiters.get("tank-4"), 0,
+    "week 45 canonical packing must deplete the current physical tank exactly once");
+  assert.ok(!model.packagingRecommendation.some((item) => item.tankNumber === "4"),
+    "week 46 must not propose another 56 Wheat kegs");
+  assert.ok(model.brewTankOptions.some((option) => option.tankNumber === "4" &&
+    option.availableDate === "2026-11-09"),
+    "tank 4 must become available Monday of week 46");
+});
+
+test("tank 4: 55 Wheat kegs leave a 20 L heel and must not free the tank", () => {
+  const wheatKegs: Product = {
+    ...product, id: "wheat-kegs", sku: "wheat-kegs", style: "חיטה",
+    type: "kegs", monthly: 240, tempo: 0, tempoDate: "2026-10-22",
+  };
+  const localSettings = { ...settings, products: [wheatKegs] };
+  const tank: Tank = {
+    id: "tank-4", number: "4", style: "חיטה", batch: "1614",
+    brewed: "2026-10-12", ready: "2026-11-02", liters: 1120, cold: true,
+  };
+  const source = { id: tank.id, tankNumber: 4, batchNumber: tank.batch,
+    brewDate: "12/10/2026", beerStyle: tank.style, action: 1 };
+  const brewWeek = { ...emptyWeek("2026-10-11"), brews: [{
+    id: "brew-live-wheat-4", tankId: tank.id, style: "חיטה",
+    date: "2026-10-12", batchNumber: tank.batch, liters: 1100,
+  }] };
+  const pack = { ...emptyWeek("2026-11-01"), packaging: [{
+    id: "partial-wheat4-55", productId: wheatKegs.id, quantity: 55,
+    tankId: tank.id, tankNumber: "4", batchNumber: tank.batch,
+    brewId: "brew-live-wheat-4", date: "2026-11-05",
+  }] };
+  const plans = [brewWeek, pack];
+  assert.equal(tankReleases([source], [tank], plans, localSettings, [], "2026-10-22")[0].date, null,
+    "a whole keg remaining must not be treated as an empty tank");
+  const model = buildWeeklyPlanningModel({
+    settings: localSettings, pallets: [], tanks: [tank], plans,
+    actuals: [], sources: [source], today: "2026-10-22",
+    week: "2026-11-08", holidays: [], shipments: [],
+  });
+  assert.equal(model.tankAvailableLiters.get("tank-4"), 20);
+  assert.ok(!model.brewTankOptions.some((option) => option.tankNumber === "4"));
+  assert.deepEqual(model.packagingRecommendation.filter((item) => item.tankNumber === "4")
+    .map((item) => item.quantity), [1], "one final keg should be recommended in week 46");
+});
+
+test("packaging on another canonical batch never drains current physical tank 4", () => {
+  const wheatKegs: Product = {
+    ...product, id: "wheat-kegs", sku: "wheat-kegs", style: "חיטה",
+    type: "kegs", monthly: 240, tempo: 0, tempoDate: "2026-10-22",
+  };
+  const tank: Tank = {
+    id: "tank-4", number: "4", style: "חיטה", batch: "1614",
+    brewed: "2026-10-12", ready: "2026-11-02", liters: 1120, cold: true,
+  };
+  const source = { id: tank.id, tankNumber: 4, batchNumber: tank.batch,
+    brewDate: "12/10/2026", beerStyle: tank.style, action: 1 };
+  const localSettings = { ...settings, products: [wheatKegs] };
+  const brewWeek = { ...emptyWeek("2026-10-11"), brews: [{
+    id: "other-wheat-4", tankId: tank.id, style: "חיטה",
+    date: "2026-10-13", batchNumber: "1615", liters: 1100,
+  }] };
+  const packedWeek45 = { ...emptyWeek("2026-11-01"), packaging: [{
+    id: "other-56", productId: wheatKegs.id, quantity: 56,
+    tankId: tank.id, tankNumber: "4", batchNumber: "1615",
+    brewId: "other-wheat-4", date: "2026-11-05",
+  }] };
+  const model = buildWeeklyPlanningModel({
+    settings: localSettings, pallets: [], tanks: [tank],
+    plans: [brewWeek, packedWeek45], actuals: [], sources: [source],
+    today: "2026-10-22", week: "2026-11-08",
+    holidays: [], shipments: [],
+  });
+  assert.equal(model.tankAvailableLiters.get("tank-4"), 1120,
+    "a future or different batch's packaging cannot deplete the live physical cycle");
+  assert.equal(tankReleases([source], [tank], [brewWeek, packedWeek45], localSettings, [], "2026-10-22")[0].date, null);
+});

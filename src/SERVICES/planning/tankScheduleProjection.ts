@@ -1,4 +1,4 @@
-import { addDays, sameStyle, type Settings, type WeekPlan } from "./planningEngine";
+import { addDays, sameStyle, type Settings, type Tank, type WeekPlan } from "./planningEngine";
 import { brewById, resolvePackagingBrewId, type PackagingPlan } from "./planIdentity";
 import { orderedTankSchedule, type TankScheduleCycle, type TankSchedulePackaging } from "./tankSchedule";
 
@@ -13,7 +13,12 @@ function readyDateFor(style: string, brewDate: string, settings?: Settings): str
 }
 
 /** Read-only bridge from committed planningWeeks to canonical tank lifecycle. */
-export function projectTankSchedules(plans: WeekPlan[], settings?: Settings, forecastAsOf?: string): Map<string, TankScheduleCycle[]> {
+export function projectTankSchedules(
+  plans: WeekPlan[],
+  settings?: Settings,
+  forecastAsOf?: string,
+  physicalTanks: Tank[] = [],
+): Map<string, TankScheduleCycle[]> {
   const byTank = new Map<string, TankScheduleCycle[]>();
 
   for (const week of plans) {
@@ -90,11 +95,21 @@ export function projectTankSchedules(plans: WeekPlan[], settings?: Settings, for
         if (cycle.emptyDate) continue;
         const brew = plannedBrews.get(cycle.cycleId);
         const nominalLiters = Number(brew?.liters);
+        // The current live physical cycle may have a different net amount
+        // than its old nominal brew plan (e.g. Wheat: 1,120 L in 56 kegs
+        // while its nominal 1,100 L would falsely "empty" at 55 kegs).
+        // Never let a future or mismatched batch inherit these live liters.
+        const physical = physicalTanks.find((tank) =>
+          !!brew && tank.id === brew.tankId &&
+          tank.brewed === cycle.brewDate && sameStyle(tank.style, cycle.style) &&
+          (!normalizedBatch(brew.batchNumber) ||
+            normalizedBatch(brew.batchNumber) === normalizedBatch(tank.batch)));
+        const effectiveLiters = physical ? physical.liters : nominalLiters;
         const dated = cycle.packaging.filter((run) => run.date && run.quantity > 0);
         // Past, unverified plans are NOT proof that beer was actually packed.
         // Only future forecast rows can imply an empty date. Real emptying is
         // proven separately by physical status and actual packaging records.
-        if (!Number.isFinite(nominalLiters) || nominalLiters <= 0 ||
+        if (!Number.isFinite(effectiveLiters) || effectiveLiters <= 0 ||
             !dated.length || dated.length !== cycle.packaging.length ||
             dated.some((run) => run.date! < forecastAsOf)) continue;
         let packedLiters = 0;
@@ -104,8 +119,8 @@ export function projectTankSchedules(plans: WeekPlan[], settings?: Settings, for
           if (!product) { complete = false; break; }
           packedLiters += run.quantity * (product.type === "crates" ? 24 * 0.33 : 20);
         }
-        if (complete && packedLiters <= nominalLiters + 0.01 &&
-            nominalLiters - packedLiters < 20) {
+        if (complete && packedLiters <= effectiveLiters + 0.01 &&
+            effectiveLiters - packedLiters < 20) {
           cycle.emptyDate = dated.map((run) => run.date!).sort().at(-1);
         }
       }

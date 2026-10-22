@@ -104,7 +104,7 @@ export function tankReleases(
   actuals: Actual[],
   today: string,
 ): Release[] {
-  const schedules = projectTankSchedules(plans, settings, today);
+  const schedules = projectTankSchedules(plans, settings, today, tanks);
   const legacyInventoryRuns = openRuns(plans, settings.products, actuals)
     .filter((r) => r.date && r.date >= today && r.remaining > 0)
     .filter((r) => !resolvePackagingBrewId(r as PackagingPlan, plans));
@@ -113,6 +113,12 @@ export function tankReleases(
     .map((run, index) => ({ ...run, remaining: run.quantity, week: week.id, key: run.id ?? `${week.id}:special:${index}` })))
     .filter((run) => !resolvePackagingBrewId(run as PackagingPlan, plans));
   const legacyRuns = [...legacyInventoryRuns, ...legacySpecialRuns];
+  // Future dated decisions can refer directly to the canonical brew that is
+  // *already* in the physical tank. They are absent from legacyRuns, but still
+  // must count towards emptying that physical cycle.
+  const canonicalInventoryRuns = openRuns(plans, settings.products, actuals)
+    .filter((r) => r.date && r.date >= today && r.remaining > 0)
+    .filter((r) => !!resolvePackagingBrewId(r as PackagingPlan, plans));
   // A reported, completed final packaging row is excluded from openRuns'
   // remaining balance. It can nevertheless prove the physical cycle emptied.
   // Require both the explicit empty marker and actual packaging for the same
@@ -222,9 +228,17 @@ export function tankReleases(
       let legacyCurrentEmptyDate: string | null = null;
       if (!canonicalCurrent.emptyDate && sourceBatch) {
         let legacyRemaining = tank.liters;
-        for (const r of [...legacyRuns, ...completedEmptyRuns]
+        const currentCycleRuns = canonicalInventoryRuns.filter((run) => {
+          const brewId = resolvePackagingBrewId(run as PackagingPlan, plans);
+          const runBatch = normalizedBatch(run.batchNumber);
+          return brewId === canonicalCurrent.cycleId &&
+            physicalRunTank(run as PackagingPlan) === source.id &&
+            (!runBatch || runBatch === sourceBatch);
+        });
+        for (const r of [...legacyRuns, ...completedEmptyRuns, ...currentCycleRuns]
           .filter((run) =>
-            belongsToCurrentBatch(run as PackagingPlan, source))
+            belongsToCurrentBatch(run as PackagingPlan, source) ||
+            currentCycleRuns.includes(run))
           .sort((a, b) => a.date!.localeCompare(b.date!))) {
           const p = settings.products.find((product) => product.id === r.productId);
           const runStyle = r.nonInventoryStyle ?? p?.style;
@@ -390,7 +404,7 @@ export function validateProduction(
     if (!linkedBrew && !t) return `חסר מיכל מקור לאריזה: שבוע ${r.week ?? "לא ידוע"}, תאריך ${r.date}, מיכל ${String(r.tankNumber ?? r.tankId ?? "לא משויך")}, אצווה ${String(r.batchNumber ?? "לא ידועה")}, אריזה ${String(r.id ?? "ללא מזהה")}`;
 
     const projectedCycle = linkedBrewId
-      ? projectTankSchedules(plans, settings, today).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
+      ? projectTankSchedules(plans, settings, today, tanks).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
       : null;
     const fallbackLeadDays = linkedBrew
       ? Math.max(21, ...settings.products.filter((product) => sameStyle(product.style, linkedBrew.style)).map((product) => product.leadDays))
@@ -538,7 +552,7 @@ export function validateBrewReleases(
   editedWeekId?: string,
 ): string | null {
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today);
-  const schedules = projectTankSchedules(plans, settings, today);
+  const schedules = projectTankSchedules(plans, settings, today, tanks);
 
   for (const b of plans.filter((w) => !editedWeekId || w.id === editedWeekId).flatMap((w) => w.brews).filter((b) => b.date >= today)) {
     if (!b.tankId) continue;
