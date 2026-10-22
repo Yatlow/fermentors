@@ -456,7 +456,7 @@ function buildBrewRecommendation(
   }
   const availableReleases = capacityReleases.filter((r) => !currentReservedTankIds.has(r.tankId));
   const capacityBeforeCurrent = capacityReleases.length;
-  const schedules = projectTankSchedules(plans, settings);
+  const schedules = projectTankSchedules(plans, settings, today);
   const releaseFitsCanonicalWindow = (release: (typeof capacityReleases)[number], style?: string) => {
     const candidateDate = release.date && release.date > week ? release.date : week;
     if (candidateDate > weekEnd) return false;
