@@ -270,6 +270,33 @@ function buildPackagingRecommendation(
       fifoTotal: fifo.total,
     };
   };
+  // A partial pack from an earlier week deserves a finishing recommendation
+  // even when finished-stock coverage has already reached its target.
+  // Match a canonical brew by immutable brewId, or a physical tank by its
+  // current cycle; never carry packaging across a later brew on the same tank.
+  const hasUnfinishedPriorPackaging = (tank: Tank): boolean => {
+    const brewId = plannedBrewId(tank);
+    const prior = plans.flatMap((plan) => plan.id < week
+      ? (plan.packaging ?? []).map((run) => ({ run, plan }))
+      : []).filter(({ run, plan }) => {
+      if (run.quantity <= 0) return false;
+      const product = products.find((p) => p.id === run.productId);
+      if (!product || !sameStyle(product.style, tank.style)) return false;
+      const runDate = run.date ?? addDays(plan.id, 4);
+      if (runDate < tank.brewed || runDate >= week) return false;
+      const linked = resolvePackagingBrewId(run, plans);
+      if (brewId) return linked === brewId;
+      if (linked) return false;
+      const sameTank = run.tankId === tank.id ||
+        (!run.tankId && String(run.tankNumber ?? "") === String(tank.number));
+      if (!sameTank) return false;
+      const batch = String(run.batchNumber ?? "").replace("#", "").trim();
+      if (batch && batch !== String(tank.batch ?? "").replace("#", "").trim()) return false;
+      return !plans.some((entry) => entry.brews.some((brew) =>
+        brew.tankId === tank.id && brew.date > tank.brewed && brew.date <= runDate));
+    });
+    return prior.length > 0 && !prior.some(({ run }) => run.emptyTank === true);
+  };
   const drainingBundle = (tank: Tank, originalLiters: number, first: WeeklyPackagingRecommendation) => {
     const firstProduct = products.find((p) => p.id === first.productId)!;
     const key = cycleKey(tank);
@@ -288,8 +315,54 @@ function buildPackagingRecommendation(
       residual = Math.max(0, residual - quantity * litersPerUnit(drainProduct));
       part += 1;
     }
-    return { bundle, residual };
+    // The drainage pass can add the same SKU again (e.g. 132 + 6 stout
+    // crates). Merge those portions when they fit within one packaging day.
+    // This fixes both the duplicated Gantt row and phantom day consumption.
+    const merged: WeeklyPackagingRecommendation[] = [];
+    for (const run of bundle) {
+      const product = products.find((p) => p.id === run.productId)!;
+      const existing = merged.find((item) => item.productId === run.productId &&
+        (product.type === "kegs" || item.quantity + run.quantity <= 252));
+      if (existing) {
+        existing.quantity += run.quantity;
+        existing.dayCost = product.type === "crates" ? 1 : existing.quantity / 150;
+      } else {
+        merged.push({ ...run });
+      }
+    }
+    return { bundle: merged, residual };
   };
+
+  // Reserve remaining capacity for tanks partially packaged in previous
+  // weeks, before the stock-coverage heuristic fills the available days.
+  for (const { tank, liters: originalLiters } of eligibleTanks) {
+    if (!hasUnfinishedPriorPackaging(tank)) continue;
+    const key = cycleKey(tank);
+    const options = products.filter((p) => sameStyle(p.style, tank.style)).map((product) => {
+      const unitLiters = litersPerUnit(product);
+      const quantity = product.type === "crates"
+        ? Math.min(252, Math.floor((originalLiters + 1e-8) / unitLiters))
+        : Math.floor((originalLiters + 1e-8) / unitLiters);
+      if (quantity <= 0) return null;
+      const first = makeRun(tank, originalLiters, product, quantity,
+        `weekly-pack:${week}:${key}:${product.id}:finish`);
+      const attempt = drainingBundle(tank, originalLiters, first);
+      return { ...attempt, product, cover: virtualCover.get(product.id) ?? Infinity };
+    }).filter((option): option is NonNullable<typeof option> =>
+      option !== null && option.residual < 20 &&
+      daysNeeded([...selected, ...option.bundle]) <= capacity)
+      .sort((a, b) => daysNeeded(a.bundle) - daysNeeded(b.bundle) || a.cover - b.cover);
+    const picked = options[0];
+    if (!picked) continue;
+    selected.push(...picked.bundle);
+    remainingByCycle.set(key, picked.residual);
+    for (const run of picked.bundle) {
+      const product = products.find((p) => p.id === run.productId)!;
+      const demand = weeklyDemand(product);
+      if (demand > 0) virtualCover.set(product.id,
+        (virtualCover.get(product.id) ?? 0) + run.quantity / demand);
+    }
+  }
   while (true) {
     const candidates: Array<WeeklyPackagingRecommendation & { cover: number; brewed: string; cycle: string }> = [];
     for (const { tank, liters: originalLiters } of eligibleTanks) {
