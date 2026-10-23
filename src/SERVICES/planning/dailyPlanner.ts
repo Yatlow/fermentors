@@ -1,6 +1,7 @@
 import { estimatedBrewVolume } from "./productionCycle";
 import { packagingLimit, weekday as dayOfWeek } from "./productionCycle";
 import { resolvePackagingBrewId } from "./planIdentity";
+import { pendingPlansAfterActualShipments } from "./shipmentActuals";
 import {
   projectedPallets,
   selectTruck,
@@ -315,7 +316,11 @@ export function dailyForecast(
     values.set(id, (values.get(id) ?? 0) + qty);
     incoming.set(day, values);
   };
-  const deliveries = plans.flatMap((w) => w.deliveries ?? []);
+  // Physical pallet stock already excludes departed shipments. Only subtract
+  // still-open trips; never suppress a second trip just because another truck
+  // departed on the same calendar day.
+  const deliveries = pendingPlansAfterActualShipments(plans, actualShipments, products)
+    .flatMap((w) => w.deliveries ?? []);
   const transit = 0;
   const maxTrips = Infinity;
   const dismissed = new Set(
@@ -325,7 +330,6 @@ export function dailyForecast(
     ...deliveries.filter((d) => d.quantity > 0).map((d) => d.dispatchDate),
     ...actualShipments.map((s) => s.date),
   ]);
-  const actualTripDates = new Set(actualShipments.map((s) => s.date));
   const batchDates = new Map<string, string>();
   for (const p of products)
     for (const t of tanks)
@@ -513,9 +517,7 @@ export function dailyForecast(
         break;
       }
     }
-    for (const d of deliveries.filter(
-      (d) => d.dispatchDate === day && !actualTripDates.has(day),
-    )) {
+    for (const d of deliveries.filter((d) => d.dispatchDate === day)) {
       if (!lots.has(d.productId) || d.arrivalDate < day) continue;
       let sent = 0;
       if (d.pallets?.length) {
