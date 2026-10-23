@@ -291,7 +291,12 @@ export async function reserveNewPalletsForNearestShipment(
     .map((pallet) => pallet.id);
   const staleSet = new Set(staleAutoIds);
   const idsToUpdate = new Set([...staleAutoIds,
-    ...[...idsToMark].filter((id) => !priorAutoIds.has(id))]);
+    ...[...idsToMark].filter((id) => {
+      const previous = pallets.find((pallet) => pallet.id === id);
+      return !previous?.markedForShipment ||
+        previous.autoReservationWeek !== currentWeek ||
+        previous.autoReservationTruckId !== activeTruckId;
+    })]);
   if (idsToMark.size > 0 || staleAutoIds.length > 0) {
     await runTransaction(db, async (tx) => {
       const allIds = [...idsToUpdate];
@@ -313,7 +318,7 @@ export async function reserveNewPalletsForNearestShipment(
           return;
         }
         if (!idsToMark.has(pallet.id) ||
-            pallet.markedForShipment ||
+            (pallet.markedForShipment && !pallet.autoReservationWeek) ||
             !isPlanningShipmentPickZone(pallet.zone) ||
             !expiryIso(pallet.expiryDateStr) ||
             expiryIso(pallet.expiryDateStr)! < today) return;
