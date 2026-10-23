@@ -66,7 +66,14 @@ export function planningWeekIssues(
       }
     }
   }
+  const truckDates = new Map<string, string>();
   for (const d of w.deliveries ?? []) {
+    if (d.truckId) {
+      const existingDate = truckDates.get(d.truckId);
+      if (existingDate && existingDate !== d.dispatchDate)
+        errors.push(`משאית ${d.truckId}: אותו מזהה משלוח מופיע בשני תאריכי יציאה`);
+      truckDates.set(d.truckId, d.dispatchDate);
+    }
     if (!settings.products.some((p) => p.id === d.productId) ||
       !Number.isInteger(d.quantity) || d.quantity <= 0 ||
       !parseDate(d.dispatchDate) || !parseDate(d.arrivalDate) ||
