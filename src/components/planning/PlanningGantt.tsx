@@ -137,7 +137,7 @@ export default function PlanningGantt(props: Props) {
   const planningHorizonWeeks = canEdit ? GANTT_FUTURE_WEEKS : 4;
   const allWeekIds = useMemo(
     () => Array.from({ length: planningHorizonWeeks + 1 }, (_, index) => addDays(currentWeek, (index - 1) * 7)),
-    [currentWeek],
+    [currentWeek, planningHorizonWeeks],
   );
   const maxWeekPage = Math.max(0, Math.ceil((allWeekIds.length - 5) / 4));
   const weekIds = useMemo(() => {
