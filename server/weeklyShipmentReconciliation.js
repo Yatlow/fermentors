@@ -104,19 +104,52 @@ function srExpiryEligible_(pallet, dispatchDate) {
   var expiry = srExpiry_(pallet.expiryDateStr);
   return !!expiry && expiry >= dispatchDate;
 }
-function srPatch_(p, fields) {
+// The Saturday job shares one atomic revision guard with React manual/auto
+// marking transactions. No partial set of pallets is released or reserved.
+function srReadMarkingGuard_() {
+  var name = srRoot_() + "/shipmentMarkingGuard/active";
+  try { return srDecode_(srFetch_(name)); }
+  catch (e) {
+    if (String(e).indexOf(" 404:") >= 0) return {name:name, revision:0};
+    throw e;
+  }
+}
+function srPalletMarkWrite_(p, fields) {
   var encoded = {}, masks = [];
   Object.keys(fields).forEach(function(k) {
     var v = fields[k];
     encoded[k] = v === null ? {nullValue: null} :
       typeof v === "boolean" ? {booleanValue: v} : {stringValue: String(v)};
-    masks.push("updateMask.fieldPaths=" + encodeURIComponent(k));
+    masks.push(k);
   });
-  // updateTime precondition prevents overwriting a simultaneous manual decision.
-  var url = "https://firestore.googleapis.com/v1/" + p.name + "?" +
-    masks.join("&") + "&currentDocument.updateTime=" + encodeURIComponent(p.updateTime);
-  srFetch_(url, "patch", {fields: encoded});
+  return {
+    update: {name:p.name, fields:encoded},
+    updateMask: {fieldPaths:masks},
+    updateTransforms: [{fieldPath:"updatedAt", setToServerValue:"REQUEST_TIME"}],
+    currentDocument: {updateTime:p.updateTime}
+  };
 }
+function srCommitMarking_(mutations, guard) {
+  if (!mutations.length) return;
+  if (mutations.length > 400) throw new Error("Too many pallet marking changes for one atomic commit");
+  var writes = mutations.map(function(change) {
+    return srPalletMarkWrite_(change.pallet, change.fields);
+  });
+  var revision = Number(guard.revision || 0);
+  if (!isFinite(revision) || revision < 0) throw new Error("Invalid shipment marking guard version");
+  writes.push({
+    update: {name:guard.name, fields:{
+      revision: {integerValue:String(revision + 1)},
+      updatedBy: {stringValue:"apps-script"}
+    }},
+    updateMask: {fieldPaths:["revision","updatedBy"]},
+    updateTransforms: [{fieldPath:"updatedAt", setToServerValue:"REQUEST_TIME"}],
+    currentDocument: guard.updateTime ?
+      {updateTime:guard.updateTime} : {exists:false}
+  });
+  srFetch_(srRoot_() + ":commit", "post", {writes:writes});
+}
+
 function srStackOrder_(p) {
   if (p.orderInCell != null) return Number(p.orderInCell);
   if (p.slotIndex != null) return Number(p.slotIndex);
@@ -179,6 +212,9 @@ function srSaturdayReconcile_() {
   var lines = {};
   open.filter(function(d) { return String(d.truckId || "date:" + d.dispatchDate) === truck; })
     .forEach(function(d) { lines[d.productId] = (lines[d.productId] || 0) + Number(d.quantity); });
+  // Read the guard BEFORE reading the pallet set. A conflicting React/GAS
+  // transaction then causes the full Firestore commit to fail safely.
+  var markingGuard = srReadMarkingGuard_();
   var catalog = srActiveCatalog_();
   var pallets = srListPallets_(), tagged = [];
   pallets.forEach(function(p) {
@@ -226,15 +262,22 @@ function srSaturdayReconcile_() {
     if (!best) return;
     (best.selected || []).forEach(function(p) { selected[p.name] = p; });
    });
-  // Only changed documents are patched; retries after partial failure are safe.
+  // Commit the entire change set atomically. A stale pallet updateTime or
+  // guard revision aborts the whole batch; the next maintenance cycle retries.
+  var mutations = [];
   tagged.forEach(function(p) {
-    if (!selected[p.name]) srPatch_(p, {markedForShipment:false, autoReservationWeek:null, autoReservationTruckId:null});
+    if (!selected[p.name]) mutations.push({pallet:p, fields:{
+      markedForShipment:false, autoReservationWeek:null, autoReservationTruckId:null
+    }});
   });
   Object.keys(selected).forEach(function(id) {
     var p = selected[id];
     if (p.markedForShipment && p.autoReservationWeek === targetWeek && p.autoReservationTruckId === truck) return;
-    srPatch_(p, {markedForShipment:true, autoReservationWeek:targetWeek,autoReservationTruckId:truck});
+    mutations.push({pallet:p, fields:{
+      markedForShipment:true, autoReservationWeek:targetWeek, autoReservationTruckId:truck
+    }});
   });
+  srCommitMarking_(mutations, markingGuard);
   props.setProperty(marker, "complete");
   Logger.log("Saturday shipment reconciliation complete: " + targetWeek +
     ", truck=" + truck + ", released=" + tagged.length + ", selected=" + Object.keys(selected).length);
