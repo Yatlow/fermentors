@@ -124,6 +124,10 @@ try {
       updatedAt: serverTimestamp(), updatedBy: uid,
     });
   });
+  await assertFails(updateDoc(palletRef, {
+    quantity: 1, updatedAt: serverTimestamp(),
+  }));
+  console.log('PASS shipment pallet becomes immutable once shipped');
   console.log('PASS all marking and shipment transitions require same-transaction guard');
 
 } finally {
