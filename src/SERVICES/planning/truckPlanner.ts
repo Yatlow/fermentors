@@ -53,11 +53,12 @@ function orderedCandidates(
   const known = candidates.every((x) => !!production(x));
   return candidates.sort(
     (a, b) =>
+      // FEFO always leads, even if production dates are available.
+      // Reservations/access and FIFO are secondary tie-breakers only.
+      a.expiry.localeCompare(b.expiry) ||
       Number(!!(b.pallet.markedForShipment || b.pallet.zone === "loadingDock")) -
         Number(!!(a.pallet.markedForShipment || a.pallet.zone === "loadingDock")) ||
-      (known
-        ? production(a)!.localeCompare(production(b)!)
-        : a.expiry.localeCompare(b.expiry)) ||
+      (known ? production(a)!.localeCompare(production(b)!) : 0) ||
       a.pallet.id.localeCompare(b.pallet.id),
   );
 }
