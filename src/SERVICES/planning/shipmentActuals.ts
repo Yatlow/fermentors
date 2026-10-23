@@ -47,12 +47,6 @@ export function groupPlannedShipments(deliveries: DeliveryPlan[]): PlannedShipme
   return [...groups.values()].sort((a, b) => a.dispatchDate.localeCompare(b.dispatchDate) || a.id.localeCompare(b.id));
 }
 
-function plannedQuantity(group: PlannedShipmentGroup, product: Product) {
-  return group.deliveries
-    .filter((d) => d.productId === product.id)
-    .reduce((sum, d) => sum + d.quantity, 0);
-}
-
 function actualQuantity(actual: DetailedShipmentEvent, product: Product) {
   return (actual.totals ?? [])
     .filter((line) =>
@@ -60,6 +54,62 @@ function actualQuantity(actual: DetailedShipmentEvent, product: Product) {
       sameStyle(line.beerStyle, product.style),
     )
     .reduce((sum, line) => sum + Number(line.totalQuantity || 0), 0);
+}
+
+/** The same SKU + quantity overlap is used in the UI and in the operational
+ * reservation queue. Unexpected SKUs count against match confidence.
+ */
+export function shipmentManifestScore(
+  expected: Readonly<Record<string, number>>,
+  sent: Readonly<Record<string, number>>,
+): number | null {
+  const ids = new Set([...Object.keys(expected), ...Object.keys(sent)]);
+  let overlap = 0;
+  let union = 0;
+  for (const id of ids) {
+    const planned = Number(expected[id] ?? 0);
+    const actual = Number(sent[id] ?? 0);
+    if (!Number.isFinite(planned) || !Number.isFinite(actual) ||
+        planned < 0 || actual < 0) return null;
+    overlap += Math.min(planned, actual);
+    union += Math.max(planned, actual);
+  }
+  return union > 0 ? overlap / union : null;
+}
+
+function plannedManifest(group: PlannedShipmentGroup): Record<string, number> {
+  const expected: Record<string, number> = {};
+  for (const line of group.deliveries) {
+    expected[line.productId] = (expected[line.productId] ?? 0) + line.quantity;
+  }
+  return expected;
+}
+
+function actualManifest(
+  actual: DetailedShipmentEvent,
+  products: Product[],
+): Record<string, number> | null {
+  if (!actual.totals?.length) return null;
+  const sent: Record<string, number> = {};
+  for (const line of actual.totals) {
+    const candidates = products.filter((p) =>
+      p.type === line.itemType && sameStyle(p.style, line.beerStyle));
+    // Never infer a SKU from a style if the catalog contains two candidates.
+    const id = candidates.length === 1 ? candidates[0].id :
+      `__unmapped__:${line.itemType}:${line.beerStyle}`;
+    sent[id] = (sent[id] ?? 0) + Number(line.totalQuantity || 0);
+  }
+  return sent;
+}
+
+function distinctManifestsConflict(
+  winner: { manifest: string; score: number | null },
+  ranked: Array<{ manifest: string; score: number | null }>,
+): boolean {
+  return ranked.some((candidate) =>
+    candidate.score !== null && winner.score !== null &&
+    Math.abs(candidate.score - winner.score) < 1e-9 &&
+    candidate.manifest !== winner.manifest);
 }
 
 /**
@@ -95,23 +145,8 @@ export function shipmentMatchScore(
   actual: DetailedShipmentEvent,
   products: Product[],
 ): number | null {
-  if (!actual.totals?.length) return null;
-  let overlap = 0;
-  let union = 0;
-  for (const product of products) {
-    const planned = plannedQuantity(group, product);
-    const sent = actualQuantity(actual, product);
-    overlap += Math.min(planned, sent);
-    union += Math.max(planned, sent);
-  }
-  // Unexpected/unknown SKUs must count against matching confidence; they are
-  // not silently discarded merely because the settings catalog cannot map them.
-  const actualTotal = actual.totals.reduce((sum, line) =>
-    sum + Math.max(0, Number(line.totalQuantity) || 0), 0);
-  const recognized = products.reduce((sum, product) =>
-    sum + actualQuantity(actual, product), 0);
-  union += Math.max(0, actualTotal - recognized);
-  return union > 0 ? overlap / union : 0;
+  const sent = actualManifest(actual, products);
+  return sent ? shipmentManifestScore(plannedManifest(group), sent) : null;
 }
 
 /**
@@ -137,27 +172,13 @@ export function completedShipmentQueueTruckId(
     return groups.some((group) => group.id === explicitTruckId) ? explicitTruckId : null;
   }
 
-  const actualKeys = Object.keys(actualByProduct);
   const ranked = groups.map((group) => {
-    const planned = new Map<string, number>();
-    group.deliveries.forEach((delivery) => {
-      planned.set(delivery.productId, (planned.get(delivery.productId) ?? 0) +
-        Number(delivery.quantity || 0));
-    });
-    const keys = new Set([...planned.keys(), ...actualKeys]);
-    let overlap = 0;
-    let union = 0;
-    keys.forEach((productId) => {
-      const expected = planned.get(productId) ?? 0;
-      const sent = Number(actualByProduct[productId] ?? 0);
-      overlap += Math.min(expected, sent);
-      union += Math.max(expected, sent);
-    });
-    const manifest = [...planned.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const manifest = plannedManifest(group);
     return {
       group,
-      manifest: JSON.stringify(manifest),
-      score: union > 0 ? overlap / union : null,
+      manifest: JSON.stringify(Object.entries(manifest)
+        .sort(([a], [b]) => a.localeCompare(b))),
+      score: shipmentManifestScore(manifest, actualByProduct),
       distance: Math.abs(
         Date.parse(`${shipmentDate}T12:00:00Z`) -
         Date.parse(`${group.dispatchDate}T12:00:00Z`),
@@ -173,11 +194,7 @@ export function completedShipmentQueueTruckId(
       winner.score < MIN_TRIP_MATCH_CONFIDENCE) return null;
   // A tied high-score *different manifest* is ambiguous. Identical manifests
   // are exchangeable for stock planning, so keep the deterministic first trip.
-  if (ranked.some((candidate) =>
-    candidate.group.id !== winner.group.id &&
-    candidate.score !== null &&
-    Math.abs(candidate.score - winner.score!) < 1e-9 &&
-    candidate.manifest !== winner.manifest)) return null;
+  if (distinctManifestsConflict(winner, ranked)) return null;
   return winner.group.id;
 }
 
@@ -192,25 +209,25 @@ export function matchActualShipments(
   // Compare ALL trips in an operational week before assigning an actual to
   // one of them. Matching in declaration order could steal truck B's manifest
   // for truck A, then incorrectly mark B pending.
+  // Physically linked reports always win over heuristic candidates, even
+  // when their manifest differs. Unlinked reports must meet the SAME 85%
+  // threshold as the operational reservation queue. A date-only legacy
+  // report is surfaced as unmatched, never silently used to release stock.
   const candidates = groups.flatMap((planned) =>
     actuals.filter((actual) => weekStart(actual.date) === weekStart(planned.dispatchDate))
       .map((actual) => ({
         planned, actual, score: shipmentMatchScore(planned, actual, products),
+        direct: actual.plannedTruckId === planned.id,
+        manifest: JSON.stringify(Object.entries(plannedManifest(planned))
+          .sort(([a], [b]) => a.localeCompare(b))),
         distance: Math.abs(Date.parse(`${actual.date}T12:00:00Z`) -
           Date.parse(`${planned.dispatchDate}T12:00:00Z`)),
       }))
-      .filter((candidate) => {
-        if (candidate.actual.plannedTruckId) {
-          return candidate.actual.plannedTruckId === candidate.planned.id;
-        }
-        if (candidate.score !== null) return candidate.score >= threshold;
-        // Older reports without a manifest have no SKU match signal. Accept
-        // only the unambiguous same-day one-trip / one-report case.
-        return candidate.distance === 0 &&
-          groups.filter((group) => group.dispatchDate === candidate.actual.date).length === 1 &&
-          actuals.filter((event) => event.date === candidate.actual.date).length === 1;
-      }),
+      .filter((candidate) => candidate.actual.plannedTruckId
+        ? candidate.direct
+        : candidate.score !== null && candidate.score >= threshold),
   ).sort((a, b) =>
+    Number(b.direct) - Number(a.direct) ||
     (b.score ?? -1) - (a.score ?? -1) ||
     a.distance - b.distance ||
     a.planned.id.localeCompare(b.planned.id) ||
@@ -220,20 +237,12 @@ export function matchActualShipments(
   const usedActuals = new Set<string>();
   for (const { planned, actual, score } of candidates) {
     if (matched.has(planned.id) || usedActuals.has(actual.id)) continue;
-    if (!actual.plannedTruckId && score !== null) {
-      const ties = candidates.filter((candidate) =>
-        candidate.actual.id === actual.id &&
-        candidate.planned.id !== planned.id &&
-        candidate.score !== null &&
-        Math.abs(candidate.score - score) < 1e-9);
-      const manifest = (group: PlannedShipmentGroup) => JSON.stringify(
-        group.deliveries.map((delivery) =>
-          [delivery.productId, delivery.quantity]).sort((a, b) =>
-          String(a[0]).localeCompare(String(b[0]))),
-      );
-      if (ties.some((candidate) =>
-        manifest(candidate.planned) !== manifest(planned))) continue;
-    }
+    if (!actual.plannedTruckId &&
+        distinctManifestsConflict(
+          { manifest: JSON.stringify(Object.entries(plannedManifest(planned))
+            .sort(([a], [b]) => a.localeCompare(b))), score },
+          candidates.filter((candidate) => candidate.actual.id === actual.id),
+        )) continue;
     matched.set(planned.id, {
       planned, actual, score,
       status: score === null || score >= threshold ? "matched" : "actual-different",
