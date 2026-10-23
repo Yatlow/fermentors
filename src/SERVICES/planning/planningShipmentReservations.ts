@@ -20,6 +20,7 @@ import {
   type WeekPlan,
 } from "./planningEngine";
 import { completedShipmentQueueTruckId } from "./shipmentActuals";
+import { automaticReservationDelta } from "./automaticReservationReconciliation";
 import { expiryIso, palletQuantity } from "./shipmentPicking";
 import { shipmentDecisionPickOptions } from "./shipmentDecisionPicking";
 import { autoReservationWeek, isDispatchInReservationWeek } from "./shipmentReservationWeek";
@@ -286,17 +287,10 @@ export async function reserveNewPalletsForNearestShipment(
     });
   }
 
-  const staleAutoIds = priorAuto
-    .filter((pallet) => !idsToMark.has(pallet.id))
-    .map((pallet) => pallet.id);
+  const { releaseIds: staleAutoIds, assignIds, originalAuto } =
+    automaticReservationDelta(pallets, idsToMark, currentWeek, activeTruckId);
   const staleSet = new Set(staleAutoIds);
-  const idsToUpdate = new Set([...staleAutoIds,
-    ...[...idsToMark].filter((id) => {
-      const previous = pallets.find((pallet) => pallet.id === id);
-      return !previous?.markedForShipment ||
-        previous.autoReservationWeek !== currentWeek ||
-        previous.autoReservationTruckId !== activeTruckId;
-    })]);
+  const idsToUpdate = new Set([...staleAutoIds, ...assignIds]);
   if (idsToMark.size > 0 || staleAutoIds.length > 0) {
     await runTransaction(db, async (tx) => {
       const allIds = [...idsToUpdate];
@@ -308,7 +302,10 @@ export async function reserveNewPalletsForNearestShipment(
         const pallet = { id: snapshot.id, ...snapshot.data() } as Pallet;
         if (staleSet.has(pallet.id)) {
           // Never release a pallet which was manually marked in the meantime.
-          if (!pallet.markedForShipment || !pallet.autoReservationWeek) return;
+          const prior = originalAuto.get(pallet.id);
+          if (!prior || !pallet.markedForShipment ||
+              pallet.autoReservationWeek !== prior.week ||
+              (pallet.autoReservationTruckId ?? null) !== prior.truckId) return;
           tx.update(refs[index], {
             markedForShipment: false,
             autoReservationWeek: null,
@@ -317,8 +314,12 @@ export async function reserveNewPalletsForNearestShipment(
           });
           return;
         }
+        const prior = originalAuto.get(pallet.id);
         if (!idsToMark.has(pallet.id) ||
             (pallet.markedForShipment && !pallet.autoReservationWeek) ||
+            (pallet.markedForShipment && prior &&
+              (pallet.autoReservationWeek !== prior.week ||
+               (pallet.autoReservationTruckId ?? null) !== prior.truckId)) ||
             !isPlanningShipmentPickZone(pallet.zone) ||
             !expiryIso(pallet.expiryDateStr) ||
             expiryIso(pallet.expiryDateStr)! < today) return;
