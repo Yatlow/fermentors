@@ -151,8 +151,8 @@ export function usePlanning(
   });
 
   const start = weekStart(today);
-  // The Gantt shows weeks through start + 91 days (inclusive). Load the
-  // *entire* last displayed week, not an exclusive bound at day 84.
+  // The last Gantt week starts at day 84. The Firestore end bound is
+  // exclusive, so include its final Saturday by querying through day 91.
   const end = planningQueryEnd(start);
   const logStart = [
     addDays(start, -84),
