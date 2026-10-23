@@ -13,6 +13,7 @@ import {
 } from "./planningEngine";
 import { openRuns, type ShipmentEvent } from "./dailyPlanner";
 import { pendingPlansAfterActualShipments } from "./shipmentActuals";
+import { addForecastPackaging, dispatchForecastPallets, type ForecastPalletLot } from "./shipmentPalletLedger";
 
 export type WeekStartProjection = {
   product: Product;
@@ -71,10 +72,11 @@ export function buildWeekStartProjection(args: {
     // Project physical lots chronologically instead of netting them first:
     // inventory which expires between two dispatches can be used for the
     // earlier one, but must not appear as stock at a later week opening.
-    const physicalLots = productPallets(product, pallets).flatMap((pallet) => {
+    const physicalLots: ForecastPalletLot[] = productPallets(product, pallets).flatMap((pallet) => {
       const expiry = parseDate(pallet.expiryDateStr);
       const qty = Math.max(0, num(pallet.quantity));
-      return expiry && expiry >= today && qty > 0 ? [{ expiry, qty }] : [];
+      return expiry && expiry >= today && qty > 0
+        ? [{ id: pallet.id, expiry, quantity: qty }] : [];
     });
     const packEvents = open
       .filter((run) => run.productId === product.id && run.remaining > 0 &&
@@ -97,25 +99,21 @@ export function buildWeekStartProjection(args: {
       a.date.localeCompare(b.date) ||
       (a.kind === b.kind ? 0 : a.kind === "pack" ? -1 : 1));
 
-    for (const event of events) {
-      for (let i = physicalLots.length - 1; i >= 0; i--) {
-        if (physicalLots[i].expiry < event.date) physicalLots.splice(i, 1);
-      }
+    const unitsPerPallet = product.type === "crates" ? 84 : 20;
+    events.forEach((event, index) => {
       if (event.kind === "pack") {
-        physicalLots.push({ expiry: "9999-12-31", qty: event.qty });
-        continue;
+        addForecastPackaging(physicalLots, event.qty, unitsPerPallet,
+          `future:${product.id}:${event.date}:${index}`);
+      } else {
+        // The planned departure occupies WHOLE pallets. Do not leave a
+        // fractional pallet for a later shipment when the earlier truck takes
+        // its physical load; use the same FEFO simulation as the availability
+        // audit so the stock and feasibility screens cannot disagree.
+        dispatchForecastPallets(physicalLots, event.qty, unitsPerPallet, event.date);
       }
-      let remainingToDispatch = event.qty;
-      physicalLots.sort((a, b) => a.expiry.localeCompare(b.expiry));
-      for (const lot of physicalLots) {
-        const sent = Math.min(lot.qty, remainingToDispatch);
-        lot.qty -= sent;
-        remainingToDispatch -= sent;
-        if (remainingToDispatch <= 0) break;
-      }
-    }
+    });
     const breweryUnits = physicalLots.filter((lot) => lot.expiry >= week)
-      .reduce((sum, lot) => sum + lot.qty, 0);
+      .reduce((sum, lot) => sum + lot.quantity, 0);
     result.set(product.id, {
       product,
       tempoUnits,
