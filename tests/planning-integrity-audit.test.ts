@@ -118,3 +118,21 @@ test("a live canonical batch must receive its finishing pack despite over-target
   assert.equal(finish.length, 1, "do not abandon unfinished physical canonical cycles");
   assert.equal(finish[0].quantity, 152);
 });
+
+test("moving a future brew updates the physical packaging tank number without guessing document IDs", () => {
+  const brewWeek = { ...emptyWeek(currentWeek), brews: [{
+    id: "move-future", tankId: "new-tank-doc", date: "2026-10-19",
+    style: "IPA", liters: 1100, batchNumber: "1733",
+  }] };
+  const packagingWeek = { ...emptyWeek("2026-11-08"), packaging: [{
+    id: "move-pack", brewId: "move-future", productId: product.id, quantity: 40,
+    tankId: "old-tank-doc", tankNumber: "10", batchNumber: "1733",
+    date: "2026-11-09",
+  }] };
+  const linked = withStablePackagingIdentity([brewWeek, packagingWeek], { "new-tank-doc": "17" });
+  assert.equal(linked[1].packaging[0].tankId, "new-tank-doc");
+  assert.equal(linked[1].packaging[0].tankNumber, "17");
+  const unknownNumber = withStablePackagingIdentity([brewWeek, packagingWeek]);
+  assert.equal(unknownNumber[1].packaging[0].tankNumber, undefined,
+    "do not reuse the old tank 10 or mislabel it as new-tank-doc");
+});
