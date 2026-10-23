@@ -8,6 +8,7 @@ try {
   const tests = [
     "planning-workflow",
     "planning-integrity-audit",
+    "planning-operational-safety",
     "shipment-picking-regression",
     "planning-weekly-regression",
     "planning-brew-assignment-draft",
