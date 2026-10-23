@@ -383,3 +383,14 @@ test("legacy shipmentAdvice and future truck planning both use FEFO before FIFO"
     tanks, { ...settings, targetWeeks: 5 }, "2026-10-18");
   assert.equal(advice.picks[0]?.id, "newer-batch");
 });
+
+test("one stable truck identifier cannot silently describe two different departure dates", () => {
+  const week = { ...emptyWeek("2026-10-25"), deliveries: [
+    { id: "line-a", truckId: "repeat", productId: ipa.id, quantity: 84,
+      dispatchDate: "2026-10-26", arrivalDate: "2026-10-26" },
+    { id: "line-b", truckId: "repeat", productId: ipa.id, quantity: 84,
+      dispatchDate: "2026-10-28", arrivalDate: "2026-10-28" },
+  ] };
+  assert.ok(planningWeekIssues(week, settings, [week], "2026-10-23")
+    .some((issue) => issue.includes("שני תאריכי יציאה")));
+});
