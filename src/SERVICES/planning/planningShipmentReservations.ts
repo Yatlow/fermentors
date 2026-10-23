@@ -226,6 +226,9 @@ export async function reserveNewPalletsForNearestShipment(
   const today = dateKey(new Date());
   const planned = await nearestPlannedDelivery(today);
   const dispatchDate = planned[0]?.dispatchDate ?? null;
+  // Picking must evaluate the stock at the promised dispatch date, not when
+  // someone taps "sync" several days earlier.
+  const expiryCutoff = dispatchDate ?? today;
   const diagnostics: ShipmentReservationSyncResult["diagnostics"] = [];
   const palletSnapshot = await getDocsFromServer(collection(db, "pallets"));
   const pallets = palletSnapshot.docs.map(
@@ -248,7 +251,9 @@ export async function reserveNewPalletsForNearestShipment(
     const matching = effectivePallets.filter((pallet) =>
       pallet.zone !== "shipped" &&
       palletQuantity(pallet) > 0 &&
-      skuForPallet(pallet) === line.productId,
+      skuForPallet(pallet) === line.productId &&
+      !!expiryIso(pallet.expiryDateStr) &&
+      expiryIso(pallet.expiryDateStr)! >= expiryCutoff,
     );
 
     const alreadyMarked = matching.filter((pallet) => pallet.markedForShipment);
@@ -265,7 +270,7 @@ export async function reserveNewPalletsForNearestShipment(
       !pallet.markedForShipment &&
       isPlanningShipmentPickZone(pallet.zone) &&
       !!expiryIso(pallet.expiryDateStr) &&
-      expiryIso(pallet.expiryDateStr)! >= today,
+      expiryIso(pallet.expiryDateStr)! >= expiryCutoff,
     );
 
     const selected = pickForMissing(candidates, missingBefore);
@@ -291,7 +296,7 @@ export async function reserveNewPalletsForNearestShipment(
     automaticReservationDelta(pallets, idsToMark, currentWeek, activeTruckId);
   const staleSet = new Set(staleAutoIds);
   const idsToUpdate = new Set([...staleAutoIds, ...assignIds]);
-  if (idsToMark.size > 0 || staleAutoIds.length > 0) {
+  if (idsToUpdate.size > 0) {
     await runTransaction(db, async (tx) => {
       const allIds = [...idsToUpdate];
       const refs = allIds.map((id) => doc(db, "pallets", id));
@@ -322,7 +327,7 @@ export async function reserveNewPalletsForNearestShipment(
                (pallet.autoReservationTruckId ?? null) !== prior.truckId)) ||
             !isPlanningShipmentPickZone(pallet.zone) ||
             !expiryIso(pallet.expiryDateStr) ||
-            expiryIso(pallet.expiryDateStr)! < today) return;
+            expiryIso(pallet.expiryDateStr)! < expiryCutoff) return;
         tx.update(refs[index], {
           markedForShipment: true,
           autoReservationWeek: currentWeek,
