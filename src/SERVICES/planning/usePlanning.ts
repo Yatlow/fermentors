@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { weekIsClosed, withSpecialTotals } from "./planningPresentation";
+import { planningQueryEnd } from "./planningHorizon";
 import {
   collection,
   doc,
@@ -152,7 +153,7 @@ export function usePlanning(
   const start = weekStart(today);
   // The Gantt shows weeks through start + 91 days (inclusive). Load the
   // *entire* last displayed week, not an exclusive bound at day 84.
-  const end = addDays(start, 98);
+  const end = planningQueryEnd(start);
   const logStart = [
     addDays(start, -84),
     ...tanks
