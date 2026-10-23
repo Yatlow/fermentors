@@ -203,7 +203,9 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             ? virtualProduct(run.nonInventoryStyle, run.nonInventoryType)
             : product(run.productId);
     const packagingTankPool = useMemo(() => futureTanks(tanks, plans, settings), [tanks, plans, settings]);
-    const cycleIdForRun = (run: Pick<Plan, "tankId" | "brewId">) => run.brewId ? `planned:${run.brewId}` : (run.tankId ?? "");
+    const cycleIdForRun = (run: Pick<Plan, "tankId" | "brewId">) =>
+        run.brewId && packagingTankPool.some((tank) => tank.id === `planned:${run.brewId}`)
+            ? `planned:${run.brewId}` : (run.tankId ?? "");
     const packagingTankById = (id: string) => packagingTankPool.find((tank) => tank.id === id);
 
     function completedForPlan(run: Plan) {
@@ -322,15 +324,16 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     }
 
     function replacementPackagingWithEmptyFlags(packaging: Plan[]) {
-        const usedByTank = new Map<string, number>();
+        const usedByCycle = new Map<string, number>();
         return packaging.map((run) => {
             if (!run.tankId) return run;
+            const cycle = run.brewId ? `planned:${run.brewId}` : run.tankId;
             const p = productForPlan(run);
             if (!p) return run;
-            const base = replacementPackagingModel.tankAvailableLiters.get(run.tankId) ?? tanks.find((tank) => tank.id === run.tankId)?.liters ?? 0;
-            const usedBefore = usedByTank.get(run.tankId) ?? 0;
+            const base = replacementPackagingModel.tankAvailableLiters.get(cycle) ?? replacementPackagingModel.tankAvailableLiters.get(run.tankId) ?? tanks.find((tank) => tank.id === run.tankId)?.liters ?? 0;
+            const usedBefore = usedByCycle.get(cycle) ?? 0;
             const usedNow = run.quantity * litersPerUnit(p);
-            usedByTank.set(run.tankId, usedBefore + usedNow);
+            usedByCycle.set(cycle, usedBefore + usedNow);
             return { ...run, emptyTank: base - usedBefore - usedNow < 20 };
         });
     }
@@ -343,6 +346,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             quantity: rec.quantity,
             tankId: rec.tankId,
             tankNumber: rec.tankNumber,
+            ...(rec.brewId ? { brewId: rec.brewId } : {}),
             source: "recommendation",
         }));
         setSaving(true);
@@ -440,7 +444,9 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
 
     function recommendationRemaining(rec: (typeof model.packagingRecommendation)[number], currentRows: PackRow[] = rows) {
         const alreadyPlanned = currentRows
-            .filter((row) => row.productId === rec.productId && row.tankId === rec.tankId)
+            .filter((row) => row.productId === rec.productId &&
+                row.tankId === (rec.brewId && packagingTankById(`planned:${rec.brewId}`)
+                    ? `planned:${rec.brewId}` : rec.tankId))
             .reduce((sum, row) => sum + row.quantity, 0);
         return Math.max(0, rec.quantity - alreadyPlanned);
     }
@@ -575,18 +581,19 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         : [];
 
     function recomputeEmptyFlags(packaging: Plan[]) {
-        const usedByTank = new Map<string, number>();
+        const usedByCycle = new Map<string, number>();
         return packaging.map((run) => {
             if (!run.tankId) return run;
+            const cycle = run.brewId ? `planned:${run.brewId}` : run.tankId;
             const p = productForPlan(run);
             if (!p) return run;
-            const base = model.tankAvailableLiters.get(run.tankId) ?? tanks.find((tank) => tank.id === run.tankId)?.liters ?? 0;
+            const base = model.tankAvailableLiters.get(cycle) ?? model.tankAvailableLiters.get(run.tankId) ?? tanks.find((tank) => tank.id === run.tankId)?.liters ?? 0;
             const original = current.packaging.find((item) => item.id && run.id && item.id === run.id);
             const completed = original ? completedForPlan(original) : 0;
             const pending = Math.max(0, run.quantity - completed);
-            const usedBefore = usedByTank.get(run.tankId) ?? 0;
+            const usedBefore = usedByCycle.get(cycle) ?? 0;
             const usedNow = pending * litersPerUnit(p);
-            usedByTank.set(run.tankId, usedBefore + usedNow);
+            usedByCycle.set(cycle, usedBefore + usedNow);
             return { ...run, emptyTank: base - usedBefore - usedNow < 20 };
         });
     }
@@ -608,12 +615,14 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 const max = maxQuantityForRow(row);
                 const quantity = Math.max(row.completed, Math.min(row.quantity, max));
                 if (quantity <= 0) continue;
-                const brewId = tank.id.startsWith("planned:") ? tank.id.slice("planned:".length) : undefined;
-                const plannedBrew = brewId ? plans.flatMap((week) => week.brews).find((brew) => brew.id === brewId) : undefined;
-                const physicalTankId = plannedBrew?.tankId ?? tank.id;
                 const originalRun = row.originalId
                     ? current.packaging.find((run) => run.id === row.originalId)
                     : undefined;
+                // A live physical batch can also have a canonical brewId.
+                const brewId = tank.id.startsWith("planned:")
+                    ? tank.id.slice("planned:".length) : originalRun?.brewId;
+                const plannedBrew = brewId ? plans.flatMap((week) => week.brews).find((brew) => brew.id === brewId) : undefined;
+                const physicalTankId = plannedBrew?.tankId ?? tank.id;
                 // This modal saves a weekly packaging decision. A day is assigned
                 // later in the daily workboard; do not auto-schedule new decisions.
                 // Preserve a date only when editing a decision that was already
