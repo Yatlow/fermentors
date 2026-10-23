@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, type ComponentProps } from "react";
+import { useCallback, useMemo, type ComponentProps } from "react";
 import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
 import { brewSizeLabel, tankReleases } from "../../SERVICES/planning/productionCycle";
 import { addDays, sameStyle, weekStart, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
-import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { palletsForPlanningShipmentPicking } from "../../SERVICES/planning/planningShipmentReservations";
 import { projectTankSchedules } from "../../SERVICES/planning/tankScheduleProjection";
 import { tankCanHostCycle } from "../../SERVICES/planning/tankSchedule";
@@ -23,7 +22,6 @@ type BrewWithAssignment = BrewPlan & {
  * not in the weekly planning screen.
  */
 export default function PlanningWeeklyReservations(props: Props) {
-  const defaultWeekApplied = useRef(false);
 
   const planningPallets = useMemo(
     () => palletsForPlanningShipmentPicking(props.pallets),
@@ -118,18 +116,7 @@ export default function PlanningWeeklyReservations(props: Props) {
     await props.saveWeek(assignTentativeTankAssignments(next));
   }
 
-  useEffect(() => {
-    if (defaultWeekApplied.current) return;
-    defaultWeekApplied.current = true;
-
-    const nextWeek = addDays(weekStart(props.today), 7);
-    const targetLabel = shortDate(nextWeek);
-    const buttons = document.querySelectorAll<HTMLButtonElement>(".brew-planning .bp-week-picker button");
-    const target = Array.from(buttons).find(
-      (button) => button.querySelector("small")?.textContent?.trim() === targetLabel,
-    );
-    target?.click();
-  }, [props.today]);
+  // The week picker is controlled through React state, never a DOM button click.
 
   // Tentative tank assignments are derived and previewed, not persisted merely
   // because a planner opened the calendar. They are written only after an
@@ -138,6 +125,7 @@ export default function PlanningWeeklyReservations(props: Props) {
   return (
     <PlanningWeeklyRecommendationsEnhanced
       {...props}
+      initialSelectedWeek={addDays(weekStart(props.today), 7)}
       pallets={planningPallets}
       saveWeek={saveWithTentativeTankAssignments}
     />
