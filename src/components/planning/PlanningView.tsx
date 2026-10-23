@@ -187,8 +187,8 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   return (
     <section className="brew-planning" dir="rtl">
       {availabilityIssues.length > 0 && <div role="alert" className="bp-alert" style={{ padding: 12, marginBottom: 12 }}>
-        <strong>⚠️ נמצאו {availabilityIssues.length} חוסרים בזמינות משלוחים בתכנון</strong>
-        <ul>{availabilityIssues.map((issue) => <li key={`${issue.week}:${issue.date}:${issue.productId}`}>שבוע {issue.week} · {issue.message}</li>)}</ul>
+        <strong>⚠️ בדיקת מלאי למשלוחים: {availabilityIssues.filter((issue) => issue.severity !== "partial").length} חוסרי משטחים, {availabilityIssues.filter((issue) => issue.severity === "partial").length} פערי כמות במשטחים חלקיים</strong>
+        <ul>{availabilityIssues.map((issue) => <li key={`${issue.week}:${issue.date}:${issue.productId}:${issue.severity ?? "blocking"}`}>שבוע {issue.week} · {issue.message}</li>)}</ul>
       </div>}
       {data.loading && !data.error && <div role="status"><BeerLoader message="טוען את לוח העבודה…" /></div>}
       {data.error && <p role="alert" className="bp-alert">טעינת הנתונים נכשלה: {data.error}</p>}
