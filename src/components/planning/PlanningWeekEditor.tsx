@@ -101,9 +101,11 @@ export default function PlanningWeekEditor({
   }
 
   function releaseVolume(tankId: string, style: string) {
-    const release = releases.find((r) => r.tankId === tankId);
     const source = brews.find((t) => t.id === tankId);
-    return release?.workLiters || estimatedBrewVolume(source?.tankNumber, style);
+    const physical = tanks.find((tank) => tank.id === tankId);
+    // release.workLiters describes the PREVIOUS recipe. Never transfer its
+    // volume to a future brew of another style.
+    return estimatedBrewVolume(source?.tankNumber ?? physical?.number, style);
   }
 
   async function save() {
@@ -231,7 +233,7 @@ export default function PlanningWeekEditor({
                   updateBrew(i, { tankId: e.target.value, liters: volume || b.liters });
                 }}><option value="">בחירת מיכל</option>{available.map((t) => {
                   const release = releases.find((r) => r.tankId === t.id);
-                  const volume = release?.workLiters || estimatedBrewVolume(t.tankNumber, b.style);
+                  const volume = releaseVolume(t.id, b.style);
                   return <option key={t.id} value={t.id}>מיכל {t.tankNumber ?? t.id} · {tankType(t.tankNumber)} · {t.id === b.tankId ? "משובץ לבישול הזה" : `פנוי ${release?.date ? `מ־${shortDate(release.date)}` : ""}`} · {Math.round(volume)} ל׳</option>;
                 })}</select></label>
                 <label>נפח בישול<TransientNumberInput min="1" value={b.liters} readOnly={capacity > 0} onNumberChange={(value) => updateBrew(i, { liters: value })}/><small>{capacity > 0 ? `לפי נפח העבודה של מיכל ${source?.tankNumber ?? ""}` : "בחר מיכל לקבלת נפח עבודה אוטומטי."}</small></label>
