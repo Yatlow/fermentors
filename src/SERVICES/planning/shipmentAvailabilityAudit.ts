@@ -1,24 +1,31 @@
 import type { Pallet } from "../cooler/Pallettypes ";
 import { addDays, productPallets, parseDate, weekStart, type Actual, type Product, type Settings, type WeekPlan } from "./planningEngine";
-import { openRuns } from "./dailyPlanner";
+import { openRuns, type ShipmentEvent } from "./dailyPlanner";
 import { nominalPlanningUnits } from "./shipmentRecommendation";
 import { pendingPlansAfterActualShipments } from "./shipmentActuals";
-import type { ShipmentEvent } from "./dailyPlanner";
 
 export type PlanningAvailabilityIssue = {
   week: string;
   date: string;
   productId: string;
+  /** Missing pallet positions, not missing actual units. */
   missing: number;
+  /** Partial pallets can cover planned pallet positions without fulfilling the quantity. */
+  missingUnits?: number;
+  severity?: "blocking" | "partial";
   message: string;
 };
 
 const size = (p: Product) => p.type === "crates" ? 84 : 20;
 
+type StockLot = { expiry: string; nominal: number; physical: number };
+
 /**
- * Audit the chronological commitments against physical stock and dated, unfinished
- * packaging. Each partial physical pallet occupies one nominal pallet slot.
- * The audit is read-only and uses the same snapshots already loaded by planning.
+ * Audit planned dispatches in date order. Two ledgers must be kept separately:
+ * pallet positions (partial pallet occupies a whole position) and ACTUAL units.
+ * Physical pallets expire at the dispatch date, not at today's date.
+ * Future packaging has unknown expiry and is eligible only after its planned
+ * packaging date. Reports already completed are removed by openRuns.
  */
 export function auditShipmentAvailability(
   settings: Settings,
@@ -29,59 +36,99 @@ export function auditShipmentAvailability(
   actualShipments: ShipmentEvent[] = [],
 ): PlanningAvailabilityIssue[] {
   const open = openRuns(plans, settings.products, actuals);
-  // Physical stock already excludes pallets dispatched by completed shipments.
-  // Do not consume that stock again for a saved trip completed today.
-  const pendingPlans = pendingPlansAfterActualShipments(plans, actualShipments, settings.products);
+  const pending = pendingPlansAfterActualShipments(plans, actualShipments, settings.products);
   const issues: PlanningAvailabilityIssue[] = [];
   const horizon = addDays(weekStart(today), 91);
-  for (const p of settings.products) {
-    const physical = productPallets(p, pallets)
-      .filter((x) => !!parseDate(x.expiryDateStr) && parseDate(x.expiryDateStr)! >= today);
-    let available = physical.reduce((sum, x) => sum + nominalPlanningUnits(p, Math.max(0, Number(x.quantity) || 0)), 0);
-    const events: Array<{ date: string; kind: "pack" | "ship"; qty: number; week: string }> = [];
+
+  for (const product of settings.products) {
+    const unitPerPallet = size(product);
+    const lots: StockLot[] = productPallets(product, pallets).flatMap((pallet) => {
+      const expiry = parseDate(pallet.expiryDateStr);
+      const physical = Math.max(0, Number(pallet.quantity) || 0);
+      if (!expiry || expiry < today || physical <= 0) return [];
+      return [{ expiry, nominal: nominalPlanningUnits(product, physical), physical }];
+    });
+    const events: Array<{
+      date: string; kind: "pack" | "ship"; qty: number; week: string;
+    }> = [];
     for (const run of open) {
-      if (run.productId !== p.id || run.remaining <= 0 || !run.date || run.date < today || run.date > horizon) continue;
-      events.push({ date: run.date, kind: "pack", qty: nominalPlanningUnits(p, run.remaining), week: run.week });
+      if (run.productId !== product.id || run.remaining <= 0 ||
+          !run.date || run.date < today || run.date > horizon) continue;
+      events.push({ date: run.date, kind: "pack", qty: run.remaining, week: run.week });
     }
-    for (const week of pendingPlans) {
+    for (const week of pending) {
       for (const delivery of week.deliveries ?? []) {
-        if (delivery.productId !== p.id || delivery.quantity <= 0 || delivery.dispatchDate < today || delivery.dispatchDate > horizon) continue;
-        events.push({ date: delivery.dispatchDate, kind: "ship", qty: nominalPlanningUnits(p, delivery.quantity), week: week.id });
+        if (delivery.productId !== product.id || delivery.quantity <= 0 ||
+            delivery.dispatchDate < today || delivery.dispatchDate > horizon) continue;
+        events.push({ date: delivery.dispatchDate, kind: "ship", qty: delivery.quantity, week: week.id });
       }
     }
-    events.sort((a, b) => a.date.localeCompare(b.date) || (a.kind === b.kind ? 0 : a.kind === "pack" ? -1 : 1));
+    events.sort((a, b) =>
+      a.date.localeCompare(b.date) ||
+      (a.kind === b.kind ? 0 : a.kind === "pack" ? -1 : 1));
+
     for (const event of events) {
+      // A pallet is not ship-ready after its own expiry date. This also
+      // prevents it being used for a later shipment simply because it was
+      // valid on the day the planner opened the dashboard.
+      for (let i = lots.length - 1; i >= 0; i--) {
+        if (lots[i].expiry < event.date) lots.splice(i, 1);
+      }
       if (event.kind === "pack") {
-        available += event.qty;
+        lots.push({
+          expiry: "9999-12-31",
+          nominal: nominalPlanningUnits(product, event.qty),
+          physical: event.qty,
+        });
         continue;
       }
-      if (event.qty > available) {
-        const missing = Math.ceil((event.qty - available) / size(p));
+      const demandNominal = nominalPlanningUnits(product, event.qty);
+      const nominalAvailable = lots.reduce((sum, lot) => sum + lot.nominal, 0);
+      const physicalAvailable = lots.reduce((sum, lot) => sum + lot.physical, 0);
+      const missing = Math.ceil(Math.max(0, demandNominal - nominalAvailable) / unitPerPallet);
+      const missingUnits = Math.max(0, event.qty - physicalAvailable);
+      if (missing > 0) {
         issues.push({
-          week: event.week,
-          date: event.date,
-          productId: p.id,
-          missing,
-          message: `משלוח ${event.date}: חסרים ${missing} משטחים של ${p.style} (${p.type === "crates" ? "ארגזים" : "חביות"})`,
+          week: event.week, date: event.date, productId: product.id,
+          missing, missingUnits, severity: "blocking",
+          message: `משלוח ${event.date}: חסרים ${missing} מקומות משטח זמינים של ${product.style} (${product.type === "crates" ? "ארגזים" : "חביות"}); יש לבדוק גם תוקף מלאי`,
+        });
+      } else if (missingUnits > 0.001) {
+        issues.push({
+          week: event.week, date: event.date, productId: product.id,
+          missing: 0, missingUnits, severity: "partial",
+          message: `משלוח ${event.date}: חסרות ${Math.ceil(missingUnits)} יחידות ${product.style} בפועל. משטח חלקי מכסה מקום במשאית, לא את כמות ההזמנה`,
         });
       }
-      available = Math.max(0, available - event.qty);
+      // Consume nominal slots from the oldest usable expiry first. A partial
+      // physical pallet remains one indivisible pallet for planning purposes.
+      let demand = demandNominal;
+      lots.sort((a, b) => a.expiry.localeCompare(b.expiry));
+      for (const lot of lots) {
+        if (demand <= 0) break;
+        const taken = Math.min(demand, lot.nominal);
+        if (taken <= 0) continue;
+        const fraction = taken / lot.nominal;
+        lot.physical = Math.max(0, lot.physical * (1 - fraction));
+        lot.nominal -= taken;
+        demand -= taken;
+      }
     }
   }
-  return issues.sort((a, b) => a.date.localeCompare(b.date) || a.productId.localeCompare(b.productId));
+  return issues.sort((a, b) => a.date.localeCompare(b.date) ||
+    a.productId.localeCompare(b.productId));
 }
 
-/** Find a newly introduced or worsened shortage anywhere in the planning horizon.
- * A valid earlier shipment must not silently invalidate later committed shipments.
+/** A partial pallet is operationally permitted but must never be invisible.
+ * Blocking shortages are those lacking physical pallet positions entirely.
  */
 export function newlyWorsenedShipmentShortage(
   before: PlanningAvailabilityIssue[],
   after: PlanningAvailabilityIssue[],
 ): PlanningAvailabilityIssue | undefined {
-  const existing = new Map(before.map((issue) => [
+  const existing = new Map(before.filter((issue) => issue.severity !== "partial").map((issue) => [
     `${issue.week}:${issue.date}:${issue.productId}`, issue.missing,
   ]));
-  return after.find((issue) =>
-    issue.missing > (existing.get(`${issue.week}:${issue.date}:${issue.productId}`) ?? 0),
-  );
+  return after.filter((issue) => issue.severity !== "partial").find((issue) =>
+    issue.missing > (existing.get(`${issue.week}:${issue.date}:${issue.productId}`) ?? 0));
 }
