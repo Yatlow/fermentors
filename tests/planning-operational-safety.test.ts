@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  defaultSettings, emptyWeek, type Product, type Tank, type WeekPlan,
+  defaultSettings, emptyWeek, shipmentAdvice, type Product, type Tank, type WeekPlan,
 } from "../src/SERVICES/planning/planningEngine";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
 import { dailyForecast, futureTanks } from "../src/SERVICES/planning/dailyPlanner";
@@ -366,4 +366,20 @@ test("editing truck B never mutates truck A or its pallet selections", () => {
   });
   assert.deepEqual(changed.find((row) => row.truckId === "A"), original[0]);
   assert.equal(changed.find((row) => row.truckId === "B")?.dispatchDate, "2026-10-28");
+});
+
+test("legacy shipmentAdvice and future truck planning both use FEFO before FIFO", () => {
+  const oldBrewLaterExpiry = { ...pallet, id: "older-batch",
+    batchNumber: "10", expiryDateStr: "31/12/2026" };
+  const newerBrewEarlierExpiry = { ...pallet, id: "newer-batch",
+    batchNumber: "11", expiryDateStr: "31/10/2026" };
+  const tanks: Tank[] = [
+    { id: "a", number: "2", batch: "10", style: "IPA",
+      brewed: "2026-08-01", ready: "2026-09-01", liters: 0, cold: true },
+    { id: "b", number: "3", batch: "11", style: "IPA",
+      brewed: "2026-09-01", ready: "2026-10-01", liters: 0, cold: true },
+  ];
+  const advice = shipmentAdvice(ipa, [oldBrewLaterExpiry, newerBrewEarlierExpiry],
+    tanks, { ...settings, targetWeeks: 5 }, "2026-10-18");
+  assert.equal(advice.picks[0]?.id, "newer-batch");
 });
