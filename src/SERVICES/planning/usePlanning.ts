@@ -150,7 +150,9 @@ export function usePlanning(
   });
 
   const start = weekStart(today);
-  const end = addDays(start, 84);
+  // The Gantt shows weeks through start + 91 days (inclusive). Load the
+  // *entire* last displayed week, not an exclusive bound at day 84.
+  const end = addDays(start, 98);
   const logStart = [
     addDays(start, -84),
     ...tanks
