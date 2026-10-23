@@ -98,9 +98,49 @@ service cloud.firestore {
       allow read: if false;
     }
 
+    // A write which changes shipment selection or dispatch must advance the
+    // same revision token in this Firestore transaction. App writers cannot
+    // silently bypass the manual/automatic marking concurrency guard.
+    function markingGuardAdvanced() {
+      let guard = /databases/$(database)/documents/shipmentMarkingGuard/active;
+      return existsAfter(guard)
+        && getAfter(guard).data.updatedAt == request.time
+        && (
+          (!exists(guard) && getAfter(guard).data.revision == 1) ||
+          (exists(guard) && getAfter(guard).data.revision == get(guard).data.revision + 1)
+        );
+    }
+
+    function modifiesShipmentPalletMarking() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'markedForShipment', 'autoReservationWeek', 'autoReservationTruckId'
+        ])
+        || (request.resource.data.get('zone', '') == 'shipped'
+          && resource.data.get('zone', '') != 'shipped');
+    }
+
     match /pallets/{document} {
       allow read: if isApprovedUser();
-      allow write: if isApprovedUser();
+      // New packaging pallets are unmarked by default, and can be created
+      // without changing the active shipment reservation revision.
+      allow create: if isApprovedUser()
+        && request.resource.data.get('markedForShipment', false) == false
+        && request.resource.data.get('autoReservationWeek', null) == null
+        && request.resource.data.get('autoReservationTruckId', null) == null
+        && request.resource.data.get('zone', '') != 'shipped';
+      allow update: if isApprovedUser()
+        && (!modifiesShipmentPalletMarking() || markingGuardAdvanced())
+        && (
+          resource.data.get('markedForShipment', false) != true ||
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'quantity','beerStyle','itemType','batchNumber','expiryDateStr'
+          ])
+        );
+      // A marked pallet must be unmarked through the guarded workflow before
+      // deletion. Shipped pallet documents are immutable traceability evidence.
+      allow delete: if isApprovedUser()
+        && resource.data.get('markedForShipment', false) != true
+        && resource.data.get('zone', '') != 'shipped';
     }
 
     match /productCatalog/{document} {
