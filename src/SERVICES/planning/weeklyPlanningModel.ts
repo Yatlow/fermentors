@@ -24,7 +24,7 @@ import {
   type ShipmentEvent,
 } from "./dailyPlanner";
 import { buildShipmentRecommendation } from "./shipmentRecommendation";
-import { brewSizeLabel, tankReleases, reconcilePhysicalCycleEmptying, type BrewSizeLabel, type TankSource } from "./productionCycle";
+import { brewSizeLabel, estimatedBrewVolume, tankReleases, reconcilePhysicalCycleEmptying, type BrewSizeLabel, type TankSource } from "./productionCycle";
 import { displayStyle, isCoreStyle } from "./planningPresentation";
 import { buildWeekStartProjection, type WeekStartProjection } from "./weekStartProjection";
 import { projectTankSchedules } from "./tankScheduleProjection";
@@ -559,7 +559,11 @@ function buildBrewRecommendation(
       for (let ri = 0; ri < remainingReleases.length; ri++) {
         const release = remainingReleases[ri];
         if (!releaseFitsCanonicalWindow(release, state.style)) continue;
-        const liters = release.workLiters || 2500;
+        // Compute the capacity of the proposed new style, not the previous one.
+        const source = sources.find((item) => item.id === release.tankId);
+        const tank = tanks.find((item) => item.id === release.tankId);
+        const liters = estimatedBrewVolume(source?.tankNumber ?? tank?.number, state.style);
+        if (!liters) continue;
         const postCover = (state.stockLiters + liters) / state.demandLiters;
         const overTarget = Math.max(0, postCover - state.targets.targetWeeks);
         const overMax = Math.max(0, postCover - state.targets.maxTotalWeeks);
@@ -572,7 +576,8 @@ function buildBrewRecommendation(
     const release = remainingReleases.splice(best.releaseIndex, 1)[0];
     const source = sources.find((s) => s.id === release.tankId);
     const tankNumber = String(source?.tankNumber ?? release.tankId);
-    const liters = release.workLiters || 2500;
+    const liters = estimatedBrewVolume(source?.tankNumber ?? tanks.find((tank) => tank.id === release.tankId)?.number, state.style);
+    if (!liters) continue;
     recommendations.push({ style: state.style, liters, sizeLabel: brewSizeLabel(liters, source?.tankNumber), tankId: release.tankId, tankNumber, availableDate: release.date! });
     state.stockLiters += liters;
     state.cover = state.stockLiters / state.demandLiters;
