@@ -69,14 +69,14 @@ export function buildShipmentTraceability(
             ? shipment.palletSnapshot ?? []
             : availablePallets;
         const found = new Set(pallets.map((p) => "palletId" in p ? p.palletId : p.id));
-        if (!hasSnapshot) {
-            missingPallets = (shipment.palletIds ?? []).filter((id) => !found.has(id)).length;
-            if (missingPallets > 0) {
-                warnings.push("לא נמצאו " + missingPallets + " משטחים מתעודה ישנה; פירוט האצוות שלהם אינו זמין.");
-            }
-            if (shipment.palletIds?.length && !availablePallets.length) {
-                warnings.push("לא ניתן לאמת את נתוני האצווה והתפוגה של תעודה זו.");
-            }
+        missingPallets = (shipment.palletIds ?? []).filter((id) => !found.has(id)).length;
+        if (missingPallets > 0) {
+            warnings.push(hasSnapshot
+                ? "חסרות בתמונת המשטחים השמורה " + missingPallets + " רשומות מתעודת המשלוח; עקיבות המשלוח אינה שלמה."
+                : "לא נמצאו " + missingPallets + " משטחים מתעודה ישנה; פירוט האצוות שלהם אינו זמין.");
+        }
+        if (!hasSnapshot && shipment.palletIds?.length && !availablePallets.length) {
+            warnings.push("לא ניתן לאמת את נתוני האצווה והתפוגה של תעודה זו.");
         }
 
         const observedTotals = new Map<string, number>();
@@ -108,16 +108,23 @@ export function buildShipmentTraceability(
             if (hasSnapshot && observed === expected) continue;
             if (observed > expected) {
                 warnings.push("כמות משטחים קיימת גדולה מהכמות המקורית עבור " + total.beerStyle + ".");
-            } else if (!hasSnapshot && expected > observed) {
+            } else if (expected > observed) {
+                // A saved shipment-time snapshot is authoritative for what was
+                // recorded, but it can itself be INCOMPLETE. Never silently
+                // accept a deficit merely because this is a newer document.
+                const missing = expected - observed;
                 const entry = catalog(clean(total.beerStyle), total.itemType);
                 add({
                     sku: entry?.sku || "—",
                     description: entry?.displayText || clean(total.beerStyle),
                     itemType: total.itemType,
                     batchNumber: null, expiryDateStr: null,
-                    quantity: expected - observed,
+                    quantity: missing,
                     unverified: true,
                 });
+                warnings.push("בתעודת המשלוח חסרות " + missing +
+                    " יחידות " + total.beerStyle +
+                    " ללא אצווה מאומתת; הכמות בדוח אינה תואמת את תמונת המשטחים.");
             }
         }
     }
