@@ -3,14 +3,14 @@ import type { BrewPlan, Plan, WeekPlan } from "./planningEngine";
 export type PackagingPlan = Plan & { brewId?: string };
 const normalizedBatch = (value: unknown) => String(value ?? "").replace("#", "").trim();
 
-function brewIdFromRecommendationId(value: unknown): string {
+function brewIdFromRecommendationId(value: unknown, plans: WeekPlan[]): string {
   const id = String(value ?? "");
-  const marker = ":brew:";
-  const start = id.indexOf(marker);
-  if (start < 0) return "";
-  const tail = id.slice(start + marker.length);
-  const productSeparator = tail.lastIndexOf(":");
-  return (productSeparator >= 0 ? tail.slice(0, productSeparator) : tail).trim();
+  // Product ids and appended ":drain:N"/":finish" suffixes may themselves
+  // contain colons. Match against the actual persisted brew identities rather
+  // than guessing which colon terminates the cycle key.
+  return plans.flatMap((week) => week.brews ?? [])
+    .filter((brew) => brew.id && id.includes(`:brew:${brew.id}:`))
+    .sort((a, b) => b.id.length - a.id.length)[0]?.id ?? "";
 }
 
 /** Resolve packaging to a stable brew identity, with legacy snapshot fallback. */
@@ -30,7 +30,7 @@ export function resolvePackagingBrewId(run: PackagingPlan, plans: WeekPlan[]): s
   // Weekly recommendations encode their canonical cycle key in the stable row id.
   // This keeps identity intact even through older UI save paths that preserve
   // unknown fields poorly and have not yet copied brewId explicitly.
-  const encoded = brewIdFromRecommendationId(run.id);
+  const encoded = brewIdFromRecommendationId(run.id, plans);
   if (encoded) {
     const brew = plans.flatMap((week) => week.brews ?? []).find((candidate) => candidate.id === encoded);
     if (brew && (!run.date || brew.date <= run.date) &&
@@ -83,7 +83,9 @@ export function withStablePackagingIdentity(plans: WeekPlan[]): WeekPlan[] {
         ...run,
         brewId,
         tankId: brew.tankId,
-        ...(brew.tankId ? { tankNumber: String(brew.tankId) } : {}),
+        // tankId is a Firestore document id, NOT the physical tank number.
+        // Preserve the operational number recorded at packaging time.
+        // Replacing it breaks reconciliation against packagingLog.tankNumber.
         ...(normalizedBatch(brew.batchNumber) ? { batchNumber: normalizedBatch(brew.batchNumber) } : {}),
       };
     }),
