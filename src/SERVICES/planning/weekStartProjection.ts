@@ -11,7 +11,8 @@ import {
   type Settings,
   type WeekPlan,
 } from "./planningEngine";
-import { openRuns } from "./dailyPlanner";
+import { openRuns, type ShipmentEvent } from "./dailyPlanner";
+import { pendingPlansAfterActualShipments } from "./shipmentActuals";
 
 export type WeekStartProjection = {
   product: Product;
@@ -31,8 +32,10 @@ export function buildWeekStartProjection(args: {
   actuals: Actual[];
   today: string;
   week: string;
+  actualShipments?: ShipmentEvent[];
 }): Map<string, WeekStartProjection> {
   const { settings, pallets, plans, actuals, today, week } = args;
+  const pendingPlans = pendingPlansAfterActualShipments(plans, args.actualShipments ?? [], settings.products);
   const currentWeek = weekStart(today);
   const open = openRuns(plans, settings.products, actuals);
   const result = new Map<string, WeekStartProjection>();
@@ -53,7 +56,7 @@ export function buildWeekStartProjection(args: {
       const salesDays = Math.max(0, daysBetween(tempoDate, week));
       tempoUnits = Math.max(0, tempoUnits - salesDays * daily);
 
-      const arrivalsBeforeWeek = plans
+      const arrivalsBeforeWeek = pendingPlans
         .flatMap((plan) => plan.deliveries ?? [])
         .filter((delivery) =>
           delivery.productId === product.id &&
@@ -81,7 +84,7 @@ export function buildWeekStartProjection(args: {
 
     // The map is current physical stock. Only shipments that have not happened yet
     // should be subtracted from it when projecting a later planning week.
-    const shipmentsBeforeWeek = plans
+    const shipmentsBeforeWeek = pendingPlans
       .flatMap((plan) => plan.deliveries ?? [])
       .filter((delivery) =>
         delivery.productId === product.id &&
