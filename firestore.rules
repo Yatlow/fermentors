@@ -129,6 +129,7 @@ service cloud.firestore {
         && request.resource.data.get('autoReservationTruckId', null) == null
         && request.resource.data.get('zone', '') != 'shipped';
       allow update: if isApprovedUser()
+        && resource.data.get('zone', '') != 'shipped'
         && (!modifiesShipmentPalletMarking() || markingGuardAdvanced())
         && (
           resource.data.get('markedForShipment', false) != true ||
