@@ -5,7 +5,8 @@ import { dateKey, parseDate } from "./planningEngine";
 import { isPlanningShipmentPickZone } from "./planningShipmentReservations";
 
 /** Explicit action only: no zone movement, shipment creation or stock deduction. */
-export async function markPlanningPallets(selected: Pallet[]): Promise<void> {
+export async function markPlanningPallets(selected: Pallet[], dispatchDate?: string): Promise<void> {
+  const minimumExpiry = [dateKey(new Date()), dispatchDate ?? ""].sort().at(-1)!;
   if (!auth.currentUser) throw new Error("נדרשת התחברות");
   if (!selected.length || selected.some((p) => p.id.startsWith("planning:")))
     throw new Error("ניתן לסמן רק משטחים קיימים בפועל");
@@ -35,7 +36,7 @@ export async function markPlanningPallets(selected: Pallet[]): Promise<void> {
         now.batchNumber !== expected.batchNumber ||
         now.expiryDateStr !== expected.expiryDateStr ||
         !parseDate(now.expiryDateStr) ||
-        parseDate(now.expiryDateStr)! < dateKey(new Date())
+        parseDate(now.expiryDateStr)! < minimumExpiry
       )
         throw new Error("המלאי השתנה או אינו תקף; רעננו את ההמלצה לפני סימון");
     });
