@@ -144,8 +144,12 @@ export function futureTanks(
       // Planned brew liters are already the NET packaging volume from the
       // canonical tank × style fallback. Do not apply lossPercent/shrinkage a
       // second time when projecting a future packaging cycle.
+      // A saved brew's explicit net volume is the source of truth. The
+      // tank/style fallback is only for legacy brews without an explicit amount;
+      // overriding a smaller custom batch would invent future packable stock.
       const netPackagingLiters =
-        estimatedBrewVolume(physicalTankNumber, b.style) || Number(b.liters) || 0;
+        Number(b.liters) > 0 ? Number(b.liters) :
+        estimatedBrewVolume(physicalTankNumber, b.style);
       return [
         {
           id: `planned:${b.id}`,
