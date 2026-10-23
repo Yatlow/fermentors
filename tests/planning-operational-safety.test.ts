@@ -18,6 +18,7 @@ import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlannin
 import { selectTruck } from "../src/SERVICES/planning/truckPlanner";
 import { automaticReservationDelta } from "../src/SERVICES/planning/automaticReservationReconciliation";
 import { replaceShipmentTrip } from "../src/SERVICES/planning/shipmentEdit";
+import { packagingLimit } from "../src/SERVICES/planning/productionCycle";
 
 const today = "2026-10-18";
 const ipa: Product = {
@@ -393,4 +394,31 @@ test("one stable truck identifier cannot silently describe two different departu
   ] };
   assert.ok(planningWeekIssues(week, settings, [week], "2026-10-23")
     .some((issue) => issue.includes("שני תאריכי יציאה")));
+});
+
+test("brewery packaging capacity agrees between recommendations and hard save validation", () => {
+  assert.equal(packagingLimit("2026-10-25", "kegs"), 100, "Sunday shorter shift");
+  assert.equal(packagingLimit("2026-10-26", "kegs"), 150, "Monday production shift");
+  assert.equal(packagingLimit("2026-10-27", "kegs"), 150, "Tuesday");
+  assert.equal(packagingLimit("2026-10-28", "kegs"), 150, "Wednesday");
+  assert.equal(packagingLimit("2026-10-29", "kegs"), 150, "Thursday");
+  const kegs: Product = { ...ipa, id: "ipa-kegs", sku: "ipa-kegs", type: "kegs" };
+  const kegSettings = { ...defaultSettings(), products: [kegs] };
+  const make = (quantity: number, date: string) => ({
+    ...emptyWeek("2026-10-25"), packaging: [{
+      id: "keg-run", productId: kegs.id, quantity, date,
+    }],
+  });
+  const exceeding = make(151, "2026-10-27");
+  assert.ok(planningWeekIssues(exceeding, kegSettings, [exceeding], "2026-10-23")
+    .some((x) => x.includes("קיבולת 150")));
+  const sunday = make(101, "2026-10-25");
+  assert.ok(planningWeekIssues(sunday, kegSettings, [sunday], "2026-10-23")
+    .some((x) => x.includes("קיבולת 100")));
+  const valid = make(150, "2026-10-27");
+  assert.ok(!planningWeekIssues(valid, kegSettings, [valid], "2026-10-23")
+    .some((x) => x.includes("קיבולת")));
+  const exception = { ...exceeding, allowExceptions: true };
+  assert.ok(!planningWeekIssues(exception, kegSettings, [exception], "2026-10-23")
+    .some((x) => x.includes("קיבולת")), "explicit approved exceptions retain legacy freedom");
 });
