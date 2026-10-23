@@ -152,7 +152,10 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       ? { ...plan, deliveries: [], packaging: [], brews: [] }
       : plan);
     const recommendation = changed.length ? buildWeeklyPlanningModel({
-      settings, pallets, tanks, plans: recommendationPlans, actuals,
+      // The saved decision evidence must be based on the same reconciled Tempo
+      // stock shown to planners, not an older explicit stock snapshot.
+      settings: settingsAfterActualShipments(settings, data.actualShipments, today),
+      pallets, tanks, plans: recommendationPlans, actuals,
       sources: productionTanks, today, week: canonical.id, holidays,
       shipments: data.actualShipments,
     }) : null;
