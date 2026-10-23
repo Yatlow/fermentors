@@ -544,31 +544,36 @@ function buildBrewRecommendation(
   }).filter((state) => state.demandLiters > 0);
   const recommendations: WeeklyBrewRecommendation[] = [];
   const remainingReleases = [...canonicalAvailableReleases];
-  const remainingStyles = [...styleStates];
-  while (recommendations.length < remainingCapacity && remainingReleases.length && remainingStyles.length) {
+  // A shortage may need more than one brew of the same style. Conversely, a
+  // spare tank alone is never sufficient reason to recommend an overstock brew.
+  // Recalculate style coverage after each proposed brew rather than removing
+  // the style from consideration permanently.
+  while (remainingReleases.length && styleStates.length) {
     let best: { styleIndex: number; releaseIndex: number; score: number } | null = null;
-    for (let si = 0; si < remainingStyles.length; si++) {
-      const state = remainingStyles[si];
+    for (let si = 0; si < styleStates.length; si++) {
+      const state = styleStates[si];
+      const urgency = state.targets.targetWeeks - state.cover;
+      if (urgency <= 0.000001) continue;
       for (let ri = 0; ri < remainingReleases.length; ri++) {
         const release = remainingReleases[ri];
         if (!releaseFitsCanonicalWindow(release, state.style)) continue;
         const liters = release.workLiters || 2500;
         const postCover = (state.stockLiters + liters) / state.demandLiters;
-        const targetGap = Math.max(0, state.targets.targetWeeks - postCover);
         const overTarget = Math.max(0, postCover - state.targets.targetWeeks);
         const overMax = Math.max(0, postCover - state.targets.maxTotalWeeks);
-        const urgency = Math.max(0, state.targets.targetWeeks - state.cover);
-        const score = targetGap * 100 + overMax * 1000 + overTarget * 10 - urgency;
-        if (!best || score < best.score) best = { styleIndex: si, releaseIndex: ri, score };
+        const score = urgency * 100 - overTarget * 10 - overMax * 1000;
+        if (!best || score > best.score) best = { styleIndex: si, releaseIndex: ri, score };
       }
     }
     if (!best) break;
-    const state = remainingStyles.splice(best.styleIndex, 1)[0];
+    const state = styleStates[best.styleIndex];
     const release = remainingReleases.splice(best.releaseIndex, 1)[0];
     const source = sources.find((s) => s.id === release.tankId);
     const tankNumber = String(source?.tankNumber ?? release.tankId);
     const liters = release.workLiters || 2500;
     recommendations.push({ style: state.style, liters, sizeLabel: brewSizeLabel(liters, source?.tankNumber), tankId: release.tankId, tankNumber, availableDate: release.date! });
+    state.stockLiters += liters;
+    state.cover = state.stockLiters / state.demandLiters;
   }
   return { recommendations, capacity: remainingCapacity, capacityBeforeCurrent, tankOptions };
 }
