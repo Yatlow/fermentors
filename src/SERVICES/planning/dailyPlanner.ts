@@ -212,7 +212,8 @@ export function dailyForecast(
   const warnings = new Set<string>(),
     products = settings.products,
     open = openRuns(plans, products, actuals),
-    end = addDays(weekStart(today), 84);
+    // The Gantt includes week +84 through Saturday +90. End is exclusive.
+    end = addDays(weekStart(today), 91);
   const pool = futureTanks(
     tanks,
     plans.map((w) => ({
