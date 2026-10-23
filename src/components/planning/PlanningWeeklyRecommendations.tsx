@@ -473,7 +473,7 @@ export default function PlanningWeeklyRecommendations({
                         pallet.zone === "cooler" && !pallet.markedForShipment &&
                         pallet.itemType === line.product.type &&
                         sameStyle(pallet.beerStyle, line.product.style) &&
-                        (!!expiryIso(pallet.expiryDateStr) && expiryIso(pallet.expiryDateStr)! >= today),
+                        (!!expiryIso(pallet.expiryDateStr) && expiryIso(pallet.expiryDateStr)! >= shipmentToMark.dispatchDate),
                     );
                     const available = candidates.reduce((sum, pallet) => sum + palletQuantity(pallet), 0);
                     const options = shipmentDecisionPickOptions(candidates, line.requested, palletSize(line.product));
@@ -535,7 +535,7 @@ export default function PlanningWeeklyRecommendations({
 
             if (best.selected.length) {
                 setMarkFeedback("מסמן את המשטחים הזמינים במפת המקרר…");
-                await markPlanningPallets(best.selected);
+                await markPlanningPallets(best.selected, shipmentToMark.dispatchDate);
             }
             const result = best.selected.length
                 ? `סומנו ${formatPalletCount(palletIds.length)} זמינים למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).`
