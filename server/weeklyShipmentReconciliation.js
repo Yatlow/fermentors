@@ -90,8 +90,19 @@ function srActiveCatalog_() {
   return catalog;
 }
 function srExpiry_(value) {
-  var s = String(value || "").trim(), m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  return m ? m[3]+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2) : s;
+  var s = String(value || "").trim();
+  var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (m) {
+    var year = m[3].length === 2 ? "20"+m[3] : m[3];
+    s = year+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
+  var parsed = new Date(s + "T12:00:00Z");
+  return !isNaN(parsed.getTime()) && parsed.toISOString().slice(0,10) === s ? s : "";
+}
+function srExpiryEligible_(pallet, dispatchDate) {
+  var expiry = srExpiry_(pallet.expiryDateStr);
+  return !!expiry && expiry >= dispatchDate;
 }
 function srPatch_(p, fields) {
   var encoded = {}, masks = [];
@@ -154,6 +165,9 @@ function srSaturdayReconcile_() {
       String(a.truckId || "").localeCompare(String(b.truckId || ""));
   });
   var first = open[0], truck = first ? String(first.truckId || "date:" + first.dispatchDate) : "";
+  // Saturday auto-marking must not reserve stock that expires before the
+  // upcoming physical dispatch. Browser marking and this GAS fallback agree.
+  var dispatchCutoff = first ? String(first.dispatchDate).slice(0,10) : targetWeek;
   var lines = {};
   open.filter(function(d) { return String(d.truckId || "date:" + d.dispatchDate) === truck; })
     .forEach(function(d) { lines[d.productId] = (lines[d.productId] || 0) + Number(d.quantity); });
@@ -170,7 +184,8 @@ function srSaturdayReconcile_() {
   }).length;
   Object.keys(lines).forEach(function(sku) {
     var matches = pallets.filter(function(p) {
-      return p.zone !== "shipped" && Number(p.quantity) > 0 && srSku_(p, catalog) === sku;
+      return p.zone !== "shipped" && Number(p.quantity) > 0 &&
+        srSku_(p, catalog) === sku && srExpiryEligible_(p, dispatchCutoff);
     });
     var size = matches.length && matches[0].itemType === "crates" ? 84 : 20;
     var already = matches.filter(function(p) { return p.markedForShipment && !staleIds[p.name]; }).length;
@@ -178,7 +193,7 @@ function srSaturdayReconcile_() {
     var candidates = matches.filter(function(p) {
       return (!p.markedForShipment || staleIds[p.name]) &&
         ["cooler","pending","bottleRoom"].indexOf(p.zone) >= 0 &&
-        srExpiry_(p.expiryDateStr) >= localDay;
+        srExpiryEligible_(p, dispatchCutoff);
     }).map(function(p) {
       return Object.assign({}, p, {
         id: p.name,
