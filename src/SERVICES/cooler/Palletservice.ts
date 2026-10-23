@@ -1,4 +1,5 @@
 import { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM } from "./truckCapacity";
+import { getCatalogEntry } from "./PalletCatalog";
 export { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM };
 import {
     collection,
@@ -789,12 +790,33 @@ export async function createShipment(palletIds: string[], customerName?: string 
             if (current) current.totalQuantity += pallet.quantity;
             else totalsMap.set(key, { itemType: pallet.itemType, beerStyle: pallet.beerStyle, totalQuantity: pallet.quantity });
         });
+        // A direct planned-trip reference is reliable only when EVERY pallet
+        // was automatically reserved for the exact same truck. Manual/mixed
+        // loads remain unlinked and will use conservative manifest matching.
+        const reservationIds = new Set(pallets.map((pallet) =>
+            pallet.markedForShipment && pallet.autoReservationTruckId
+                ? pallet.autoReservationTruckId : ""));
+        const plannedTruckId = reservationIds.size === 1 &&
+            !reservationIds.has("") ? [...reservationIds][0] : null;
+        const palletSnapshot = pallets.map((pallet) => {
+            const entry = getCatalogEntry(pallet.beerStyle, pallet.itemType);
+            return {
+                palletId: pallet.id,
+                beerStyle: pallet.beerStyle,
+                itemType: pallet.itemType,
+                quantity: pallet.quantity,
+                batchNumber: pallet.batchNumber ?? null,
+                expiryDateStr: pallet.expiryDateStr ?? null,
+                sku: entry?.sku ?? null,
+                description: entry?.displayText ?? null,
+            };
+        });
         const currentNumber = counterSnap.exists() ? Number(counterSnap.data().value) : 2389;
         if (!Number.isFinite(currentNumber)) throw new Error("מונה תעודות המשלוח אינו תקין");
         const nextNumber = currentNumber + 1;
         const shipmentRef = doc(db, SHIPMENTS_COLLECTION, String(nextNumber));
         tx.set(counterRef, { value: nextNumber }, { merge: true });
-        tx.set(shipmentRef, { shipmentNumber: nextNumber, palletIds: uniquePalletIds, totals: Array.from(totalsMap.values()), sourceType: "pallets", customerName: customerName?.trim() || null, customerId: customerId?.trim() || null, createdAt: serverTimestamp() });
+        tx.set(shipmentRef, { shipmentNumber: nextNumber, palletIds: uniquePalletIds, palletSnapshot, totals: Array.from(totalsMap.values()), ...(plannedTruckId ? { plannedTruckId } : {}), sourceType: "pallets", customerName: customerName?.trim() || null, customerId: customerId?.trim() || null, createdAt: serverTimestamp() });
         palletRefs.forEach((ref) => tx.update(ref, { zone: "shipped", markedForShipment: false, autoReservationWeek: null, autoReservationTruckId: null, shippedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
         return nextNumber;
     });
