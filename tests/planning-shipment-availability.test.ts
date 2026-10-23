@@ -156,3 +156,34 @@ test("week opening FEFO uses a soon-expiring pallet for the prior trip and keeps
   assert.equal(projected?.shipmentsBeforeWeek, 84);
   assert.equal(projected?.breweryUnits, 84, "later week must retain the fresher pallet");
 });
+
+test("same-day trucks with the same SKU cannot hide a newly worsened combined shortage", () => {
+  const baseline = [
+    { week: "2026-10-18", date: "2026-10-19", productId: p.id, missing: 1,
+      severity: "blocking" as const, message: "one truck uncovered" },
+  ];
+  const after = [
+    ...baseline,
+    { week: "2026-10-18", date: "2026-10-19", productId: p.id, missing: 1,
+      severity: "blocking" as const, message: "second truck uncovered" },
+  ];
+  assert.ok(newlyWorsenedShipmentShortage(baseline, after));
+  assert.equal(newlyWorsenedShipmentShortage(after, baseline), undefined);
+});
+
+test("the availability audit preserves per-trip deficits even for identical dispatch dates", () => {
+  const trucks = { ...week(84), deliveries: [
+    { id: "a", truckId: "a", productId: p.id, quantity: 84,
+      dispatchDate: "2026-10-19", arrivalDate: "2026-10-19" },
+    { id: "b", truckId: "b", productId: p.id, quantity: 84,
+      dispatchDate: "2026-10-19", arrivalDate: "2026-10-19" },
+  ] };
+  const before = auditShipmentAvailability(settings, [pallet("one")], [trucks], [], today);
+  const extended = { ...trucks, deliveries: [...trucks.deliveries,
+    { id: "c", truckId: "c", productId: p.id, quantity: 84,
+      dispatchDate: "2026-10-19", arrivalDate: "2026-10-19" }] };
+  const after = auditShipmentAvailability(settings, [pallet("one")], [extended], [], today);
+  assert.equal(before.reduce((sum, issue) => sum + issue.missing, 0), 1);
+  assert.equal(after.reduce((sum, issue) => sum + issue.missing, 0), 2);
+  assert.ok(newlyWorsenedShipmentShortage(before, after));
+});
