@@ -1,7 +1,8 @@
 import type { Pallet } from "../cooler/Pallettypes ";
 import {
+  addDays,
   daysBetween,
-  inventory,
+  productPallets,
   num,
   parseDate,
   weeklyDemand,
@@ -68,33 +69,52 @@ export function buildWeekStartProjection(args: {
       tempoUnits += arrivalsBeforeWeek;
     }
 
-    const inv = inventory(product, pallets);
-    const physicalBrewery = inv.brewery + inv.dock;
-
-    // `openRuns` already subtracts actual packaging, so only the remaining part of
-    // an earlier-week decision is projected into future brewery stock.
-    const packagingBeforeWeek = open
-      .filter((run) =>
-        run.productId === product.id &&
-        run.remaining > 0 &&
-        run.week >= currentWeek &&
-        run.week < week,
-      )
-      .reduce((sum, run) => sum + run.remaining, 0);
-
-    // The map is current physical stock. Only shipments that have not happened yet
-    // should be subtracted from it when projecting a later planning week.
-    const shipmentsBeforeWeek = pendingPlans
+    // Project physical lots chronologically instead of netting them first:
+    // inventory which expires between two dispatches can be used for the
+    // earlier one, but must not appear as stock at a later week opening.
+    const physicalLots = productPallets(product, pallets).flatMap((pallet) => {
+      const expiry = parseDate(pallet.expiryDateStr);
+      const qty = Math.max(0, num(pallet.quantity));
+      return expiry && expiry >= today && qty > 0 ? [{ expiry, qty }] : [];
+    });
+    const packEvents = open
+      .filter((run) => run.productId === product.id && run.remaining > 0 &&
+        run.week >= currentWeek && run.week < week)
+      .map((run) => ({ date: run.date ?? addDays(run.week, 4),
+        kind: "pack" as const, qty: run.remaining }))
+      .filter((event) => event.date >= today && event.date < week);
+    const shipmentEvents = pendingPlans
       .flatMap((plan) => plan.deliveries ?? [])
-      .filter((delivery) =>
-        delivery.productId === product.id &&
-        delivery.quantity > 0 &&
-        delivery.dispatchDate >= today &&
-        delivery.dispatchDate < week,
-      )
-      .reduce((sum, delivery) => sum + delivery.quantity, 0);
+      .filter((delivery) => delivery.productId === product.id &&
+        delivery.quantity > 0 && delivery.dispatchDate >= today &&
+        delivery.dispatchDate < week)
+      .map((delivery) => ({ date: delivery.dispatchDate, kind: "ship" as const,
+        qty: delivery.quantity }));
+    const packagingBeforeWeek = packEvents.reduce((sum, event) => sum + event.qty, 0);
+    const shipmentsBeforeWeek = shipmentEvents.reduce((sum, event) => sum + event.qty, 0);
+    const events = [...packEvents, ...shipmentEvents].sort((a, b) =>
+      a.date.localeCompare(b.date) ||
+      (a.kind === b.kind ? 0 : a.kind === "pack" ? -1 : 1));
 
-    const breweryUnits = Math.max(0, physicalBrewery + packagingBeforeWeek - shipmentsBeforeWeek);
+    for (const event of events) {
+      for (let i = physicalLots.length - 1; i >= 0; i--) {
+        if (physicalLots[i].expiry < event.date) physicalLots.splice(i, 1);
+      }
+      if (event.kind === "pack") {
+        physicalLots.push({ expiry: "9999-12-31", qty: event.qty });
+        continue;
+      }
+      let remainingToDispatch = event.qty;
+      physicalLots.sort((a, b) => a.expiry.localeCompare(b.expiry));
+      for (const lot of physicalLots) {
+        const sent = Math.min(lot.qty, remainingToDispatch);
+        lot.qty -= sent;
+        remainingToDispatch -= sent;
+        if (remainingToDispatch <= 0) break;
+      }
+    }
+    const breweryUnits = physicalLots.filter((lot) => lot.expiry >= week)
+      .reduce((sum, lot) => sum + lot.qty, 0);
     result.set(product.id, {
       product,
       tempoUnits,
