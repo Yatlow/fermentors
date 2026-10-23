@@ -39,8 +39,8 @@ test("one of two same-day dispatches leaves one real open trip", () => {
   assert.equal(matches.filter((match) => match.status === "pending").length, 1);
   assert.equal(matches.filter((match) => match.status === "matched").length, 1);
   const pending = pendingPlansAfterActualShipments([twoTrips], [oneActual], settings.products);
-  assert.equal(pending[0].deliveries.length, 1);
-  assert.equal(pending[0].deliveries[0].truckId, "truck-b");
+  assert.equal(pending[0]!.deliveries!.length, 1);
+  assert.equal(pending[0]!.deliveries![0]!.truckId, "truck-b");
 });
 
 test("actual with an unrelated manifest cannot close a planned dispatch", () => {
