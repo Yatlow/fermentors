@@ -9,6 +9,7 @@ try {
     "planning-workflow",
     "planning-integrity-audit",
     "planning-operational-safety",
+    "planning-pallet-ledger",
     "planning-gas-reconciliation",
     "shipment-picking-regression",
     "planning-weekly-regression",
