@@ -74,7 +74,12 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   const { settings, plans, pallets, actuals } = data;
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 90));
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
-  const identityAlignedPlans = useMemo(() => withStablePackagingIdentity(plans), [plans]);
+  const tankNumbersById = useMemo(() => Object.fromEntries(
+    productionTanks.filter((tank) => tank.tankNumber != null)
+      .map((tank) => [tank.id, String(tank.tankNumber)]),
+  ), [productionTanks]);
+  const identityAlignedPlans = useMemo(() =>
+    withStablePackagingIdentity(plans, tankNumbersById), [plans, tankNumbersById]);
   const [message, setMessage] = useState("");
   const availabilityIssues = useMemo(() => data.loading || !readScope.pallets || !readScope.actuals ? [] : auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments), [data.loading, readScope.pallets, readScope.actuals, settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments]);
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
