@@ -181,6 +181,10 @@ function skuRows(settings: Settings, result: DailyResult, date: string) {
   return map;
 }
 
+function normalizedBatchForPlanning(value: unknown): string {
+  return String(value ?? "").replace("#", "").trim();
+}
+
 function plannedBrewId(tank: Tank) {
   return tank.id.startsWith("planned:") ? tank.id.slice("planned:".length) : "";
 }
@@ -323,7 +327,18 @@ function buildPackagingRecommendation(
       })) return false;
       const linked = resolvePackagingBrewId(run, plans);
       if (brewId) return linked === brewId;
-      if (linked) return false;
+      if (linked) {
+        // Canonical identity can already refer to the physical LIVE batch.
+        // Such packaging is unfinished physical production, not an unrelated
+        // future brew merely because it carries brewId.
+        const linkedBrew = brewById(plans, linked);
+        return !!linkedBrew && linkedBrew.tankId === tank.id &&
+          linkedBrew.date === tank.brewed && sameStyle(linkedBrew.style, tank.style) &&
+          (!normalizedBatchForPlanning(linkedBrew.batchNumber) ||
+            normalizedBatchForPlanning(linkedBrew.batchNumber) === normalizedBatchForPlanning(tank.batch)) &&
+          (!normalizedBatchForPlanning(run.batchNumber) ||
+            normalizedBatchForPlanning(run.batchNumber) === normalizedBatchForPlanning(tank.batch));
+      }
       const sameTank = run.tankId === tank.id ||
         (!run.tankId && String(run.tankNumber ?? "") === String(tank.number));
       if (!sameTank) return false;
