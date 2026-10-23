@@ -4,6 +4,7 @@ import { addForecastPackaging, dispatchForecastPallets, type ForecastPalletLot }
   "../src/SERVICES/planning/shipmentPalletLedger";
 import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
 import { auditShipmentAvailability } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
+import { dailyForecast } from "../src/SERVICES/planning/dailyPlanner";
 import { defaultSettings, emptyWeek, type Product } from "../src/SERVICES/planning/planningEngine";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
 
@@ -87,4 +88,19 @@ test("a fully stocked loading pallet is never reused after an earlier shipment",
   assert.equal(issues.length, 1);
   assert.equal(issues[0].week, "2026-10-25");
   assert.equal(issues[0].missing, 1);
+});
+
+test("the daily forecast agrees with week opening and physical partial-pallet shortage", () => {
+  const pallets = [pallet("a", 42), pallet("b", 42)];
+  const plans = [shipment(84)];
+  const forecast = dailyForecast(settings, pallets, [], plans, [], today);
+  const departure = forecast.points.find((point) =>
+    point.productId === product.id && point.date === "2026-10-19");
+  assert.ok(departure);
+  assert.equal(departure.brewery, 42,
+    "the second partial pallet stays in physical inventory");
+  assert.equal(departure.arrived, 42,
+    "only the actual first partial pallet quantity reaches Tempo in the forecast");
+  assert.ok(forecast.warnings.some((warning) => warning.includes("42 יחידות")),
+    "physical shipping shortfall is surfaced to the planner");
 });
