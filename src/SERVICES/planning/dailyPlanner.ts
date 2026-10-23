@@ -311,16 +311,30 @@ export function dailyForecast(
   const stock = (id: string) =>
     lots.get(id)!.reduce((s, l) => s + l.quantity, 0);
   function take(id: string, quantity: number) {
-    let need = quantity;
+    if (quantity <= 0) return 0;
+    const product = products.find((candidate) => candidate.id === id);
+    const perPallet = product?.type === "crates" ? 84 : 20;
+    const neededSlots = Math.ceil(quantity / perPallet);
     const ls = lots.get(id)!;
-    ls.sort((a, b) => a.expiry.localeCompare(b.expiry));
-    for (const l of ls) {
-      const qty = Math.min(l.quantity, need);
-      l.quantity -= qty;
-      need -= qty;
-      if (need <= 0) break;
+    // Shipment positions are whole physical pallets. Consume only the planned
+    // number of positions, in FEFO order, even when a pallet is partially
+    // filled; never leave a fractional remainder of a loaded pallet available
+    // for a second truck in the daily forecast.
+    ls.sort((a, b) => a.expiry.localeCompare(b.expiry) ||
+      b.quantity - a.quantity || a.pallet.id.localeCompare(b.pallet.id));
+    let physical = 0;
+    let consumedSlots = 0;
+    for (const lot of ls) {
+      if (consumedSlots >= neededSlots) break;
+      if (lot.quantity <= 0) continue;
+      physical += lot.quantity;
+      lot.quantity = 0;
+      consumedSlots += 1;
     }
-    return quantity - need;
+    // The planning manifest is the upper bound on forecast Tempo receipts.
+    // A physically larger selected pallet reduces brewery stock entirely,
+    // but unconfirmed over-delivery must not inflate customer's stock.
+    return Math.min(quantity, physical);
   }
   const incoming = new Map<string, Map<string, number>>();
   const addIncoming = (day: string, id: string, qty: number) => {
@@ -542,7 +556,7 @@ export function dailyForecast(
             .get(d.productId)!
             .find((x) => x.pallet.id === selected.id);
           const qty = Math.min(lot?.quantity ?? 0, selected.quantity);
-          if (lot) lot.quantity -= qty;
+          if (lot) lot.quantity = 0;
           sent += qty;
         }
       } else sent = take(d.productId, d.quantity);
