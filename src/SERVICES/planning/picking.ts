@@ -3,6 +3,8 @@ import { auth, db } from "../../firebase";
 import type { Pallet } from "../cooler/Pallettypes ";
 import { dateKey, parseDate } from "./planningEngine";
 import { isPlanningShipmentPickZone } from "./planningShipmentReservations";
+import { nextShipmentMarkingRevision, readShipmentMarkingRevision,
+  shipmentMarkingGuardRef, shipmentMarkingGuardWrite } from "./shipmentMarkingGuard";
 
 /** Explicit action only: no zone movement, shipment creation or stock deduction. */
 export async function markPlanningPallets(selected: Pallet[], dispatchDate?: string): Promise<void> {
@@ -12,12 +14,17 @@ export async function markPlanningPallets(selected: Pallet[], dispatchDate?: str
     throw new Error("ניתן לסמן רק משטחים קיימים בפועל");
   if (new Set(selected.map((p) => p.id)).size !== selected.length)
     throw new Error("משטח כפול");
+  const observedMarkingRevision = await readShipmentMarkingRevision();
   const marked = await getDocsFromServer(query(collection(db, "pallets"), where("markedForShipment", "==", true)));
   if (marked.docs.some((snapshot) => snapshot.data().zone !== "shipped"))
     throw new Error("כבר יש משטחים מסומנים. הסימון הקיים נשמר כהזמנה החלקית; השלמה עתידית נעשית אוטומטית לאחר אריזה או ידנית מרשימת המשטחים.");
   await runTransaction(db, async (tx) => {
+    const guardRef = shipmentMarkingGuardRef();
+    const guard = await tx.get(guardRef);
     const refs = selected.map((p) => doc(db, "pallets", p.id));
     const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
+    const nextRevision = nextShipmentMarkingRevision(
+      Number(guard.data()?.revision ?? 0), observedMarkingRevision);
     snapshots.forEach((snapshot, i) => {
       const now = snapshot.data(),
         expected = selected[i];
@@ -43,5 +50,6 @@ export async function markPlanningPallets(selected: Pallet[], dispatchDate?: str
     refs.forEach((ref) =>
       tx.update(ref, { markedForShipment: true, updatedAt: serverTimestamp() }),
     );
+    tx.set(guardRef, shipmentMarkingGuardWrite(nextRevision));
   });
 }
