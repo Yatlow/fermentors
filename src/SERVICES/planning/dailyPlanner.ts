@@ -551,7 +551,7 @@ export function dailyForecast(
         .sort();
       const count =
         actualShipments.filter((x) => weekStart(x.date) === week).length +
-        scheduled.filter((date) => !actualTripDates.has(date)).length;
+        scheduled.filter((date) => !actualShipments.some((shipment) => shipment.date === date)).length;
       const pending = [...deliveries].filter(
         (d) => d.dispatchDate >= day && weekStart(d.dispatchDate) === week,
       );
