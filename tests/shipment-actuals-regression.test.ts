@@ -74,7 +74,7 @@ test("completed shipment closes the matching queue trip, not merely the closest 
   assert.equal(closed, "truck-b");
 });
 
-test("completed shipment with no catalog overlap still closes the nearest same-week trip", () => {
+test("completed shipment with no catalog overlap cannot close an unrelated same-week trip", () => {
   const deliveries = [
     delivery("a", "truck-a", "ipa-crates", 84, "2026-10-04"),
     delivery("b", "truck-b", "wheat-crates", 84, "2026-10-06"),
@@ -86,7 +86,7 @@ test("completed shipment with no catalog overlap still closes the nearest same-w
     "2026-10-05",
   );
 
-  assert.equal(closed, "truck-a");
+  assert.equal(closed, null);
 });
 
 test("completed shipment never closes a queue trip from another operational week", () => {
