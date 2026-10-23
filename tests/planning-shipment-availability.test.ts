@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { defaultSettings, emptyWeek, type Product } from "../src/SERVICES/planning/planningEngine";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
 import { auditShipmentAvailability, newlyWorsenedShipmentShortage } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
+import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
 
 const today = "2026-10-15";
 const p: Product = { id: "ipa-crates", sku: "ipa-crates", style: "IPA", type: "crates", monthly: 300, tempo: 0, tempoDate: today, leadDays: 1 };
@@ -136,3 +137,22 @@ test("FEFO consumes earlier expiry inventory first, leaving later expiry for a s
   assert.deepEqual(issues, [], "the first shipment uses the expiring pallet and preserves fresher stock");
 });
 
+
+test("opening stock drops pallets expired before the target week", () => {
+  const projected = buildWeekStartProjection({
+    settings, pallets: [{ ...pallet("old"), expiryDateStr: "20/10/2026" }],
+    plans: [], actuals: [], today, week: "2026-10-25",
+  }).get(p.id);
+  assert.equal(projected?.breweryUnits, 0);
+});
+
+test("week opening FEFO uses a soon-expiring pallet for the prior trip and keeps newer stock", () => {
+  const projected = buildWeekStartProjection({
+    settings, pallets: [
+      { ...pallet("old"), expiryDateStr: "20/10/2026" },
+      { ...pallet("newer"), expiryDateStr: "31/12/2026" },
+    ], plans: [week(84)], actuals: [], today, week: "2026-10-25",
+  }).get(p.id);
+  assert.equal(projected?.shipmentsBeforeWeek, 84);
+  assert.equal(projected?.breweryUnits, 84, "later week must retain the fresher pallet");
+});
