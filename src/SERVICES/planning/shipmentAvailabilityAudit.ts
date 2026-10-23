@@ -126,9 +126,20 @@ export function newlyWorsenedShipmentShortage(
   before: PlanningAvailabilityIssue[],
   after: PlanningAvailabilityIssue[],
 ): PlanningAvailabilityIssue | undefined {
-  const existing = new Map(before.filter((issue) => issue.severity !== "partial").map((issue) => [
-    `${issue.week}:${issue.date}:${issue.productId}`, issue.missing,
-  ]));
-  return after.filter((issue) => issue.severity !== "partial").find((issue) =>
-    issue.missing > (existing.get(`${issue.week}:${issue.date}:${issue.productId}`) ?? 0));
+  const key = (issue: PlanningAvailabilityIssue) =>
+    `${issue.week}:${issue.date}:${issue.productId}`;
+  const totals = (issues: PlanningAvailabilityIssue[]) => {
+    const byKey = new Map<string, number>();
+    for (const issue of issues.filter((entry) => entry.severity !== "partial")) {
+      const id = key(issue);
+      byKey.set(id, (byKey.get(id) ?? 0) + issue.missing);
+    }
+    return byKey;
+  };
+  // More than one truck may depart on the same day with the same SKU. The
+  // old map overwrote one deficit with another and could miss a NEW shortage.
+  const oldTotals = totals(before);
+  const newTotals = totals(after);
+  return after.find((issue) => issue.severity !== "partial" &&
+    (newTotals.get(key(issue)) ?? 0) > (oldTotals.get(key(issue)) ?? 0));
 }
