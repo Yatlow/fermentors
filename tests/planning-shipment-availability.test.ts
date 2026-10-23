@@ -105,3 +105,34 @@ test("editing earlier week without changing shipments cannot waive a newly worse
   assert.equal(before.length, 0);
   assert.equal(newlyWorsenedShipmentShortage(before, after)?.week, "2026-10-25");
 });
+
+
+test("expired physical stock cannot cover a shipment scheduled after its expiry", () => {
+  const delivery = { ...emptyWeek("2026-11-08"), deliveries: [{
+    id: "nov-shipment", productId: p.id, quantity: 84,
+    dispatchDate: "2026-11-10", arrivalDate: "2026-11-10",
+  }] };
+  const issues = auditShipmentAvailability(settings, [
+    { ...pallet("expired-before-dispatch"), expiryDateStr: "31/10/2026" },
+  ], [delivery], [], today);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].date, "2026-11-10");
+  assert.equal(issues[0].missing, 1);
+  assert.equal(issues[0].severity, "blocking");
+});
+
+test("FEFO consumes earlier expiry inventory first, leaving later expiry for a second shipment", () => {
+  const earlier = { ...week(84), deliveries: [{ ...week(84).deliveries[0],
+    id: "first", dispatchDate: "2026-10-19", arrivalDate: "2026-10-19" }] };
+  const later = { ...emptyWeek("2026-10-25"), deliveries: [{
+    id: "second", productId: p.id, quantity: 84,
+    dispatchDate: "2026-10-26", arrivalDate: "2026-10-26",
+  }] };
+  const stock = [
+    { ...pallet("older"), expiryDateStr: "20/10/2026" },
+    { ...pallet("newer"), expiryDateStr: "31/12/2026" },
+  ];
+  const issues = auditShipmentAvailability(settings, stock, [earlier, later], [], today);
+  assert.deepEqual(issues, [], "the first shipment uses the expiring pallet and preserves fresher stock");
+});
+
