@@ -404,11 +404,10 @@ export function shipmentAdvice(
   const fifoKnown = eligible.every((x) => !!production(x));
   eligible.sort(
     (a, b) =>
-      (fifoKnown
-        ? production(a)!.localeCompare(production(b)!)
-        : parseDate(a.expiryDateStr)!.localeCompare(
-            parseDate(b.expiryDateStr)!,
-          )) || a.id.localeCompare(b.id),
+      // FEFO always has priority. Production FIFO breaks equal-expiry ties.
+      parseDate(a.expiryDateStr)!.localeCompare(parseDate(b.expiryDateStr)!) ||
+      (fifoKnown ? production(a)!.localeCompare(production(b)!) : 0) ||
+      a.id.localeCompare(b.id),
   );
   let selected = 0;
   const picks = eligible.filter((x) => {
