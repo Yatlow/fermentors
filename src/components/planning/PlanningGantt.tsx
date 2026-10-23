@@ -21,6 +21,7 @@ import {
 } from "../../SERVICES/planning/planningEngine";
 import { actualDate, actualUnits, matchesActual, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
+import { GANTT_FUTURE_WEEKS, simulationWeeksForPage } from "../../SERVICES/planning/planningHorizon";
 import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { pendingPackagingDecisions } from "../../SERVICES/planning/packagingActuals";
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
@@ -133,7 +134,7 @@ export default function PlanningGantt(props: Props) {
   };
   const currentWeek = weekStart(today);
   const nextPlanningWeek = addDays(currentWeek, 7);
-  const planningHorizonWeeks = canEdit ? 13 : 4;
+  const planningHorizonWeeks = canEdit ? GANTT_FUTURE_WEEKS : 4;
   const allWeekIds = useMemo(
     () => Array.from({ length: planningHorizonWeeks + 1 }, (_, index) => addDays(currentWeek, (index - 1) * 7)),
     [currentWeek],
@@ -201,7 +202,7 @@ export default function PlanningGantt(props: Props) {
     // Forecast the full chronological prefix on EVERY page. Recommendations
     // from weeks outside the visible page still affect later inventory and
     // tank availability, even though only the visible five weeks are rendered.
-    const simulationWeeks = allWeekIds.filter((week) => week <= weekIds[weekIds.length - 1]);
+    const simulationWeeks = simulationWeeksForPage(allWeekIds, weekIds);
     for (const week of simulationWeeks) {
       if (cancelled || generation !== simulationGeneration.current) return;
       await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
