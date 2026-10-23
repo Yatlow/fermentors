@@ -636,19 +636,24 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function recomputeEmptyTankFlags(lines: Plan[]) {
-        const usedByTank = new Map<string, number>();
+        const usedByCycle = new Map<string, number>();
         return lines.map((run) => {
             if (!run.tankId) return run;
             const p = product(run.productId);
             if (!p) return run;
-            const base = model.tankAvailableLiters.get(run.tankId) ?? tanks.find((t) => t.id === run.tankId)?.liters ?? 0;
+            const cycleId = run.brewId ? `planned:${run.brewId}` : run.tankId;
+            // The current canonical brew may already be physical, in which
+            // case no virtual tank exists; use the live remaining balance.
+            const base = model.tankAvailableLiters.get(cycleId)
+                ?? model.tankAvailableLiters.get(run.tankId)
+                ?? tanks.find((t) => t.id === run.tankId)?.liters ?? 0;
             const existing = current.packaging.find((saved) =>
                 saved.id && run.id ? saved.id === run.id : saved.productId === run.productId && saved.tankId === run.tankId,
             );
             const futureQuantity = existing ? effectiveSavedRemaining(existing, run.quantity) : run.quantity;
-            const usedBefore = usedByTank.get(run.tankId) ?? 0;
+            const usedBefore = usedByCycle.get(cycleId) ?? 0;
             const usedNow = futureQuantity * litersPerUnit(p);
-            usedByTank.set(run.tankId, usedBefore + usedNow);
+            usedByCycle.set(cycleId, usedBefore + usedNow);
             return { ...run, emptyTank: base - usedBefore - usedNow < 20 };
         });
     }
@@ -677,6 +682,7 @@ export default function PlanningWeeklyRecommendations({
                     tankId: rec.tankId,
                     tankNumber: rec.tankNumber,
                     batchNumber: tanks.find((tank) => tank.id === rec.tankId)?.batch,
+                    ...(rec.brewId ? { brewId: rec.brewId } : {}),
                     source: "recommendation",
                 });
             }
@@ -733,6 +739,7 @@ export default function PlanningWeeklyRecommendations({
             tankId: r.tankId,
             tankNumber: r.tankNumber,
             batchNumber: tanks.find((tank) => tank.id === r.tankId)?.batch,
+            ...(r.brewId ? { brewId: r.brewId } : {}),
             source: "recommendation",
         }));
         if (!additions.length) return;
