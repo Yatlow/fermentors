@@ -1,4 +1,6 @@
 import { calcTruckSlots } from "../cooler/truckCapacity";
+// Export the same stack-aware capacity function to the bundled GAS fallback.
+export { calcTruckSlots } from "../cooler/truckCapacity";
 import type { Pallet } from "../cooler/Pallettypes ";
 import { compareAccess, expiryIso, palletQuantity, palletSelectionOptions } from "./shipmentPicking";
 
