@@ -18,8 +18,12 @@ import { orderedTankSchedule, tankCanHostCycle, type TankScheduleCycle } from ".
 export const weekday = (date: string) => new Date(`${date}T12:00:00Z`).getUTCDay();
 export const nextBrewingWeek = (emptied: string) => addDays(weekStart(emptied), 8);
 
+// These are hard operational ceilings, not only forecast estimates.
+// Sunday has a shorter packing shift; Monday–Thursday standard capacity is
+// 252 crates or 150 kegs. Friday/Saturday require an explicit exception
+// through the planning validator regardless of this numeric ceiling.
 export const packagingLimit = (date: string, type: "crates" | "kegs") =>
-  weekday(date) === 0 ? (type === "crates" ? 168 : 100) : type === "crates" ? 252 : Infinity;
+  weekday(date) === 0 ? (type === "crates" ? 168 : 100) : type === "crates" ? 252 : 150;
 
 export type TankSource = {
   id: string;
