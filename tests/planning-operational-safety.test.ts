@@ -15,6 +15,7 @@ import { auditShipmentAvailability } from "../src/SERVICES/planning/shipmentAvai
 import { validatePlanningDecisionChange } from "../src/SERVICES/planning/planningDecisionSafety";
 import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
 import { selectTruck } from "../src/SERVICES/planning/truckPlanner";
+import { automaticReservationDelta } from "../src/SERVICES/planning/automaticReservationReconciliation";
 
 const today = "2026-10-18";
 const ipa: Product = {
@@ -237,3 +238,29 @@ test("forecast FEFO prevails over production-date FIFO when expiry dates disagre
   assert.equal(picked.pallets[0]?.id, "earlier-expiry");
 });
 
+
+test("smaller planned dispatch releases surplus automatic marks, never manual marks", () => {
+  const pallets = [
+    { id: "auto-a", markedForShipment: true, autoReservationWeek: "2026-10-18", autoReservationTruckId: "truck-a" },
+    { id: "auto-b", markedForShipment: true, autoReservationWeek: "2026-10-18", autoReservationTruckId: "truck-a" },
+    { id: "manual", markedForShipment: true },
+  ];
+  const delta = automaticReservationDelta(pallets, new Set(["auto-a"]), "2026-10-18", "truck-a");
+  assert.deepEqual(delta.releaseIds, ["auto-b"]);
+  assert.deepEqual(delta.assignIds, []);
+  assert.ok(!delta.releaseIds.includes("manual"));
+  assert.equal(delta.originalAuto.get("auto-b")?.truckId, "truck-a");
+  const second = automaticReservationDelta(pallets.filter((p) => p.id !== "auto-b"),
+    new Set(["auto-a"]), "2026-10-18", "truck-a");
+  assert.deepEqual(second.releaseIds, []);
+  assert.deepEqual(second.assignIds, [], "unchanged desired marks require no Firestore writes");
+});
+
+test("the same pallet reassigned to another truck updates the tag instead of staying stale", () => {
+  const marked = [{ id: "one", markedForShipment: true,
+    autoReservationWeek: "2026-10-18", autoReservationTruckId: "truck-a" }];
+  const delta = automaticReservationDelta(marked, new Set(["one"]), "2026-10-18", "truck-b");
+  assert.deepEqual(delta.releaseIds, []);
+  assert.deepEqual(delta.assignIds, ["one"]);
+  assert.equal(delta.originalAuto.get("one")?.truckId, "truck-a");
+});
