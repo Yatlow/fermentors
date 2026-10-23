@@ -15,8 +15,14 @@ test("a 12-pallet shipment with 10 physical pallets and no packaging reports two
   assert.equal(issues.length, 1);
   assert.equal(issues[0].missing, 2);
 });
-test("a physical partial pallet counts as one truck pallet", () => {
-  assert.equal(auditShipmentAvailability(settings, [pallet("partial", 30)], [week(84)], [], today).length, 0);
+test("a physical partial pallet covers one truck slot but reports the actual unit shortfall", () => {
+  const issues = auditShipmentAvailability(settings, [pallet("partial", 30)], [week(84)], [], today);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].missing, 0, "a partial pallet still occupies one place");
+  assert.equal(issues[0].missingUnits, 54, "shortfall in sellable crates remains visible");
+  assert.equal(issues[0].severity, "partial");
+  assert.equal(newlyWorsenedShipmentShortage([], issues), undefined,
+    "an explicit partial pallet decision remains permitted, with an advisory");
 });
 test("completed-before-dispatch packaging covers a missing pallet", () => {
   const plan = { ...week(168), packaging: [{ id: "pack", productId: p.id, tankId: "2", quantity: 84, date: "2026-10-18" }] };
