@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
+import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing';
 import { doc, runTransaction, serverTimestamp, setDoc } from 'firebase/firestore';
 
 const projectId = 'demo-fermentors';
@@ -67,6 +67,24 @@ try {
     { id: 'tank8-bottles', tankNumber: '8', packageType: 'bottle', date: '2026-09-30' },
   ]);
   console.log('PASS second packaging save');
+
+  // All manual, automatic and physical shipment changes share a strictly
+  // monotonic revision. A client cannot overwrite the guard with a stale
+  // or arbitrary revision, nor may an unapproved user mark pallets.
+  const guard = doc(db, 'shipmentMarkingGuard', 'active');
+  await setDoc(guard, { revision: 1, updatedAt: serverTimestamp(), updatedBy: uid });
+  await setDoc(guard, { revision: 2, updatedAt: serverTimestamp(), updatedBy: uid });
+  await assertFails(setDoc(guard, {
+    revision: 2, updatedAt: serverTimestamp(), updatedBy: uid,
+  }));
+  await assertFails(setDoc(guard, {
+    revision: 10, updatedAt: serverTimestamp(), updatedBy: uid,
+  }));
+  const visitor = env.authenticatedContext('unapproved', { email: 'visitor@example.com' }).firestore();
+  await assertFails(setDoc(doc(visitor, 'shipmentMarkingGuard', 'active'), {
+    revision: 3, updatedAt: serverTimestamp(), updatedBy: 'unapproved',
+  }));
+  console.log('PASS shipment marking revision and access checks');
 } finally {
   await env.cleanup();
 }
