@@ -55,28 +55,64 @@ export function validatePlanningDecisionChange(args: {
     .find((error) => !existingErrors.has(error));
   if (introduced) return introduced;
 
-  // Only dated production is a physical commitment. Evaluating the full
-  // future horizon catches a week-45 packaging edit that removes the release
-  // required by a saved week-46 brew. Compare with the same original baseline
-  // to avoid blocking unrelated edits due to legacy historical exceptions.
-  const productionScope = (plans: WeekPlan[]) => plans.map((week) => ({
-    ...week,
-    packaging: week.packaging.filter((run) => !!run.date && run.date >= today),
-  }));
-  const productionError = (plans: WeekPlan[]) =>
-    validateProduction(productionScope(plans), settings,
+  // Pure shipment changes should not repeatedly validate a historically
+  // completed physical batch or expensive tank schedules.
+  if (!changed("packaging") && !changed("brews")) return null;
+
+  // Only dated production is a physical commitment. Preserve the whole
+  // schedule for capacity/release simulation, but inspect the impacted tank
+  // separately too: an old error on tank A must not hide a new one on tank B.
+  const productionScope = (plans: WeekPlan[], touchedTank?: string) =>
+    plans.map((week) => ({
+      ...week,
+      packaging: week.packaging.filter((run) => !!run.date && run.date >= today &&
+        (!touchedTank || run.tankId === touchedTank ||
+         String(run.tankNumber ?? "") === touchedTank)),
+    }));
+  const productionError = (plans: WeekPlan[], touchedTank?: string) =>
+    validateProduction(productionScope(plans, touchedTank), settings,
       futureTanks(tanks, plans, settings), actuals, today);
   const earlierProductionError = productionError(before);
   const newProductionError = productionError(after);
   if (newProductionError && newProductionError !== earlierProductionError)
     return newProductionError;
 
-  const releaseError = (plans: WeekPlan[]) =>
-    validateBrewReleases(sources, tanks, plans, settings, actuals, today);
+  if (changed("packaging")) {
+    const oldRuns = new Map((previous?.packaging ?? []).map((run) => [run.id, run]));
+    const newRuns = new Map(edited.packaging.map((run) => [run.id, run]));
+    const changedRuns = [
+      ...(previous?.packaging ?? []).filter((run) =>
+        JSON.stringify(run) !== JSON.stringify(newRuns.get(run.id))),
+      ...edited.packaging.filter((run) =>
+        JSON.stringify(run) !== JSON.stringify(oldRuns.get(run.id))),
+    ];
+    const touchedTanks = new Set(changedRuns.flatMap((run) =>
+      [run.tankId, run.tankNumber != null ? String(run.tankNumber) : ""]
+        .filter((value): value is string => !!value)));
+    for (const tankId of touchedTanks) {
+      const earlier = productionError(before, tankId);
+      const now = productionError(after, tankId);
+      if (now && now !== earlier) return now;
+    }
+  }
+
+  // One error in an unrelated historical week must not hide newly invalid
+  // future brewing on the same or another tank. Inspect every future week with
+  // assigned brews independently while retaining all dependency schedules.
+  const releaseError = (plans: WeekPlan[], weekId?: string) =>
+    validateBrewReleases(sources, tanks, plans, settings, actuals, today, weekId);
   const earlierReleaseError = releaseError(before);
   const newReleaseError = releaseError(after);
   if (newReleaseError && newReleaseError !== earlierReleaseError)
     return newReleaseError;
+  const futureWeeks = [...new Set(after.filter((week) =>
+    week.id >= edited.id && week.brews.some((brew) => brew.date >= today && !!brew.tankId))
+    .map((week) => week.id))];
+  for (const weekId of futureWeeks) {
+    const earlier = releaseError(before, weekId);
+    const now = releaseError(after, weekId);
+    if (now && now !== earlier) return now;
+  }
 
   return null;
 }
