@@ -60,7 +60,10 @@
     // Recommendations belong in the planning tabs; mixing them here can surface
     // stale suggestions after the real action was already completed.
     for (const w of plans) {
-        w.packaging.forEach((r) => addProductAction("packaging", r.date ?? w.id, r.productId, r.quantity, "נקבע"));
+        // A draft without a packaging date is not a scheduled Sunday shift.
+        // Keep it in the weekly decision editor, not the dated execution list.
+        w.packaging.filter((run) => !!run.date).forEach((r) =>
+            addProductAction("packaging", r.date!, r.productId, r.quantity, "נקבע"));
         (w.deliveries ?? []).forEach((d) => addProductAction("delivery", d.dispatchDate, d.productId, d.quantity, d.id.startsWith("marked:") ? "מסומן למשלוח" : "נקבע"));
         w.brews.filter((b) => b.date >= today).forEach((b) => nextActions.push({ kind: "brew", date: b.date, group: groupKey(b.style), description: `${fmt(b.liters)} ל׳`, status: "נקבע" }));
     }
