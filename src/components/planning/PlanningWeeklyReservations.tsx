@@ -23,8 +23,6 @@ type BrewWithAssignment = BrewPlan & {
  * not in the weekly planning screen.
  */
 export default function PlanningWeeklyReservations(props: Props) {
-  const backfillInFlight = useRef(false);
-  const backfillAttempted = useRef(new Set<string>());
   const defaultWeekApplied = useRef(false);
 
   const planningPallets = useMemo(
@@ -133,49 +131,9 @@ export default function PlanningWeeklyReservations(props: Props) {
     target?.click();
   }, [props.today]);
 
-  useEffect(() => {
-    if (props.disabled || backfillInFlight.current) return;
-
-    const currentWeek = weekStart(props.today);
-    const candidate = [...props.plans]
-      .filter((plan) =>
-        plan.id >= currentWeek &&
-        plan.brews.some((brew) => !brew.tankId && brew.date >= props.today),
-      )
-      .sort((a, b) => a.id.localeCompare(b.id))[0];
-
-    if (!candidate) return;
-
-    const attemptKey = `${candidate.id}:${candidate.brews
-      .filter((brew) => !brew.tankId && brew.date >= props.today)
-      .map((brew) => brew.id)
-      .sort()
-      .join(",")}`;
-    if (backfillAttempted.current.has(attemptKey)) return;
-    backfillAttempted.current.add(attemptKey);
-
-    const enriched = assignTentativeTankAssignments(candidate);
-    const assignedSomething = enriched.brews.some((brew, index) =>
-      !candidate.brews[index]?.tankId && !!brew.tankId,
-    );
-    if (!assignedSomething) return;
-
-    backfillInFlight.current = true;
-    void props.saveWeek(enriched)
-      .catch((error) => {
-        console.error("Failed backfilling tentative brew tanks", error);
-        backfillAttempted.current.delete(attemptKey);
-      })
-      .finally(() => {
-        backfillInFlight.current = false;
-      });
-  }, [
-    assignTentativeTankAssignments,
-    props.disabled,
-    props.plans,
-    props.saveWeek,
-    props.today,
-  ]);
+  // Tentative tank assignments are derived and previewed, not persisted merely
+  // because a planner opened the calendar. They are written only after an
+  // explicit weekly decision save via saveWithTentativeTankAssignments.
 
   return (
     <PlanningWeeklyRecommendationsEnhanced
