@@ -232,15 +232,13 @@ export async function reserveNewPalletsForNearestShipment(
   );
   const currentWeek = activeReservationWeek(today);
   const activeTruckId = planned[0]?.truckId ?? null;
-  // Only our own explicitly tagged automatic reservations may be released.
-  const staleAutoIds = pallets.filter((pallet) =>
-    pallet.markedForShipment &&
-    pallet.autoReservationWeek &&
-    (pallet.autoReservationWeek !== currentWeek ||
-      pallet.autoReservationTruckId !== activeTruckId)
-  ).map((pallet) => pallet.id);
-  const staleSet = new Set(staleAutoIds);
-  const effectivePallets = pallets.map((pallet) => staleSet.has(pallet.id)
+  // The correct set of automatic reservations is recalculated on every pass.
+  // An edited smaller trip can release excess auto-marked pallets. Manual
+  // marks are never released or converted into automatic reservations.
+  const priorAuto = pallets.filter((pallet) =>
+    pallet.markedForShipment && !!pallet.autoReservationWeek);
+  const priorAutoIds = new Set(priorAuto.map((pallet) => pallet.id));
+  const effectivePallets = pallets.map((pallet) => priorAutoIds.has(pallet.id)
     ? { ...pallet, markedForShipment: false } : pallet);
   const newIds = new Set(newPalletIds);
   const idsToMark = new Set<string>();
@@ -256,9 +254,7 @@ export async function reserveNewPalletsForNearestShipment(
     const itemType = matching[0]?.itemType;
     const unitPerPallet = itemType ? palletSize(itemType) : 0;
     const markedPhysicalQuantity = alreadyMarked.reduce(
-      (sum, pallet) => sum + palletQuantity(pallet),
-      0,
-    );
+      (sum, pallet) => sum + palletQuantity(pallet), 0);
     const markedNominalQuantity = unitPerPallet > 0
       ? Math.min(line.quantity, alreadyMarked.length * unitPerPallet)
       : markedPhysicalQuantity;
@@ -271,13 +267,9 @@ export async function reserveNewPalletsForNearestShipment(
       expiryIso(pallet.expiryDateStr)! >= today,
     );
 
-    // Important: new pallets only trigger this pass; they do not jump the queue.
-    // The normal picker keeps FEFO first and only uses access/proximity as a
-    // secondary tie-breaker inside the same expiry priority.
     const selected = pickForMissing(candidates, missingBefore);
     const selectedNominal = selected.length > 0
-      ? selected.length * palletSize(selected[0].itemType)
-      : 0;
+      ? selected.length * palletSize(selected[0].itemType) : 0;
     const missingAfter = Math.max(0, missingBefore - selectedNominal);
 
     selected.forEach((pallet) => idsToMark.add(pallet.id));
@@ -294,35 +286,37 @@ export async function reserveNewPalletsForNearestShipment(
     });
   }
 
+  const staleAutoIds = priorAuto
+    .filter((pallet) => !idsToMark.has(pallet.id))
+    .map((pallet) => pallet.id);
+  const staleSet = new Set(staleAutoIds);
+  const idsToUpdate = new Set([...staleAutoIds,
+    ...[...idsToMark].filter((id) => !priorAutoIds.has(id))]);
   if (idsToMark.size > 0 || staleAutoIds.length > 0) {
     await runTransaction(db, async (tx) => {
-      const allIds = [...new Set([...staleAutoIds, ...idsToMark])];
+      const allIds = [...idsToUpdate];
       const refs = allIds.map((id) => doc(db, "pallets", id));
       const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
 
       snapshots.forEach((snapshot, index) => {
         if (!snapshot.exists()) return;
         const pallet = { id: snapshot.id, ...snapshot.data() } as Pallet;
-        if (staleSet.has(pallet.id) && pallet.markedForShipment &&
-            pallet.autoReservationWeek &&
-            (pallet.autoReservationWeek !== currentWeek ||
-             pallet.autoReservationTruckId !== activeTruckId)) {
+        if (staleSet.has(pallet.id)) {
+          // Never release a pallet which was manually marked in the meantime.
+          if (!pallet.markedForShipment || !pallet.autoReservationWeek) return;
           tx.update(refs[index], {
-            markedForShipment: idsToMark.has(pallet.id),
-            autoReservationWeek: idsToMark.has(pallet.id) ? currentWeek : null,
-            autoReservationTruckId: idsToMark.has(pallet.id) ? activeTruckId : null,
+            markedForShipment: false,
+            autoReservationWeek: null,
+            autoReservationTruckId: null,
             updatedAt: serverTimestamp(),
           });
           return;
         }
-        if (
-          !idsToMark.has(pallet.id) ||
-          pallet.markedForShipment ||
-          !isPlanningShipmentPickZone(pallet.zone) ||
-          !expiryIso(pallet.expiryDateStr) ||
-          expiryIso(pallet.expiryDateStr)! < today
-        ) return;
-
+        if (!idsToMark.has(pallet.id) ||
+            pallet.markedForShipment ||
+            !isPlanningShipmentPickZone(pallet.zone) ||
+            !expiryIso(pallet.expiryDateStr) ||
+            expiryIso(pallet.expiryDateStr)! < today) return;
         tx.update(refs[index], {
           markedForShipment: true,
           autoReservationWeek: currentWeek,
