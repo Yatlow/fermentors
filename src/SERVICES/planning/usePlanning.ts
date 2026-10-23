@@ -141,7 +141,7 @@ export function usePlanning(
   const [ready, setReady] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [offline, setOffline] = useState<Record<string, boolean>>({});
-  const shipmentQueueBackfillAttempted = useState(() => new Set<string>())[0];
+  const shipmentQueueBackfillAttempted = useState(() => new Map<string, string>())[0];
   const [serverReadCounts, setServerReadCounts] = useState<Omit<PlanningReadCounts, "recordedAt" | "tab">>({
     settings: null,
     plans: null,
@@ -320,16 +320,26 @@ export function usePlanning(
   useEffect(() => {
     if (!wantsPlans || !wantsShipments || !auth.currentUser) return;
     const currentWeek = weekStart(today);
+    const productSignature = settings.products.map((p) =>
+      `${p.id}:${p.style}:${p.type}`).join(",");
+    // An actual Tempo shipment can close a planned truck AFTER the first
+    // backfill. Retry on relevant weekly manifest/revision changes, not only
+    // once per mounted page; avoid recomputing unrelated weeks.
+    const signatureFor = (week: WeekPlan) =>
+      `${week.revision}:${productSignature}:${JSON.stringify(
+        actualShipments.filter((shipment) => weekStart(shipment.date) === week.id)
+      )}`;
     const candidates = plans.filter((week) =>
       week.id >= currentWeek &&
       Array.isArray(week.deliveries) &&
       week.deliveries.length > 0 &&
-      !shipmentQueueBackfillAttempted.has(week.id),
+      shipmentQueueBackfillAttempted.get(week.id) !== signatureFor(week),
     );
     if (!candidates.length) return;
 
     for (const week of candidates) {
-      shipmentQueueBackfillAttempted.add(week.id);
+      const signature = signatureFor(week);
+      shipmentQueueBackfillAttempted.set(week.id, signature);
       const queueDeliveries = pendingDeliveriesForReservationQueue(
         week.deliveries ?? [],
         actualShipments,
@@ -372,6 +382,7 @@ export function usePlanning(
             );
         const queueIsCurrent =
           existing?.projectionVersion === 1 &&
+          Number(existing?.revision ?? 0) === Number(week.revision ?? 0) &&
           JSON.stringify(comparable(existingDeliveries)) === JSON.stringify(comparable(queueDeliveries));
         if (queueIsCurrent) return;
         tx.set(queueRef, {
@@ -383,7 +394,8 @@ export function usePlanning(
           updatedBy: auth.currentUser!.uid,
         });
       }).catch((error) => {
-        shipmentQueueBackfillAttempted.delete(week.id);
+        if (shipmentQueueBackfillAttempted.get(week.id) === signature)
+          shipmentQueueBackfillAttempted.delete(week.id);
         console.error("Failed backfilling shipment planning queue", week.id, error);
       });
     }
