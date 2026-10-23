@@ -13,6 +13,7 @@ export function automaticReservationDelta(
   week: string,
   truckId: string | null,
 ) {
+  const byId = new Map(pallets.map((pallet) => [pallet.id, pallet] as const));
   const releaseIds: string[] = [];
   const assignIds: string[] = [];
   const originalAuto = new Map<string, {
@@ -28,7 +29,7 @@ export function automaticReservationDelta(
     }
   }
   for (const id of desiredIds) {
-    const pallet = pallets.find((candidate) => candidate.id === id);
+    const pallet = byId.get(id);
     if (!pallet) continue;
     if (pallet.markedForShipment && !pallet.autoReservationWeek) continue;
     if (!pallet.markedForShipment || pallet.autoReservationWeek !== week ||
