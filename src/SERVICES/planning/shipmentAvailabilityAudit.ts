@@ -1,7 +1,7 @@
 import type { Pallet } from "../cooler/Pallettypes ";
 import { addDays, productPallets, parseDate, weekStart, type Actual, type Product, type Settings, type WeekPlan } from "./planningEngine";
 import { openRuns, type ShipmentEvent } from "./dailyPlanner";
-import { nominalPlanningUnits } from "./shipmentRecommendation";
+import { addForecastPackaging, dispatchForecastPallets, type ForecastPalletLot } from "./shipmentPalletLedger";
 import { pendingPlansAfterActualShipments } from "./shipmentActuals";
 
 export type PlanningAvailabilityIssue = {
@@ -18,7 +18,7 @@ export type PlanningAvailabilityIssue = {
 
 const size = (p: Product) => p.type === "crates" ? 84 : 20;
 
-type StockLot = { expiry: string; nominal: number; physical: number };
+
 
 /**
  * Audit planned dispatches in date order. Two ledgers must be kept separately:
@@ -42,11 +42,11 @@ export function auditShipmentAvailability(
 
   for (const product of settings.products) {
     const unitPerPallet = size(product);
-    const lots: StockLot[] = productPallets(product, pallets).flatMap((pallet) => {
+    const lots: ForecastPalletLot[] = productPallets(product, pallets).flatMap((pallet) => {
       const expiry = parseDate(pallet.expiryDateStr);
       const physical = Math.max(0, Number(pallet.quantity) || 0);
       if (!expiry || expiry < today || physical <= 0) return [];
-      return [{ expiry, nominal: nominalPlanningUnits(product, physical), physical }];
+      return [{ id: pallet.id, expiry, quantity: physical }];
     });
     const events: Array<{
       date: string; kind: "pack" | "ship"; qty: number; week: string;
@@ -75,18 +75,15 @@ export function auditShipmentAvailability(
         if (lots[i].expiry < event.date) lots.splice(i, 1);
       }
       if (event.kind === "pack") {
-        lots.push({
-          expiry: "9999-12-31",
-          nominal: nominalPlanningUnits(product, event.qty),
-          physical: event.qty,
-        });
+        // Unproduced stock is a forecast only, but its loading positions still
+        // behave like physical indivisible pallets in the simulation.
+        addForecastPackaging(lots, event.qty, unitPerPallet,
+          `future:${event.week}:${event.date}:${product.id}`);
         continue;
       }
-      const demandNominal = nominalPlanningUnits(product, event.qty);
-      const nominalAvailable = lots.reduce((sum, lot) => sum + lot.nominal, 0);
-      const physicalAvailable = lots.reduce((sum, lot) => sum + lot.physical, 0);
-      const missing = Math.ceil(Math.max(0, demandNominal - nominalAvailable) / unitPerPallet);
-      const missingUnits = Math.max(0, event.qty - physicalAvailable);
+      const { missingSlots: missing, missingUnits } = dispatchForecastPallets(
+        lots, event.qty, unitPerPallet, event.date,
+      );
       if (missing > 0) {
         issues.push({
           week: event.week, date: event.date, productId: product.id,
@@ -99,19 +96,6 @@ export function auditShipmentAvailability(
           missing: 0, missingUnits, severity: "partial",
           message: `משלוח ${event.date}: חסרות ${Math.ceil(missingUnits)} יחידות ${product.style} בפועל. משטח חלקי מכסה מקום במשאית, לא את כמות ההזמנה`,
         });
-      }
-      // Consume nominal slots from the oldest usable expiry first. A partial
-      // physical pallet remains one indivisible pallet for planning purposes.
-      let demand = demandNominal;
-      lots.sort((a, b) => a.expiry.localeCompare(b.expiry));
-      for (const lot of lots) {
-        if (demand <= 0) break;
-        const taken = Math.min(demand, lot.nominal);
-        if (taken <= 0) continue;
-        const fraction = taken / lot.nominal;
-        lot.physical = Math.max(0, lot.physical * (1 - fraction));
-        lot.nominal -= taken;
-        demand -= taken;
       }
     }
   }
