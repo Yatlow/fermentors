@@ -72,7 +72,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
 
   const data = usePlanning(today, productionTanks, readScope);
   const { settings, plans, pallets, actuals } = data;
-  const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
+  const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 97));
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
   const identityAlignedPlans = useMemo(() => withStablePackagingIdentity(plans), [plans]);
   const [message, setMessage] = useState("");
