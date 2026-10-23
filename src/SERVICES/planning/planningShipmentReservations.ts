@@ -55,6 +55,7 @@ type PlannedLine = {
 
 type ActualQueueShipment = {
   date: string;
+  plannedTruckId?: string;
   actualByProduct: Record<string, number>;
 };
 
@@ -118,7 +119,9 @@ async function actualTempoShipmentsThisWeek(today: string): Promise<ActualQueueS
     if (!created || !Number.isFinite(created.getTime())) return [];
     const date = dateKey(created);
     if (weekStart(date) !== currentWeek) return [];
-    return [{ date, actualByProduct: shipmentProducts(data) }];
+    return [{ date,
+      plannedTruckId: typeof data.plannedTruckId === "string" ? data.plannedTruckId : undefined,
+      actualByProduct: shipmentProducts(data) }];
   });
 }
 
@@ -155,6 +158,7 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
       openDeliveries,
       actual.actualByProduct,
       actual.date,
+      actual.plannedTruckId,
     );
     if (!closedTruckId) continue;
     openDeliveries = openDeliveries.filter((delivery) =>
