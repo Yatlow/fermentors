@@ -17,6 +17,7 @@ import { planningWeekIssues } from "../src/SERVICES/planning/planningValidation"
 import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
 import { selectTruck } from "../src/SERVICES/planning/truckPlanner";
 import { automaticReservationDelta } from "../src/SERVICES/planning/automaticReservationReconciliation";
+import { replaceShipmentTrip } from "../src/SERVICES/planning/shipmentEdit";
 
 const today = "2026-10-18";
 const ipa: Product = {
@@ -324,4 +325,45 @@ test("normal brewery shifts reject Sunday and Thursday but allow Monday–Wednes
   assert.equal(planningWeekIssues({ ...week, allowExceptions: true },
     settings, [week], "2026-10-23")
     .filter((issue) => issue.includes("שני–רביעי")).length, 0);
+});
+
+test("editing the Wednesday truck retains Wednesday dispatch, receipt date and unchanged pallet picks", () => {
+  const selected = { ...pallet, id: "FEFO-A" };
+  const existing = [{
+    id: "stable-ipa", truckId: "wed-truck", productId: ipa.id,
+    quantity: 84, dispatchDate: "2026-10-28", arrivalDate: "2026-10-29",
+    pallets: [selected],
+  }];
+  const edited = replaceShipmentTrip({
+    deliveries: existing, truckId: "wed-truck", defaultDate: "2026-10-26",
+    products: [ipa], draft: { [ipa.id]: 84 },
+    createId: () => "new",
+  });
+  assert.equal(edited.length, 1);
+  assert.equal(edited[0].id, "stable-ipa");
+  assert.equal(edited[0].dispatchDate, "2026-10-28");
+  assert.equal(edited[0].arrivalDate, "2026-10-29");
+  assert.deepEqual(edited[0].pallets, [selected]);
+  const resized = replaceShipmentTrip({
+    deliveries: edited, truckId: "wed-truck", defaultDate: "2026-10-26",
+    products: [ipa], draft: { [ipa.id]: 168 },
+    createId: () => "new",
+  });
+  assert.deepEqual(resized[0].pallets, [], "old physical picks cannot represent a larger quantity");
+});
+
+test("editing truck B never mutates truck A or its pallet selections", () => {
+  const original = [
+    { id: "a", truckId: "A", productId: ipa.id, quantity: 84,
+      dispatchDate: "2026-10-26", arrivalDate: "2026-10-26", pallets: [{ ...pallet, id: "a-pallet" }] },
+    { id: "b", truckId: "B", productId: ipa.id, quantity: 84,
+      dispatchDate: "2026-10-28", arrivalDate: "2026-10-28" },
+  ];
+  const changed = replaceShipmentTrip({
+    deliveries: original, truckId: "B", defaultDate: "2026-10-26",
+    products: [ipa], draft: { [ipa.id]: 168 },
+    createId: () => "new",
+  });
+  assert.deepEqual(changed.find((row) => row.truckId === "A"), original[0]);
+  assert.equal(changed.find((row) => row.truckId === "B")?.dispatchDate, "2026-10-28");
 });
