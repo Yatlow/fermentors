@@ -198,7 +198,11 @@ export default function PlanningGantt(props: Props) {
       shipments,
     });
 
-    for (const week of weekIds) {
+    // Forecast the full chronological prefix on EVERY page. Recommendations
+    // from weeks outside the visible page still affect later inventory and
+    // tank availability, even though only the visible five weeks are rendered.
+    const simulationWeeks = allWeekIds.filter((week) => week <= weekIds[weekIds.length - 1]);
+    for (const week of simulationWeeks) {
       if (cancelled || generation !== simulationGeneration.current) return;
       await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
       const saved = planByWeek.get(week);
@@ -306,14 +310,14 @@ export default function PlanningGantt(props: Props) {
       });
       if (cancelled || generation !== simulationGeneration.current) return;
       const completed = result.get(week);
-      if (completed) {
+      if (completed && weekIds.includes(week)) {
         setSimulations((previous) => {
           const next = new Map(previous);
           next.set(week, completed);
           return next;
         });
       }
-      setPendingSimulationWeeks((previous) => {
+      if (weekIds.includes(week)) setPendingSimulationWeeks((previous) => {
         const next = new Set(previous);
         next.delete(week);
         return next;
@@ -330,7 +334,7 @@ export default function PlanningGantt(props: Props) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [settings, pallets, tanks, historyPlans, planByWeek, actuals, sources, today, weekIds, holidays, shipments, currentWeek]);
+  }, [settings, pallets, tanks, historyPlans, planByWeek, actuals, sources, today, weekIds, allWeekIds, holidays, shipments, currentWeek]);
 
   const productFor = (id: string) => settings.products.find((product) => product.id === id);
   const decisionPlanFor = (weekId: string) => planByWeek.get(weekId);
