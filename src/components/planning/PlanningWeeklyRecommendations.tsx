@@ -681,7 +681,9 @@ export default function PlanningWeeklyRecommendations({
                     quantity,
                     tankId: rec.tankId,
                     tankNumber: rec.tankNumber,
-                    batchNumber: tanks.find((tank) => tank.id === rec.tankId)?.batch,
+                    batchNumber: rec.brewId
+                        ? plans.flatMap((week) => week.brews).find((brew) => brew.id === rec.brewId)?.batchNumber
+                        : tanks.find((tank) => tank.id === rec.tankId)?.batch,
                     ...(rec.brewId ? { brewId: rec.brewId } : {}),
                     source: "recommendation",
                 });
@@ -738,7 +740,9 @@ export default function PlanningWeeklyRecommendations({
             quantity: r.quantity,
             tankId: r.tankId,
             tankNumber: r.tankNumber,
-            batchNumber: tanks.find((tank) => tank.id === r.tankId)?.batch,
+            batchNumber: r.brewId
+                ? plans.flatMap((week) => week.brews).find((brew) => brew.id === r.brewId)?.batchNumber
+                : tanks.find((tank) => tank.id === r.tankId)?.batch,
             ...(r.brewId ? { brewId: r.brewId } : {}),
             source: "recommendation",
         }));
