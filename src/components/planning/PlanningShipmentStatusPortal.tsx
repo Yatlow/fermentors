@@ -102,11 +102,16 @@ export default function PlanningShipmentStatusPortal({
       .filter((match) => match.week === selectedWeek);
     const pendingTrips = matches.filter((match) => match.status === "pending");
     const hasDifferent = matches.some((match) => match.status === "actual-different");
+    const attachedActualIds = new Set(matches.flatMap((match) =>
+      match.actual?.id ? [match.actual.id] : []));
+    const unmatchedActualCount = actualThisWeek
+      .filter((actual) => !attachedActualIds.has(actual.id)).length;
 
     return {
       actualCount: actualThisWeek.length,
       pendingCount: pendingTrips.length,
       hasDifferent,
+      unmatchedActualCount,
     };
   }, [selectedWeek, shipments, plans, products]);
 
@@ -121,6 +126,7 @@ export default function PlanningShipmentStatusPortal({
           : " · ההמלצה חושבה מחדש אחרי מה שכבר נשלח"}
       </span>
       {status.hasDifferent && <small>לפחות משלוח אחד בוצע בהרכב שונה מההחלטה.</small>}
+      {status.unmatchedActualCount > 0 && <small role="alert">⚠️ {status.unmatchedActualCount} משלוחים שבוצעו לא שויכו בוודאות לנסיעה מתוכננת; יש לבדוק את דוח המשלוחים.</small>}
     </span>,
     target,
   );
