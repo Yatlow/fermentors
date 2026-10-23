@@ -62,3 +62,51 @@ test("Saturday GAS validates 12 floor places with shared stack-aware capacity", 
     globals.SharedShipmentPicking = original;
   }
 });
+
+test("Saturday GAS submits pallet releases and reservations in one atomic guarded commit", () => {
+  const previousFetch = globals.srFetch_;
+  const previousRoot = globals.srRoot_;
+  const requests: Array<{ url: string; method: string; payload: any }> = [];
+  globals.srRoot_ = () => "https://firestore.googleapis.com/v1/projects/demo/databases/(default)/documents";
+  globals.srFetch_ = (url: string, method: string, payload: unknown) => {
+    requests.push({ url, method, payload });
+    return {};
+  };
+  try {
+    const commit = globals.srCommitMarking_ as (changes: any[], guard: any) => void;
+    const root = (globals.srRoot_ as () => string)();
+    const pallet = (id: string) => ({ name: root + "/pallets/" + id,
+      updateTime: "2026-10-23T00:00:00Z" });
+    const guard = { name: root + "/shipmentMarkingGuard/active",
+      updateTime: "2026-10-23T00:00:00Z", revision: 6 };
+    commit([
+      { pallet: pallet("a"), fields: { markedForShipment: false, autoReservationWeek: null } },
+      { pallet: pallet("b"), fields: { markedForShipment: true, autoReservationWeek: "2026-10-25" } },
+    ], guard);
+    assert.equal(requests.length, 1, "partial patch writes must be impossible");
+    assert.equal(requests[0].method, "post");
+    assert.ok(requests[0].url.endsWith("/documents:commit"));
+    assert.equal(requests[0].payload.writes.length, 3);
+    assert.equal(requests[0].payload.writes[2].update.fields.revision.integerValue, "7");
+    assert.equal(requests[0].payload.writes[2].currentDocument.updateTime, guard.updateTime);
+    assert.equal(requests[0].payload.writes[0].currentDocument.updateTime,
+      "2026-10-23T00:00:00Z");
+    assert.equal(requests[0].payload.writes[1].update.fields.markedForShipment.booleanValue, true);
+  } finally {
+    globals.srFetch_ = previousFetch;
+    globals.srRoot_ = previousRoot;
+  }
+});
+
+test("Saturday GAS does not issue a write or bump the guard when nothing changes", () => {
+  const previousFetch = globals.srFetch_;
+  let calls = 0;
+  globals.srFetch_ = () => { calls++; return {}; };
+  try {
+    const commit = globals.srCommitMarking_ as (changes: any[], guard: any) => void;
+    commit([], { name: "ignored", revision: 1 });
+    assert.equal(calls, 0);
+  } finally {
+    globals.srFetch_ = previousFetch;
+  }
+});
