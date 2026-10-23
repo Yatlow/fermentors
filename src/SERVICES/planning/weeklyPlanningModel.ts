@@ -601,7 +601,7 @@ export function buildWeeklyPlanningModel(args: {
     forecasts[stage] = dailyForecast(normalized, pallets, tanks, plansAtStage(forecastPlans, week, stage), actuals, today, holidays, false, shipments);
     rows[stage] = skuRows(normalized, forecasts[stage], weekEnd);
   }
-  const weekStartRows = buildWeekStartProjection({ settings, pallets, plans, actuals, today, week });
+  const weekStartRows = buildWeekStartProjection({ settings, pallets, plans, actuals, today, week, actualShipments: shipments });
   const shipment = buildShipmentRecommendation(normalized, weekStartRows);
   const packaging = buildPackagingRecommendation(normalized, rows.afterShipment, tanks, plans, actuals, sources, week, weekEnd, today);
   const brew = buildBrewRecommendation(normalized, rows.afterPackaging, tanks, forecastPlans, actuals, sources, today, week, weekEnd);
