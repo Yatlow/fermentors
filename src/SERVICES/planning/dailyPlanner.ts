@@ -1,6 +1,6 @@
 import { estimatedBrewVolume } from "./productionCycle";
 import { packagingLimit, weekday as dayOfWeek } from "./productionCycle";
-import { resolvePackagingBrewId } from "./planIdentity";
+import { brewById, resolvePackagingBrewId } from "./planIdentity";
 import { pendingPlansAfterActualShipments } from "./shipmentActuals";
 import {
   projectedPallets,
@@ -251,11 +251,22 @@ export function dailyForecast(
     // readiness, so forecast that committed work on its chosen date. Newly
     // generated recommendations below still obey normal tank readiness.
     const canonicalBrewId = resolvePackagingBrewId(r, plans);
+    // An old planned brew may be the *current physical batch*. In that
+    // case futureTanks deliberately does not create a duplicate virtual tank.
+    // Resolve canonical identity against that actual tank before allocating.
+    const canonicalBrew = canonicalBrewId ? brewById(plans, canonicalBrewId) : null;
+    const physicalCanonical = canonicalBrew ? pool.find((tank) =>
+      tank.id === canonicalBrew.tankId &&
+      tank.brewed === canonicalBrew.date &&
+      sameStyle(tank.style, canonicalBrew.style) &&
+      (!canonicalBrew.batchNumber ||
+        String(tank.batch).replace("#", "").trim() === String(canonicalBrew.batchNumber).replace("#", "").trim())
+    ) : undefined;
     const committedPool = (
       canonicalBrewId
-        ? pool.filter((t) => t.id === `planned:${canonicalBrewId}`)
+        ? pool.filter((tank) => tank.id === (physicalCanonical?.id ?? `planned:${canonicalBrewId}`))
         : r.tankId
-          ? pool.filter((t) => t.id === r.tankId)
+          ? pool.filter((tank) => tank.id === r.tankId)
           : pool
     ).map((tank) => tank.ready > r.date! ? { ...tank, ready: r.date! } : tank);
     const allocations = allocate(
