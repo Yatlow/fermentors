@@ -1,5 +1,7 @@
 import { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM } from "./truckCapacity";
 import { getCatalogEntry } from "./PalletCatalog";
+import { nextShipmentMarkingRevision, shipmentMarkingGuardRef,
+    shipmentMarkingGuardWrite } from "../planning/shipmentMarkingGuard";
 export { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM };
 import {
     collection,
@@ -774,6 +776,8 @@ export async function createShipment(palletIds: string[], customerName?: string 
     if (uniquePalletIds.length !== palletIds.length) throw new Error("רשימת המשטחים מכילה כפילויות");
     const counterRef = doc(db, "counters", "shipmentNumber");
     const shipmentNumber = await runTransaction(db, async (tx) => {
+        const guardRef = shipmentMarkingGuardRef();
+        const guardSnap = await tx.get(guardRef);
         const counterSnap = await tx.get(counterRef);
         const palletRefs = uniquePalletIds.map((id) => doc(db, PALLETS_COLLECTION, id));
         const palletSnaps = await Promise.all(palletRefs.map((ref) => tx.get(ref)));
@@ -818,6 +822,9 @@ export async function createShipment(palletIds: string[], customerName?: string 
         tx.set(counterRef, { value: nextNumber }, { merge: true });
         tx.set(shipmentRef, { shipmentNumber: nextNumber, palletIds: uniquePalletIds, palletSnapshot, totals: Array.from(totalsMap.values()), ...(plannedTruckId ? { plannedTruckId } : {}), sourceType: "pallets", customerName: customerName?.trim() || null, customerId: customerId?.trim() || null, createdAt: serverTimestamp() });
         palletRefs.forEach((ref) => tx.update(ref, { zone: "shipped", markedForShipment: false, autoReservationWeek: null, autoReservationTruckId: null, shippedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+        const guardVersion = Number(guardSnap.data()?.revision ?? 0);
+        tx.set(guardRef, shipmentMarkingGuardWrite(
+            nextShipmentMarkingRevision(guardVersion, guardVersion)));
         return nextNumber;
     });
     return String(shipmentNumber);
@@ -852,7 +859,25 @@ export async function movePalletsToZone(palletIds: string[], zone: PalletZone): 
     await batch.commit();
 }
 
-export async function setMarkedForShipment(palletId: string, marked: boolean): Promise<void> { await updateDoc(doc(db, PALLETS_COLLECTION, palletId), { markedForShipment: marked, autoReservationWeek: null, autoReservationTruckId: null, updatedAt: serverTimestamp() }); }
+export async function setMarkedForShipment(palletId: string, marked: boolean): Promise<void> {
+    await runTransaction(db, async (tx) => {
+        const guardRef = shipmentMarkingGuardRef();
+        const guardSnap = await tx.get(guardRef);
+        const palletRef = doc(db, PALLETS_COLLECTION, palletId);
+        const palletSnap = await tx.get(palletRef);
+        if (!palletSnap.exists() || palletSnap.data()?.zone === "shipped")
+            throw new Error("המשטח כבר אינו זמין לסימון");
+        const guardVersion = Number(guardSnap.data()?.revision ?? 0);
+        tx.update(palletRef, {
+            markedForShipment: marked,
+            autoReservationWeek: null,
+            autoReservationTruckId: null,
+            updatedAt: serverTimestamp(),
+        });
+        tx.set(guardRef, shipmentMarkingGuardWrite(
+            nextShipmentMarkingRevision(guardVersion, guardVersion)));
+    });
+}
 
 export async function reorderPalletsInZone(orderedPalletIds: string[]): Promise<void> {
     const batch = writeBatch(db);
