@@ -4,11 +4,12 @@ import {
   defaultSettings, emptyWeek, type Product, type Tank, type WeekPlan,
 } from "../src/SERVICES/planning/planningEngine";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
-import { dailyForecast } from "../src/SERVICES/planning/dailyPlanner";
+import { dailyForecast, futureTanks } from "../src/SERVICES/planning/dailyPlanner";
+import { simulatedGanttBrews } from "../src/SERVICES/planning/ganttBrewProjection";
 import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
 import {
   completedShipmentQueueTruckId, matchActualShipments,
-  pendingPlansAfterActualShipments,
+  pendingPlansAfterActualShipments, mergeCompletedDeliveriesBack,
 } from "../src/SERVICES/planning/shipmentActuals";
 import { auditShipmentAvailability } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
 import { validatePlanningDecisionChange } from "../src/SERVICES/planning/planningDecisionSafety";
@@ -129,4 +130,51 @@ test("invalid weekly shipment quantities are blocked before Firestore save", () 
     before: [twoTrips], after: [bad], edited: bad, previous: twoTrips,
     settings, tanks: [], sources: [], actuals: [], today,
   }) ?? "", /משלוח|כמות/);
+});
+
+test("Gantt recommendation forecasts reserve specific tanks but remain hypothetical", () => {
+  const projected = simulatedGanttBrews("2026-10-25", [
+    { style: "IPA", liters: 3000, tankId: "tank-10", tankNumber: "10",
+      sizeLabel: "משולש", availableDate: "2026-10-26" },
+    { style: "IPA", liters: 3000, tankId: "tank-11", tankNumber: "11",
+      sizeLabel: "משולש", availableDate: "2026-10-27" },
+    { style: "IPA", liters: 3000, tankId: "tank-12", tankNumber: "12",
+      sizeLabel: "משולש", availableDate: "2026-10-29" },
+  ]);
+  assert.equal(projected.length, 2, "no imaginary Thursday brewery shift");
+  assert.deepEqual(projected.map((brew) => brew.date), ["2026-10-26", "2026-10-27"]);
+  assert.deepEqual(projected.map((brew) => brew.tankId), ["tank-10", "tank-11"]);
+  assert.ok(projected.every((brew) => brew.tankAssignmentStatus === "tentative"));
+  const virtualTanks = futureTanks([], [{ ...emptyWeek("2026-10-25"), brews: projected }], settings);
+  assert.ok(virtualTanks.some((tank) => tank.id === "planned:gantt-rec-brew:2026-10-25:0"));
+  assert.ok(virtualTanks.some((tank) => tank.id === "planned:gantt-rec-brew:2026-10-25:1"));
+});
+
+test("one physical dispatch matches its best SKU trip even when another trip is listed first", () => {
+  const another: Product = { ...ipa, id: "wheat-crates", sku: "wheat-crates", style: "חיטה" };
+  const mixed = { ...twoTrips, deliveries: [
+    { ...twoTrips.deliveries[0], productId: ipa.id },
+    { ...twoTrips.deliveries[1], productId: another.id },
+  ] };
+  const actual = { ...oneActual, totals: [
+    { itemType: "crates" as const, beerStyle: another.style, totalQuantity: 84 },
+  ] };
+  const matches = matchActualShipments(mixed.deliveries, [actual], [ipa, another]);
+  assert.equal(matches.find((m) => m.planned.id === "truck-a")?.status, "pending");
+  assert.equal(matches.find((m) => m.planned.id === "truck-b")?.status, "matched");
+});
+
+test("re-saving a full week cannot duplicate an already completed trip", () => {
+  const merged = mergeCompletedDeliveriesBack(twoTrips, twoTrips, [oneActual], settings.products);
+  assert.equal(merged.deliveries?.length, 2);
+  assert.equal(merged.deliveries?.filter((d) => d.truckId === "truck-a").length, 1);
+  assert.equal(merged.deliveries?.filter((d) => d.truckId === "truck-b").length, 1);
+});
+
+test("an unknown-SKU actual is not treated as an empty legacy manifest", () => {
+  const unknown = { ...oneActual, totals: [
+    { itemType: "crates" as const, beerStyle: "not-in-catalog", totalQuantity: 84 },
+  ] };
+  assert.ok(matchActualShipments([twoTrips.deliveries[0]], [unknown], settings.products)
+    .every((m) => m.status === "pending"));
 });
