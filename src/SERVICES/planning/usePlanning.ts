@@ -343,8 +343,18 @@ export function usePlanning(
 
       void runTransaction(db, async (tx) => {
         const queueRef = doc(db, "shipmentPlanningQueue", week.id);
+        const planRef = doc(db, "planningWeeks", week.id);
+        // The listener snapshot can be stale when another device has just
+        // committed a newer week. Read both documents in this transaction so
+        // no stale queue projection can overwrite a newer reservation state.
+        const planSnap = await tx.get(planRef);
         const queueSnap = await tx.get(queueRef);
+        if (!planSnap.exists() ||
+            Number(planSnap.data()?.revision ?? 0) !== Number(week.revision ?? 0) ||
+            JSON.stringify(planSnap.data()?.deliveries ?? []) !== JSON.stringify(week.deliveries ?? []))
+          return;
         const existing = queueSnap.data();
+        if (Number(existing?.revision ?? 0) > Number(week.revision ?? 0)) return;
         const existingDeliveries = Array.isArray(existing?.deliveries) ? existing.deliveries : [];
         const comparable = (deliveries: typeof queueDeliveries) =>
           deliveries
@@ -366,7 +376,7 @@ export function usePlanning(
         if (queueIsCurrent) return;
         tx.set(queueRef, {
           id: week.id,
-          revision: Number(week.revision) || 1,
+          revision: Number(week.revision ?? 0),
           projectionVersion: 1,
           deliveries: queueDeliveries,
           updatedAt: serverTimestamp(),
