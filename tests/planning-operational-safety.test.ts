@@ -13,6 +13,8 @@ import {
 } from "../src/SERVICES/planning/shipmentActuals";
 import { auditShipmentAvailability } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
 import { validatePlanningDecisionChange } from "../src/SERVICES/planning/planningDecisionSafety";
+import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
+import { selectTruck } from "../src/SERVICES/planning/truckPlanner";
 
 const today = "2026-10-18";
 const ipa: Product = {
@@ -178,3 +180,60 @@ test("an unknown-SKU actual is not treated as an empty legacy manifest", () => {
   assert.ok(matchActualShipments([twoTrips.deliveries[0]], [unknown], settings.products)
     .every((m) => m.status === "pending"));
 });
+
+
+test("a canonical brew already in a physical tank contributes real packaging to the daily supply forecast", () => {
+  const wheat: Product = { ...ipa, id: "wheat-kegs", sku: "wheat-kegs",
+    style: "חיטה", type: "kegs", monthly: 300 };
+  const wheatSettings = { ...defaultSettings(), products: [wheat] };
+  const physical: Tank = {
+    id: "tank-4", number: "4", style: "חיטה", batch: "1614",
+    brewed: "2026-10-12", ready: "2026-11-02", liters: 1120, cold: true,
+  };
+  const brewWeek = { ...emptyWeek("2026-10-11"), brews: [{
+    id: "brew-wheat-1614", tankId: physical.id, style: physical.style,
+    date: physical.brewed, batchNumber: physical.batch, liters: 1100,
+  }] };
+  const packWeek = { ...emptyWeek("2026-11-01"), packaging: [{
+    id: "pack-56", productId: wheat.id, quantity: 56, date: "2026-11-05",
+    tankId: physical.id, batchNumber: physical.batch, brewId: "brew-wheat-1614",
+  }] };
+  const forecast = dailyForecast(wheatSettings, [], [physical], [brewWeek, packWeek],
+    [], "2026-10-22");
+  const packed = forecast.points.find((row) =>
+    row.date === "2026-11-05" && row.productId === wheat.id);
+  assert.ok(packed);
+  assert.equal(packed.packed, 56);
+  assert.ok(!forecast.warnings.some((warning) => warning.includes("חסרים") &&
+    warning.includes("חיטה")), "the physical cycle is the canonical source, not a missing virtual tank");
+});
+
+test("recommended next IPA brew uses the IPA volume despite the tank's former Lager style", () => {
+  const highDemand: Product = { ...ipa, monthly: 1000, tempo: 0,
+    tempoDate: "2026-10-22" };
+  const ipaSettings = { ...defaultSettings(), products: [highDemand] };
+  const source = { id: "tank-6", tankNumber: 6, beerStyle: "לאגר", action: 4 };
+  const model = buildWeeklyPlanningModel({
+    settings: ipaSettings, pallets: [], tanks: [], plans: [], actuals: [],
+    sources: [source], today: "2026-10-22", week: "2026-10-25",
+    holidays: [], shipments: [],
+  });
+  const recommended = model.brewRecommendations.find((brew) =>
+    brew.tankId === source.id && brew.style === "IPA");
+  assert.ok(recommended, "free double tank must be available for IPA shortage");
+  assert.equal(recommended.liters, 1960, "not the former Lager cycle's 2500 liters");
+});
+
+test("forecast FEFO prevails over production-date FIFO when expiry dates disagree", () => {
+  const oldProduction = { ...pallet, id: "old-production",
+    batchNumber: "older", expiryDateStr: "31/12/2026" };
+  const soonToExpire = { ...pallet, id: "earlier-expiry",
+    batchNumber: "newer", expiryDateStr: "31/10/2026" };
+  const picked = selectTruck([ipa], [
+    { pallet: oldProduction, quantity: 84, expiry: "2026-12-31" },
+    { pallet: soonToExpire, quantity: 84, expiry: "2026-10-31" },
+  ], new Map([[ipa.id, 84]]), new Map([[ipa.id, 1]]),
+  new Map([["older:" + ipa.id, "2026-01-01"], ["newer:" + ipa.id, "2026-09-01"]]));
+  assert.equal(picked.pallets[0]?.id, "earlier-expiry");
+});
+
