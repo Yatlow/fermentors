@@ -19,6 +19,7 @@ import { selectTruck } from "../src/SERVICES/planning/truckPlanner";
 import { automaticReservationDelta } from "../src/SERVICES/planning/automaticReservationReconciliation";
 import { replaceShipmentTrip } from "../src/SERVICES/planning/shipmentEdit";
 import { packagingLimit } from "../src/SERVICES/planning/productionCycle";
+import { validateBrewReleaseIssues, validateProductionIssues } from "../src/SERVICES/planning/productionCycle";
 
 const today = "2026-10-18";
 const ipa: Product = {
@@ -421,4 +422,49 @@ test("brewery packaging capacity agrees between recommendations and hard save va
   const exception = { ...exceeding, allowExceptions: true };
   assert.ok(!planningWeekIssues(exception, kegSettings, [exception], "2026-10-23")
     .some((x) => x.includes("קיבולת")), "explicit approved exceptions retain legacy freedom");
+});
+
+test("a new physical packaging error is not masked by a different legacy invalid tank", () => {
+  const beforeWeek = { ...emptyWeek("2026-10-25"), packaging: [
+    { id: "old-invalid", productId: ipa.id, tankId: "unknown-1",
+      quantity: 20, date: "2026-10-26" },
+  ] };
+  const afterWeek = { ...beforeWeek, packaging: [
+    ...beforeWeek.packaging,
+    { id: "new-invalid", productId: ipa.id, tankId: "unknown-2",
+      quantity: 20, date: "2026-10-27" },
+  ] };
+  const previous = validateProductionIssues([beforeWeek], settings, [], [], "2026-10-23");
+  const after = validateProductionIssues([afterWeek], settings, [], [], "2026-10-23");
+  assert.equal(previous.length, 1);
+  assert.equal(after.length, 2, "collect errors on BOTH affected physical tanks");
+  assert.equal(new Set(after.map((issue) => issue.key)).size, 2);
+  assert.ok(validatePlanningDecisionChange({
+    before: [beforeWeek], after: [afterWeek], previous: beforeWeek,
+    edited: afterWeek, settings, tanks: [], sources: [], actuals: [],
+    today: "2026-10-23",
+  })?.includes("חסר מיכל מקור"), "the new error must block saving");
+});
+
+test("an old missing-capacity brew cannot mask another missing-capacity future brew", () => {
+  const beforeWeek = { ...emptyWeek("2026-10-25"), brews: [
+    { id: "old-brew", tankId: "unknown-1", style: "IPA", liters: 1100,
+      date: "2026-10-26" },
+  ] };
+  const afterWeek = { ...beforeWeek, brews: [
+    ...beforeWeek.brews,
+    { id: "new-brew", tankId: "unknown-2", style: "IPA", liters: 1100,
+      date: "2026-10-27" },
+  ] };
+  const beforeIssues = validateBrewReleaseIssues([], [], [beforeWeek],
+    settings, [], "2026-10-23");
+  const afterIssues = validateBrewReleaseIssues([], [], [afterWeek],
+    settings, [], "2026-10-23");
+  assert.equal(beforeIssues.length, 1);
+  assert.equal(afterIssues.length, 2);
+  assert.ok(validatePlanningDecisionChange({
+    before: [beforeWeek], after: [afterWeek], previous: beforeWeek,
+    edited: afterWeek, settings, tanks: [], sources: [], actuals: [],
+    today: "2026-10-23",
+  })?.includes("חסר נפח עבודה"));
 });
