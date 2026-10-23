@@ -1,6 +1,5 @@
 import type { Pallet } from "../cooler/Pallettypes ";
 import {
-  addDays,
   daysBetween,
   productPallets,
   num,
@@ -80,8 +79,10 @@ export function buildWeekStartProjection(args: {
     const packEvents = open
       .filter((run) => run.productId === product.id && run.remaining > 0 &&
         run.week >= currentWeek && run.week < week)
-      .map((run) => ({ date: run.date ?? addDays(run.week, 4),
-        kind: "pack" as const, qty: run.remaining }))
+      // Undated packaging is a planning intention, not committed inventory.
+      // Do not invent a Thursday and promise those units to a later shipment.
+      .filter((run) => !!run.date)
+      .map((run) => ({ date: run.date!, kind: "pack" as const, qty: run.remaining }))
       .filter((event) => event.date >= today && event.date < week);
     const shipmentEvents = pendingPlans
       .flatMap((plan) => plan.deliveries ?? [])
