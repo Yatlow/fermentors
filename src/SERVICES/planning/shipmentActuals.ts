@@ -152,7 +152,10 @@ export function completedShipmentQueueTruckId(
     a.distance - b.distance ||
     a.group.id.localeCompare(b.group.id),
   );
-  return ranked[0]?.group.id ?? null;
+  // A completely unrelated dispatch cannot prove that a planned trip left.
+  // Do not close and release its reservations on the basis of date proximity.
+  const winner = ranked[0];
+  return winner && winner.score != null && winner.score > 0 ? winner.group.id : null;
 }
 
 export function matchActualShipments(
@@ -163,36 +166,43 @@ export function matchActualShipments(
 ): ShipmentMatch[] {
   const groups = groupPlannedShipments(deliveries);
   const actuals = actualEvents as DetailedShipmentEvent[];
-  const unused = new Set(actuals.map((event) => event.id));
-
-  return groups.map((planned) => {
-    const sameWeek = actuals.filter((actual) =>
-      unused.has(actual.id) && weekStart(actual.date) === weekStart(planned.dispatchDate),
-    );
-    if (!sameWeek.length) return { planned, score: null, status: "pending" as const };
-
-    const ranked = sameWeek
-      .map((actual) => ({ actual, score: shipmentMatchScore(planned, actual, products) }))
-      .sort((a, b) =>
-        (b.score ?? -1) - (a.score ?? -1) ||
-        Math.abs(Date.parse(`${a.actual.date}T12:00:00Z`) - Date.parse(`${planned.dispatchDate}T12:00:00Z`)) -
-          Math.abs(Date.parse(`${b.actual.date}T12:00:00Z`) - Date.parse(`${planned.dispatchDate}T12:00:00Z`)),
-      );
-    const best = ranked[0];
-    if (!best) return { planned, score: null, status: "pending" as const };
-
-    if (best.score === null || best.score >= threshold) {
-      unused.delete(best.actual.id);
-      return { planned, actual: best.actual, score: best.score, status: "matched" as const };
-    }
-
-    // A shipment happened in the planned week, but its SKU mix differs materially.
-    // It still closes that trip operationally; the UI flags the mismatch instead of hiding it.
-    unused.delete(best.actual.id);
-    return { planned, actual: best.actual, score: best.score, status: "actual-different" as const };
-  });
+  // Compare ALL trips in an operational week before assigning an actual to
+  // one of them. Matching in declaration order could steal truck B's manifest
+  // for truck A, then incorrectly mark B pending.
+  const candidates = groups.flatMap((planned) =>
+    actuals.filter((actual) => weekStart(actual.date) === weekStart(planned.dispatchDate))
+      .map((actual) => ({
+        planned, actual, score: shipmentMatchScore(planned, actual, products),
+        distance: Math.abs(Date.parse(`${actual.date}T12:00:00Z`) -
+          Date.parse(`${planned.dispatchDate}T12:00:00Z`)),
+      }))
+      .filter((candidate) => {
+        if (candidate.score !== null) return candidate.score > 0;
+        // Older reports without a manifest have no SKU match signal. Accept
+        // only the unambiguous same-day one-trip / one-report case.
+        return candidate.distance === 0 &&
+          groups.filter((group) => group.dispatchDate === candidate.actual.date).length === 1 &&
+          actuals.filter((event) => event.date === candidate.actual.date).length === 1;
+      }),
+  ).sort((a, b) =>
+    (b.score ?? -1) - (a.score ?? -1) ||
+    a.distance - b.distance ||
+    a.planned.id.localeCompare(b.planned.id) ||
+    a.actual.id.localeCompare(b.actual.id),
+  );
+  const matched = new Map<string, ShipmentMatch>();
+  const usedActuals = new Set<string>();
+  for (const { planned, actual, score } of candidates) {
+    if (matched.has(planned.id) || usedActuals.has(actual.id)) continue;
+    matched.set(planned.id, {
+      planned, actual, score,
+      status: score === null || score >= threshold ? "matched" : "actual-different",
+    });
+    usedActuals.add(actual.id);
+  }
+  return groups.map((planned) =>
+    matched.get(planned.id) ?? { planned, score: null, status: "pending" });
 }
-
 
 export function pendingDeliveriesForReservationQueue(
   deliveries: DeliveryPlan[],
