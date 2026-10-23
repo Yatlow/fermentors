@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing';
-import { doc, runTransaction, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, runTransaction, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 
 const projectId = 'demo-fermentors';
 const rules = await fs.readFile('firestore.rules', 'utf8');
@@ -85,6 +85,47 @@ try {
     revision: 3, updatedAt: serverTimestamp(), updatedBy: 'unapproved',
   }));
   console.log('PASS shipment marking revision and access checks');
+  // Direct writes must not bypass the shared guard. An operator is free to
+  // create ordinary unmarked inventory, but marking it or shipping it needs
+  // the matching guard increment in the very same transaction.
+  const palletRef = doc(db, 'pallets', 'guard-test');
+  await setDoc(palletRef, {
+    zone: 'cooler', itemType: 'kegs', beerStyle: 'IPA',
+    quantity: 20, markedForShipment: false, autoReservationWeek: null,
+    autoReservationTruckId: null, updatedAt: serverTimestamp(),
+  });
+  await assertFails(updateDoc(palletRef, {
+    markedForShipment: true, updatedAt: serverTimestamp(),
+  }));
+  await runTransaction(db, async (tx) => {
+    const guardNow = await tx.get(guard);
+    const palletNow = await tx.get(palletRef);
+    if (!palletNow.exists()) throw new Error('test pallet missing');
+    tx.update(palletRef, { markedForShipment: true, updatedAt: serverTimestamp() });
+    tx.update(guard, {
+      revision: guardNow.data().revision + 1,
+      updatedAt: serverTimestamp(), updatedBy: uid,
+    });
+  });
+  await assertFails(updateDoc(palletRef, { quantity: 12, updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(palletRef, {
+    zone: 'shipped', markedForShipment: false, updatedAt: serverTimestamp(),
+  }));
+  await runTransaction(db, async (tx) => {
+    const guardNow = await tx.get(guard);
+    const palletNow = await tx.get(palletRef);
+    if (!palletNow.exists()) throw new Error('test pallet missing');
+    tx.update(palletRef, {
+      zone: 'shipped', markedForShipment: false,
+      updatedAt: serverTimestamp(),
+    });
+    tx.update(guard, {
+      revision: guardNow.data().revision + 1,
+      updatedAt: serverTimestamp(), updatedBy: uid,
+    });
+  });
+  console.log('PASS all marking and shipment transitions require same-transaction guard');
+
 } finally {
   await env.cleanup();
 }
