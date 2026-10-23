@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDocsFromServer,
+  getDocFromServer,
   query,
   runTransaction,
   serverTimestamp,
@@ -109,8 +110,15 @@ async function actualTempoShipmentsThisWeek(today: string): Promise<ActualQueueS
   const queryStart = Timestamp.fromDate(
     new Date(`${addDays(currentWeek, -1)}T00:00:00Z`),
   );
+  // Avoid scanning every historical/future shipment each time a pallet is
+  // created. The Jerusalem week is contained in this bounded UTC window.
+  const queryEnd = Timestamp.fromDate(
+    new Date(`${addDays(currentWeek, 8)}T00:00:00Z`),
+  );
   const snapshot = await getDocsFromServer(
-    query(collection(db, "shipments"), where("createdAt", ">=", queryStart)),
+    query(collection(db, "shipments"),
+      where("createdAt", ">=", queryStart),
+      where("createdAt", "<", queryEnd)),
   );
 
   return snapshot.docs.flatMap((item) => {
@@ -137,19 +145,17 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
   // necessarily planners. Read the restricted shipment projection instead of
   // the full planningWeeks documents (same pattern as brewPlanningQueue).
   const [snapshot, actualShipments] = await Promise.all([
-    getDocsFromServer(
-      query(collection(db, "shipmentPlanningQueue"), where("id", "==", activeReservationWeek(today)))
-    ),
+    getDocFromServer(doc(db, "shipmentPlanningQueue", activeReservationWeek(today))),
     actualTempoShipmentsThisWeek(today),
   ]);
 
-  let openDeliveries: DeliveryPlan[] = snapshot.docs.flatMap((snapshot) => {
-    const week = snapshot.data() as WeekPlan & { projectionVersion?: number };
-    // Ignore every legacy projection. Current queue documents are rewritten
-    // atomically with planningWeeks and explicitly carry projectionVersion=1.
-    if (week.projectionVersion !== 1) return [];
-    return (week.deliveries ?? []).filter((delivery) => delivery.quantity > 0);
-  });
+  const queue = snapshot.exists()
+    ? snapshot.data() as WeekPlan & { projectionVersion?: number }
+    : null;
+  // Only current queue projections are operationally authoritative.
+  let openDeliveries: DeliveryPlan[] = queue?.projectionVersion === 1
+    ? (queue.deliveries ?? []).filter((delivery) => delivery.quantity > 0)
+    : [];
 
   // Close actual shipments in-memory before choosing the next reservation.
   // This is deliberately independent of the planner-only queue write permission:
@@ -237,7 +243,13 @@ export async function reserveNewPalletsForNearestShipment(
   // someone taps "sync" several days earlier.
   const expiryCutoff = dispatchDate ?? today;
   const diagnostics: ShipmentReservationSyncResult["diagnostics"] = [];
-  const palletSnapshot = await getDocsFromServer(collection(db, "pallets"));
+  // Only operational zones can supply or hold a shipment reservation.
+  // Historical shipped pallets are retained for traceability elsewhere, not
+  // charged to every 5-minute planning synchronization.
+  const palletSnapshot = await getDocsFromServer(query(
+    collection(db, "pallets"),
+    where("zone", "in", ["cooler", "pending", "bottleRoom", "loadingDock"]),
+  ));
   const pallets = palletSnapshot.docs.map(
     (snapshot) => ({ id: snapshot.id, ...snapshot.data() }) as Pallet,
   );
