@@ -22,6 +22,7 @@ import {
 import { actualDate, actualUnits, matchesActual, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { GANTT_FUTURE_WEEKS, simulationWeeksForPage } from "../../SERVICES/planning/planningHorizon";
+import { simulatedGanttBrews } from "../../SERVICES/planning/ganttBrewProjection";
 import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { pendingPackagingDecisions } from "../../SERVICES/planning/packagingActuals";
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
@@ -286,13 +287,10 @@ export default function PlanningGantt(props: Props) {
           if (brewRecommendation.length) {
             workingPlan = {
               ...workingPlan,
-              brews: brewRecommendation.map((item, index) => ({
-                id: `gantt-rec-brew:${week}:${index}`,
-                style: item.style,
-                liters: item.liters,
-                tankId: "",
-                date: addDays(week, 1),
-              })),
+              // Hypothetical tank assignments are part of the *simulation*
+              // only. They are never saved to planningWeeks by paging the
+              // Gantt, but later forecast weeks now see those tanks occupied.
+              brews: simulatedGanttBrews(week, brewRecommendation),
             };
             upsertPlan(workingPlan);
             model = buildModel(week);
