@@ -112,7 +112,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     if (original) merged = mergeCompletedPackagingBack(original, merged, settings.products, actuals, productionTanks);
     const allWithEditedWeek = identityAlignedPlans.map((week) => week.id === merged.id ? merged : week);
     if (!allWithEditedWeek.some((week) => week.id === merged.id)) allWithEditedWeek.push(merged);
-    const canonical = withStablePackagingIdentity(allWithEditedWeek).find((week) => week.id === merged.id) ?? merged;
+    const canonical = withStablePackagingIdentity(allWithEditedWeek, tankNumbersById).find((week) => week.id === merged.id) ?? merged;
     // Warn only when this save introduces/changes a shipment decision.
     // A deliberate no-shipment week remains permitted.
     const shipmentDecisionChanged = JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? []);
@@ -120,7 +120,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     if ((shipmentDecisionChanged || packagingDecisionChanged) && !data.loading && readScope.pallets && readScope.actuals) {
       const nextPlans = identityAlignedPlans.filter((w) => w.id !== canonical.id).concat(canonical);
       const after = auditShipmentAvailability(settings, pallets, nextPlans, actuals, today, data.actualShipments);
-      const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today);
+      const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments);
       const newShortage = newlyWorsenedShipmentShortage(before, after);
       if (newShortage) throw new Error("לא ניתן לשמור משלוח ללא מלאי זמין: " + newShortage.message);
     }
