@@ -401,14 +401,19 @@ export default function PlanningWeeklyRecommendations({
         setBusy(true);
         setMessage("");
         try {
-            const date = addDays(week, 1);
             const truckId = editingTruckId ?? `truck:${week}:1`;
+            // Editing an existing truck changes its manifest, never its route date.
+            // The fallback to Monday is only for a genuinely new truck.
+            const originalTrip = groupPlannedShipments(current.deliveries ?? [])
+                .find((group) => group.id === truckId);
+            const date = originalTrip?.dispatchDate ?? addDays(week, 1);
+            const arrivalDate = originalTrip?.deliveries[0]?.arrivalDate ?? date;
             const otherDeliveries = (current.deliveries ?? []).filter(
                 (delivery) => (delivery.truckId || `date:${delivery.dispatchDate}`) !== truckId,
             );
             const editedDeliveries: DeliveryPlan[] = products.flatMap((p) => {
                 const quantity = Math.max(0, shipDraft[p.id] ?? 0);
-                return quantity ? [{ id: crypto.randomUUID(), productId: p.id, quantity, dispatchDate: date, arrivalDate: date, truckId, pallets: [] }] : [];
+                return quantity ? [{ id: crypto.randomUUID(), productId: p.id, quantity, dispatchDate: date, arrivalDate, truckId, pallets: [] }] : [];
             });
             const deliveries = [...otherDeliveries, ...editedDeliveries];
             await saveWeek({ ...current, deliveries, deliveryDates: [...new Set(deliveries.map((delivery) => delivery.dispatchDate))].sort(), changeReason: "עדכון החלטת משלוח שבועית" });
