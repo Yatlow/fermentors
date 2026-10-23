@@ -511,7 +511,9 @@ function buildBrewRecommendation(
   const schedules = projectTankSchedules(plans, settings, today, tanks);
   const releaseFitsCanonicalWindow = (release: (typeof capacityReleases)[number], style?: string) => {
     const candidateDate = release.date && release.date > week ? release.date : week;
-    if (candidateDate > weekEnd) return false;
+    // Weekly brewery shifts run Monday–Wednesday; a tank released on
+    // Thursday or later cannot support a brew in this operational week.
+    if (candidateDate > addDays(week, 3)) return false;
     const cycles = reconcilePhysicalCycleEmptying(
       schedules.get(release.tankId) ?? [],
       sources.find((source) => source.id === release.tankId),
