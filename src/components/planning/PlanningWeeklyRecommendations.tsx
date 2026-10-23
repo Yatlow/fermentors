@@ -217,12 +217,16 @@ export default function PlanningWeeklyRecommendations({
         try { return calcTruckSlots(manifest); } catch { return Infinity; }
     }
 
-    const shipmentDispatchDate = (productId: string) =>
-        (current.deliveries ?? [])
+    const shipmentDispatchDate = (productId: string) => {
+        const active = groupPlannedShipments(current.deliveries ?? [])
+            .find((group) => group.id === editingTruckId);
+        if (active) return active.dispatchDate;
+        return (current.deliveries ?? [])
             .filter((delivery) => delivery.productId === productId && delivery.quantity > 0)
             .map((delivery) => delivery.dispatchDate)
             .filter(Boolean)
             .sort()[0] ?? addDays(week, 1);
+    };
 
     const sameWeekPackagingQty = (p: Product) => {
         const dispatchDate = shipmentDispatchDate(p.id);
