@@ -636,7 +636,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                     ...(packagingDate ? { date: packagingDate } : {}),
                     tankId: physicalTankId,
                     tankNumber: String(tank.number),
-                    batchNumber: plannedBrew?.batchNumber ?? tank.batch,
+                    batchNumber: originalRun?.batchNumber ?? plannedBrew?.batchNumber ?? tank.batch,
                     ...(brewId ? { brewId } : {}),
                     ...(() => {
                         const source = row.source === "recommendation"
