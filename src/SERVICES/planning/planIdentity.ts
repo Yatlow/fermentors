@@ -64,7 +64,9 @@ export function brewById(plans: WeekPlan[], brewId: string): BrewPlan | null {
   return null;
 }
 
-export function withStablePackagingIdentity(plans: WeekPlan[]): WeekPlan[] {
+export function withStablePackagingIdentity(
+  plans: WeekPlan[], tankNumbersById: Readonly<Record<string, string | number>> = {},
+): WeekPlan[] {
   const source = plans.map((week) => ({
     ...week,
     packaging: (week.packaging ?? []).map((raw) => ({ ...raw })),
@@ -79,13 +81,17 @@ export function withStablePackagingIdentity(plans: WeekPlan[]): WeekPlan[] {
       if (!brewId) return run;
       const brew = brewById(source, brewId);
       if (!brew) return { ...run, brewId };
+      const tankMoved = !!run.tankId && !!brew.tankId && run.tankId !== brew.tankId;
+      const resolvedNumber = tankNumbersById[brew.tankId];
       return {
         ...run,
         brewId,
         tankId: brew.tankId,
-        // tankId is a Firestore document id, NOT the physical tank number.
-        // Preserve the operational number recorded at packaging time.
-        // Replacing it breaks reconciliation against packagingLog.tankNumber.
+        // The operational number comes from the physical tank, never the
+        // Firestore document id. Clear stale numbers after a brew moves if
+        // a fresh physical number has not been supplied.
+        ...(resolvedNumber != null ? { tankNumber: String(resolvedNumber) } :
+          tankMoved ? { tankNumber: undefined } : {}),
         ...(normalizedBatch(brew.batchNumber) ? { batchNumber: normalizedBatch(brew.batchNumber) } : {}),
       };
     }),
