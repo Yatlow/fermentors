@@ -244,6 +244,27 @@ service cloud.firestore {
         && request.resource.data.get('stylePlanning', {}) is map;
     }
 
+    // Serialize decisions which mark or auto-reserve physical pallets.
+    // This single revision record is updated in the same transaction as the
+    // pallet mutations, so concurrent clients cannot both commit from a
+    // snapshot that predates another device's reservation.
+    match /shipmentMarkingGuard/{guardId} {
+      allow get: if isApprovedUser() && guardId == 'active';
+      allow list: if false;
+      allow create: if isApprovedUser() && guardId == 'active'
+        && request.resource.data.keys().hasOnly(['revision', 'updatedAt', 'updatedBy'])
+        && request.resource.data.revision == 1
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if isApprovedUser() && guardId == 'active'
+        && request.resource.data.keys().hasOnly(['revision', 'updatedAt', 'updatedBy'])
+        && request.resource.data.revision is int
+        && request.resource.data.revision == resource.data.revision + 1
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
     match /shipmentPlanningQueue/{weekId} {
       allow read: if isApprovedUser();
       allow create, update: if isBreweryPlanner()
