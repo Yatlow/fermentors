@@ -1,5 +1,4 @@
 import { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM } from "./truckCapacity";
-import { getCatalogEntry } from "./PalletCatalog";
 import { nextShipmentMarkingRevision, shipmentMarkingGuardRef,
     shipmentMarkingGuardWrite } from "../planning/shipmentMarkingGuard";
 export { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM };
@@ -802,25 +801,12 @@ export async function createShipment(palletIds: string[], customerName?: string 
                 ? pallet.autoReservationTruckId : ""));
         const plannedTruckId = reservationIds.size === 1 &&
             !reservationIds.has("") ? [...reservationIds][0] : null;
-        const palletSnapshot = pallets.map((pallet) => {
-            const entry = getCatalogEntry(pallet.beerStyle, pallet.itemType);
-            return {
-                palletId: pallet.id,
-                beerStyle: pallet.beerStyle,
-                itemType: pallet.itemType,
-                quantity: pallet.quantity,
-                batchNumber: pallet.batchNumber ?? null,
-                expiryDateStr: pallet.expiryDateStr ?? null,
-                sku: entry?.sku ?? null,
-                description: entry?.displayText ?? null,
-            };
-        });
         const currentNumber = counterSnap.exists() ? Number(counterSnap.data().value) : 2389;
         if (!Number.isFinite(currentNumber)) throw new Error("מונה תעודות המשלוח אינו תקין");
         const nextNumber = currentNumber + 1;
         const shipmentRef = doc(db, SHIPMENTS_COLLECTION, String(nextNumber));
         tx.set(counterRef, { value: nextNumber }, { merge: true });
-        tx.set(shipmentRef, { shipmentNumber: nextNumber, palletIds: uniquePalletIds, palletSnapshot, totals: Array.from(totalsMap.values()), ...(plannedTruckId ? { plannedTruckId } : {}), sourceType: "pallets", customerName: customerName?.trim() || null, customerId: customerId?.trim() || null, createdAt: serverTimestamp() });
+        tx.set(shipmentRef, { shipmentNumber: nextNumber, palletIds: uniquePalletIds, totals: Array.from(totalsMap.values()), ...(plannedTruckId ? { plannedTruckId } : {}), sourceType: "pallets", customerName: customerName?.trim() || null, customerId: customerId?.trim() || null, createdAt: serverTimestamp() });
         palletRefs.forEach((ref) => tx.update(ref, { zone: "shipped", markedForShipment: false, autoReservationWeek: null, autoReservationTruckId: null, shippedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
         const guardVersion = Number(guardSnap.data()?.revision ?? 0);
         tx.set(guardRef, shipmentMarkingGuardWrite(
