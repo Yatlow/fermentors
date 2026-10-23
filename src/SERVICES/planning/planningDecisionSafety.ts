@@ -1,6 +1,6 @@
 import { type Actual, type Settings, type Tank, type WeekPlan } from "./planningEngine";
 import { futureTanks } from "./dailyPlanner";
-import { validatePlanningWeek } from "./planningValidation";
+import { planningWeekIssues } from "./planningValidation";
 import { validateBrewReleases, validateProduction, type TankSource } from "./productionCycle";
 
 /**
@@ -25,7 +25,10 @@ export function validatePlanningDecisionChange(args: {
   const { before, after, edited, previous, settings, tanks, sources, actuals, today } = args;
   const changed = (key: "deliveries" | "packaging" | "brews") =>
     JSON.stringify(previous?.[key] ?? []) !== JSON.stringify(edited[key] ?? []);
-  if (!changed("deliveries") && !changed("packaging") && !changed("brews")) return null;
+  const commitmentsChanged = changed("deliveries") || changed("packaging") || changed("brews");
+  const limitsChanged = edited.maxRuns !== previous?.maxRuns ||
+    edited.allowExceptions !== previous?.allowExceptions;
+  if (!commitmentsChanged && !limitsChanged) return null;
 
   const older = new Map((previous?.brews ?? []).map((brew) => [brew.id, brew]));
   for (const brew of edited.brews) {
@@ -40,8 +43,17 @@ export function validatePlanningDecisionChange(args: {
     ...edited,
     brews: edited.brews.filter((brew) => brew.date >= today),
   };
-  const weekError = validatePlanningWeek(activeEdited, settings, after, today);
-  if (weekError) return weekError;
+  // Compare the entire violation set. A historical failure on Monday must
+  // not hide a new violation on Tuesday when both share a common validator.
+  const beforeWeek = previous ? {
+    ...previous,
+    brews: previous.brews.filter((brew) => brew.date >= today),
+  } : { ...edited, deliveries: [], packaging: [], brews: [],
+    allowExceptions: false, maxRuns: settings.preferredRuns };
+  const existingErrors = new Set(planningWeekIssues(beforeWeek, settings, before, today));
+  const introduced = planningWeekIssues(activeEdited, settings, after, today)
+    .find((error) => !existingErrors.has(error));
+  if (introduced) return introduced;
 
   // Only dated production is a physical commitment. Evaluating the full
   // future horizon catches a week-45 packaging edit that removes the release
