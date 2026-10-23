@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
+import { validatePlanningDecisionChange } from "../../SERVICES/planning/planningDecisionSafety";
 import { auditShipmentAvailability, newlyWorsenedShipmentShortage } from "../../SERVICES/planning/shipmentAvailabilityAudit";
 import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
@@ -117,8 +118,13 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     // A deliberate no-shipment week remains permitted.
     const shipmentDecisionChanged = JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? []);
     const packagingDecisionChanged = JSON.stringify(original?.packaging ?? []) !== JSON.stringify(canonical.packaging ?? []);
+    const nextPlans = identityAlignedPlans.filter((w) => w.id !== canonical.id).concat(canonical);
+    const integrityError = validatePlanningDecisionChange({
+      before: identityAlignedPlans, after: nextPlans, edited: canonical, previous: original,
+      settings, tanks, sources: productionTanks, actuals, today,
+    });
+    if (integrityError) throw new Error("התכנון אינו ניתן לביצוע: " + integrityError);
     if ((shipmentDecisionChanged || packagingDecisionChanged) && !data.loading && readScope.pallets && readScope.actuals) {
-      const nextPlans = identityAlignedPlans.filter((w) => w.id !== canonical.id).concat(canonical);
       const after = auditShipmentAvailability(settings, pallets, nextPlans, actuals, today, data.actualShipments);
       const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments);
       const newShortage = newlyWorsenedShipmentShortage(before, after);
