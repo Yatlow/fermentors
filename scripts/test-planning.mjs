@@ -7,6 +7,7 @@ const output = mkdtempSync(join(tmpdir(), "brewery-planning-tests-"));
 try {
   const tests = [
     "planning-workflow",
+    "planning-integrity-audit",
     "shipment-picking-regression",
     "planning-weekly-regression",
     "planning-brew-assignment-draft",
