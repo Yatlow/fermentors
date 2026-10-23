@@ -17,6 +17,8 @@ export type ShipmentActualTotal = {
 
 export type DetailedShipmentEvent = ShipmentEvent & {
   shipmentNumber?: number;
+  /** Direct physical link when the shipment was dispatched from one auto-reserved truck. */
+  plannedTruckId?: string;
   totals?: ShipmentActualTotal[];
 };
 
@@ -102,8 +104,13 @@ export function shipmentMatchScore(
     overlap += Math.min(planned, sent);
     union += Math.max(planned, sent);
   }
-  // A manifest containing unknown SKUs is *not* a missing manifest.
-  // Treat it as zero overlap rather than allowing a date-only legacy match.
+  // Unexpected/unknown SKUs must count against matching confidence; they are
+  // not silently discarded merely because the settings catalog cannot map them.
+  const actualTotal = actual.totals.reduce((sum, line) =>
+    sum + Math.max(0, Number(line.totalQuantity) || 0), 0);
+  const recognized = products.reduce((sum, product) =>
+    sum + actualQuantity(actual, product), 0);
+  union += Math.max(0, actualTotal - recognized);
   return union > 0 ? overlap / union : 0;
 }
 
@@ -112,23 +119,30 @@ export function shipmentMatchScore(
  * Queue rows already use product ids/SKUs, so this version does not depend on a
  * settings snapshot and can run synchronously in the shipment completion flow.
  */
+export const MIN_TRIP_MATCH_CONFIDENCE = 0.85;
+
+/** Only unambiguously high-overlap reports can close an unlinked queue trip.
+ * A direct immutable trip reference takes precedence over heuristic scoring.
+ */
 export function completedShipmentQueueTruckId(
   deliveries: DeliveryPlan[],
   actualByProduct: Readonly<Record<string, number>>,
   shipmentDate: string,
+  explicitTruckId?: string | null,
 ): string | null {
   const groups = groupPlannedShipments(deliveries)
     .filter((group) => weekStart(group.dispatchDate) === weekStart(shipmentDate));
   if (!groups.length) return null;
+  if (explicitTruckId) {
+    return groups.some((group) => group.id === explicitTruckId) ? explicitTruckId : null;
+  }
 
   const actualKeys = Object.keys(actualByProduct);
   const ranked = groups.map((group) => {
     const planned = new Map<string, number>();
     group.deliveries.forEach((delivery) => {
-      planned.set(
-        delivery.productId,
-        (planned.get(delivery.productId) ?? 0) + Number(delivery.quantity || 0),
-      );
+      planned.set(delivery.productId, (planned.get(delivery.productId) ?? 0) +
+        Number(delivery.quantity || 0));
     });
     const keys = new Set([...planned.keys(), ...actualKeys]);
     let overlap = 0;
@@ -139,25 +153,32 @@ export function completedShipmentQueueTruckId(
       overlap += Math.min(expected, sent);
       union += Math.max(expected, sent);
     });
+    const manifest = [...planned.entries()].sort(([a], [b]) => a.localeCompare(b));
     return {
       group,
+      manifest: JSON.stringify(manifest),
       score: union > 0 ? overlap / union : null,
       distance: Math.abs(
         Date.parse(`${shipmentDate}T12:00:00Z`) -
         Date.parse(`${group.dispatchDate}T12:00:00Z`),
       ),
     };
-  });
-
-  ranked.sort((a, b) =>
+  }).sort((a, b) =>
     (b.score ?? -1) - (a.score ?? -1) ||
     a.distance - b.distance ||
     a.group.id.localeCompare(b.group.id),
   );
-  // A completely unrelated dispatch cannot prove that a planned trip left.
-  // Do not close and release its reservations on the basis of date proximity.
   const winner = ranked[0];
-  return winner && winner.score != null && winner.score > 0 ? winner.group.id : null;
+  if (!winner || winner.score === null ||
+      winner.score < MIN_TRIP_MATCH_CONFIDENCE) return null;
+  // A tied high-score *different manifest* is ambiguous. Identical manifests
+  // are exchangeable for stock planning, so keep the deterministic first trip.
+  if (ranked.some((candidate) =>
+    candidate.group.id !== winner.group.id &&
+    candidate.score !== null &&
+    Math.abs(candidate.score - winner.score!) < 1e-9 &&
+    candidate.manifest !== winner.manifest)) return null;
+  return winner.group.id;
 }
 
 export function matchActualShipments(
@@ -179,7 +200,10 @@ export function matchActualShipments(
           Date.parse(`${planned.dispatchDate}T12:00:00Z`)),
       }))
       .filter((candidate) => {
-        if (candidate.score !== null) return candidate.score > 0;
+        if (candidate.actual.plannedTruckId) {
+          return candidate.actual.plannedTruckId === candidate.planned.id;
+        }
+        if (candidate.score !== null) return candidate.score >= threshold;
         // Older reports without a manifest have no SKU match signal. Accept
         // only the unambiguous same-day one-trip / one-report case.
         return candidate.distance === 0 &&
@@ -196,6 +220,20 @@ export function matchActualShipments(
   const usedActuals = new Set<string>();
   for (const { planned, actual, score } of candidates) {
     if (matched.has(planned.id) || usedActuals.has(actual.id)) continue;
+    if (!actual.plannedTruckId && score !== null) {
+      const ties = candidates.filter((candidate) =>
+        candidate.actual.id === actual.id &&
+        candidate.planned.id !== planned.id &&
+        candidate.score !== null &&
+        Math.abs(candidate.score - score) < 1e-9);
+      const manifest = (group: PlannedShipmentGroup) => JSON.stringify(
+        group.deliveries.map((delivery) =>
+          [delivery.productId, delivery.quantity]).sort((a, b) =>
+          String(a[0]).localeCompare(String(b[0]))),
+      );
+      if (ties.some((candidate) =>
+        manifest(candidate.planned) !== manifest(planned))) continue;
+    }
     matched.set(planned.id, {
       planned, actual, score,
       status: score === null || score >= threshold ? "matched" : "actual-different",
