@@ -21,6 +21,8 @@ import {
 } from "./planningEngine";
 import { completedShipmentQueueTruckId } from "./shipmentActuals";
 import { automaticReservationDelta } from "./automaticReservationReconciliation";
+import { nextShipmentMarkingRevision, readShipmentMarkingRevision,
+  shipmentMarkingGuardRef, shipmentMarkingGuardWrite } from "./shipmentMarkingGuard";
 import { expiryIso, palletQuantity } from "./shipmentPicking";
 import { shipmentDecisionPickOptions } from "./shipmentDecisionPicking";
 import { autoReservationWeek, isDispatchInReservationWeek } from "./shipmentReservationWeek";
@@ -228,6 +230,7 @@ export async function reserveNewPalletsForNearestShipment(
   newPalletIds: string[] = [],
 ): Promise<ShipmentReservationSyncResult> {
   const today = dateKey(new Date());
+  const observedMarkingRevision = await readShipmentMarkingRevision();
   const planned = await nearestPlannedDelivery(today);
   const dispatchDate = planned[0]?.dispatchDate ?? null;
   // Picking must evaluate the stock at the promised dispatch date, not when
@@ -302,9 +305,13 @@ export async function reserveNewPalletsForNearestShipment(
   const idsToUpdate = new Set([...staleAutoIds, ...assignIds]);
   if (idsToUpdate.size > 0) {
     await runTransaction(db, async (tx) => {
+      const guardRef = shipmentMarkingGuardRef();
+      const guardSnap = await tx.get(guardRef);
       const allIds = [...idsToUpdate];
       const refs = allIds.map((id) => doc(db, "pallets", id));
       const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
+      const nextRevision = nextShipmentMarkingRevision(
+        Number(guardSnap.data()?.revision ?? 0), observedMarkingRevision);
 
       snapshots.forEach((snapshot, index) => {
         if (!snapshot.exists()) return;
@@ -339,6 +346,7 @@ export async function reserveNewPalletsForNearestShipment(
           updatedAt: serverTimestamp(),
         });
       });
+      tx.set(guardRef, shipmentMarkingGuardWrite(nextRevision));
     });
   }
 
