@@ -123,6 +123,14 @@ function srStackOrder_(p) {
   if (p.cellOrder != null) return Number(p.cellOrder);
   return null;
 }
+function srCanFitInTruck_(alreadyMarked, additional) {
+  try {
+    // The truck has 12 FLOOR places, not 12 pallets. Some pallets can stack.
+    return SharedShipmentPicking.calcTruckSlots(alreadyMarked.concat(additional)) <= 12;
+  } catch (e) {
+    return false;
+  }
+}
 function srBlockedInCell_(candidate, physical, selected) {
   if (!candidate.cell) return false;
   var order = srStackOrder_(candidate);
@@ -179,9 +187,9 @@ function srSaturdayReconcile_() {
   var staleIds = {};
   tagged.forEach(function(p) { staleIds[p.name] = true; });
   var selected = {};
-  var reservedSlots = pallets.filter(function(p) {
+  var manualReservedPallets = pallets.filter(function(p) {
     return p.markedForShipment && !staleIds[p.name] && p.zone !== "shipped";
-  }).length;
+  });
   Object.keys(lines).forEach(function(sku) {
     var matches = pallets.filter(function(p) {
       return p.zone !== "shipped" && Number(p.quantity) > 0 &&
@@ -206,15 +214,18 @@ function srSaturdayReconcile_() {
     if (missing <= 0 || !candidates.length) return;
     var options = SharedShipmentPicking.shipmentDecisionPickOptions(candidates, missing, size);
     var best = options.filter(function(o) {
-      return Number.isFinite(o.slots) && o.slots + reservedSlots <= 12;
+      var prior = manualReservedPallets.concat(Object.keys(selected).map(function(id) {
+        return selected[id];
+      }));
+      return Number.isFinite(o.slots) &&
+        srCanFitInTruck_(prior, o.selected || []);
     }).sort(function(a,b) {
       return a.missingNominal-b.missingNominal ||
         a.fefoScore-b.fefoScore || a.slots-b.slots || a.overage-b.overage;
     })[0];
     if (!best) return;
     (best.selected || []).forEach(function(p) { selected[p.name] = p; });
-    reservedSlots += best.slots;
-  });
+   });
   // Only changed documents are patched; retries after partial failure are safe.
   tagged.forEach(function(p) {
     if (!selected[p.name]) srPatch_(p, {markedForShipment:false, autoReservationWeek:null, autoReservationTruckId:null});
