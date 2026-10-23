@@ -36,3 +36,29 @@ test("GAS filters both existing auto marks and new FEFO candidates by the dispat
   const guards = body.match(/srExpiryEligible_\(p, dispatchCutoff\)/g) ?? [];
   assert.equal(guards.length, 2, "existing marks and new candidate pool both need the dispatch-date guard");
 });
+
+test("Saturday GAS validates 12 floor places with shared stack-aware capacity", () => {
+  const original = globals.SharedShipmentPicking;
+  const observed: number[] = [];
+  globals.SharedShipmentPicking = {
+    calcTruckSlots: (pallets: unknown[]) => {
+      observed.push(pallets.length);
+      // Simulate two stackable pallets per floor position.
+      return Math.ceil(pallets.length / 2);
+    },
+  };
+  try {
+    const canFit = globals.srCanFitInTruck_ as (
+      marked: unknown[], proposed: unknown[],
+    ) => boolean;
+    assert.equal(canFit(Array.from({ length: 11 }, (_, i) => ({ id: i })),
+      [{ id: 11 }, { id: 12 }]), true);
+    assert.equal(canFit(Array.from({ length: 24 }, (_, i) => ({ id: i })),
+      [{ id: 24 }]), false);
+    assert.deepEqual(observed, [13, 25], "floor capacity considers existing plus all candidate pallets");
+    const body = source.slice(source.indexOf("function srSaturdayReconcile_()"));
+    assert.match(body, /srCanFitInTruck_\(prior, o\.selected \|\| \[\]\)/);
+  } finally {
+    globals.SharedShipmentPicking = original;
+  }
+});
