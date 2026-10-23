@@ -382,12 +382,14 @@ export function usePlanning(
             );
         const queueIsCurrent =
           existing?.projectionVersion === 1 &&
-          Number(existing?.revision ?? 0) === Number(week.revision ?? 0) &&
+          Number(existing?.revision ?? 0) === Math.max(1, Number(week.revision) || 1) &&
           JSON.stringify(comparable(existingDeliveries)) === JSON.stringify(comparable(queueDeliveries));
         if (queueIsCurrent) return;
         tx.set(queueRef, {
           id: week.id,
-          revision: Number(week.revision ?? 0),
+          // Legacy planningWeeks records can predate revision metadata.
+          // The queue's Firestore rules require a positive revision.
+          revision: Math.max(1, Number(week.revision) || 1),
           projectionVersion: 1,
           deliveries: queueDeliveries,
           updatedAt: serverTimestamp(),
