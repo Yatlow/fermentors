@@ -102,7 +102,9 @@ export function shipmentMatchScore(
     overlap += Math.min(planned, sent);
     union += Math.max(planned, sent);
   }
-  return union > 0 ? overlap / union : null;
+  // A manifest containing unknown SKUs is *not* a missing manifest.
+  // Treat it as zero overlap rather than allowing a date-only legacy match.
+  return union > 0 ? overlap / union : 0;
 }
 
 /**
@@ -274,7 +276,11 @@ export function mergeCompletedDeliveriesBack(
   const completed = (original.deliveries ?? []).filter((delivery) =>
     completedGroupIds.has(delivery.truckId || `date:${delivery.dispatchDate}`),
   );
-  const deliveries = [...completed, ...(pendingEdited.deliveries ?? [])];
+  // Weekly editors can send the full original plan, including completed rows.
+  // Keep immutable completed trips exactly once; only append still-open edits.
+  const pending = (pendingEdited.deliveries ?? []).filter((delivery) =>
+    !completedGroupIds.has(delivery.truckId || `date:${delivery.dispatchDate}`));
+  const deliveries = [...completed, ...pending];
   return {
     ...pendingEdited,
     deliveries,
