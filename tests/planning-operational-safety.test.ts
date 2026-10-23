@@ -13,6 +13,7 @@ import {
 } from "../src/SERVICES/planning/shipmentActuals";
 import { auditShipmentAvailability } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
 import { validatePlanningDecisionChange } from "../src/SERVICES/planning/planningDecisionSafety";
+import { planningWeekIssues } from "../src/SERVICES/planning/planningValidation";
 import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
 import { selectTruck } from "../src/SERVICES/planning/truckPlanner";
 import { automaticReservationDelta } from "../src/SERVICES/planning/automaticReservationReconciliation";
@@ -263,4 +264,64 @@ test("the same pallet reassigned to another truck updates the tag instead of sta
   assert.deepEqual(delta.releaseIds, []);
   assert.deepEqual(delta.assignIds, ["one"]);
   assert.equal(delta.originalAuto.get("one")?.truckId, "truck-a");
+});
+
+test("planning forecasts the final displayed Gantt week all the way to Saturday", () => {
+  const result = dailyForecast(settings, [], [], [], [], today);
+  const lastDay = "2027-01-16"; // Saturday of the last +84-day week from 2026-10-18
+  assert.ok(result.points.some((p) => p.date === lastDay),
+    "the final displayed week cannot have a truncated six-day forecast");
+});
+
+test("weekly save collects all new violations even if earlier invalid history remains", () => {
+  const week = "2026-10-25";
+  const old = { ...emptyWeek(week), packaging: [
+    { id: "a", productId: ipa.id, quantity: 252, tankId: "tank-a", date: "2026-10-26" },
+  ] };
+  const revised = { ...old, packaging: [...old.packaging,
+    { id: "b", productId: ipa.id, quantity: 252, tankId: "tank-b", date: "2026-10-26" }] };
+  const violations = planningWeekIssues(revised, settings, [revised], "2026-10-23");
+  assert.ok(violations.some((x) => x.includes("2026-10-26") && x.includes("קיבולת")));
+  const err = validatePlanningDecisionChange({
+    before: [old], after: [revised], edited: revised, previous: old,
+    settings, tanks: [], sources: [], actuals: [], today: "2026-10-23",
+  });
+  assert.ok(err?.includes("קיבולת"), "capacity is blocked by the shared save path");
+});
+
+test("changing only the weekly run limit re-evaluates already assigned packaging", () => {
+  const old = { ...emptyWeek("2026-10-25"), maxRuns: 4, packaging: [
+    { id: "day-a", productId: ipa.id, quantity: 84, tankId: "t", date: "2026-10-26" },
+    { id: "day-b", productId: ipa.id, quantity: 84, tankId: "t", date: "2026-10-27" },
+  ] };
+  const revised = { ...old, maxRuns: 1 };
+  const err = validatePlanningDecisionChange({
+    before: [old], after: [revised], edited: revised, previous: old,
+    settings, tanks: [], sources: [], actuals: [], today: "2026-10-23",
+  });
+  assert.match(err ?? "", /ימי האריזה/);
+});
+
+test("a third truck needs an explicit weekly exception", () => {
+  const deliveries = ["a", "b", "c"].map((id, idx) => ({
+    id, truckId: id, productId: ipa.id, quantity: 84,
+    dispatchDate: "2026-10-26", arrivalDate: "2026-10-26", 
+  }));
+  const week = { ...emptyWeek("2026-10-25"), deliveries };
+  assert.match(planningWeekIssues(week, settings, [week], "2026-10-23").join(" "), /עד 2 משלוחים/);
+  assert.ok(!planningWeekIssues({ ...week, allowExceptions: true },
+    { ...settings, maxWeeklyDeliveries: 2 }, [week], "2026-10-23")
+    .some((issue) => issue.includes("עד 2 משלוחים")));
+});
+
+test("normal brewery shifts reject Sunday and Thursday but allow Monday–Wednesday", () => {
+  const week = { ...emptyWeek("2026-10-25"), brews: [
+    { id: "sunday", style: "IPA", tankId: "", liters: 1960, date: "2026-10-25" },
+    { id: "thursday", style: "IPA", tankId: "", liters: 1960, date: "2026-10-29" },
+  ] };
+  assert.equal(planningWeekIssues(week, settings, [week], "2026-10-23")
+    .filter((issue) => issue.includes("שני–רביעי")).length, 2);
+  assert.equal(planningWeekIssues({ ...week, allowExceptions: true },
+    settings, [week], "2026-10-23")
+    .filter((issue) => issue.includes("שני–רביעי")).length, 0);
 });
