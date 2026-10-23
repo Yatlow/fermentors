@@ -29,6 +29,7 @@ import { displayStyle, isCoreStyle, CORE_STYLES, formatPalletCount } from "../..
 import { projectedPallets } from "../../SERVICES/planning/truckPlanner";
 import { nominalPlanningUnits } from "../../SERVICES/planning/shipmentRecommendation";
 import { groupPlannedShipments, matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
+import { replaceShipmentTrip } from "../../SERVICES/planning/shipmentEdit";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import {
     brewLitersForSize,
@@ -401,21 +402,13 @@ export default function PlanningWeeklyRecommendations({
         setBusy(true);
         setMessage("");
         try {
-            const truckId = editingTruckId ?? `truck:${week}:1`;
-            // Editing an existing truck changes its manifest, never its route date.
-            // The fallback to Monday is only for a genuinely new truck.
-            const originalTrip = groupPlannedShipments(current.deliveries ?? [])
-                .find((group) => group.id === truckId);
-            const date = originalTrip?.dispatchDate ?? addDays(week, 1);
-            const arrivalDate = originalTrip?.deliveries[0]?.arrivalDate ?? date;
-            const otherDeliveries = (current.deliveries ?? []).filter(
-                (delivery) => (delivery.truckId || `date:${delivery.dispatchDate}`) !== truckId,
-            );
-            const editedDeliveries: DeliveryPlan[] = products.flatMap((p) => {
-                const quantity = Math.max(0, shipDraft[p.id] ?? 0);
-                return quantity ? [{ id: crypto.randomUUID(), productId: p.id, quantity, dispatchDate: date, arrivalDate, truckId, pallets: [] }] : [];
+            const deliveries = replaceShipmentTrip({
+                deliveries: current.deliveries ?? [],
+                truckId: editingTruckId ?? `truck:${week}:1`,
+                defaultDate: addDays(week, 1),
+                products, draft: shipDraft,
+                createId: () => crypto.randomUUID(),
             });
-            const deliveries = [...otherDeliveries, ...editedDeliveries];
             await saveWeek({ ...current, deliveries, deliveryDates: [...new Set(deliveries.map((delivery) => delivery.dispatchDate))].sort(), changeReason: "עדכון החלטת משלוח שבועית" });
             setEditing(null);
             setMessage(`${slots > 0 && slots < MAX_TRUCK_SLOTS ? `נשמר משלוח חלקי ${slots}/${MAX_TRUCK_SLOTS}.` : "החלטת המשלוח נשמרה."}${packagingDependent ? " ⚠️ חלק מהמלאי ייארז באותו שבוע." : ""}`);
