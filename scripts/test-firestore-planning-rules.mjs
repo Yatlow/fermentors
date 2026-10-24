@@ -237,12 +237,13 @@ try {
       throw new Error('unexpected edited-week revision');
     const next = {
       ...current.data(), note: 'wide fence tested', revision: 4,
+      oversizeTruckApprovals: ['2026-09-28::approved-truck'],
       updatedAt: serverTimestamp(), updatedBy: uid,
     };
     tx.set(planningWeekRef, next);
     tx.set(doc(planningWeekRef, 'revisions', '4'), next);
   });
-  console.log('PASS full 25-week Firestore transaction and atomic revision commit');
+  console.log('PASS full 25-week Firestore transaction and atomic revision commit with explicit truck-capacity approval');
 
   // A distinct week created by another device cannot be ignored when this
   // editor still believes its planning horizon contains an absent document.
