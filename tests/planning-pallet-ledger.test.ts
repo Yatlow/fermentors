@@ -164,6 +164,34 @@ test("twelve nominal slots made from twenty-four half pallets MUST flag truck ov
     "42-crate pallets are 111cm tall; 24 cannot stack within 12 floor positions");
 });
 
+test("FEFO replacement stock never masks an expired explicitly pinned dispatch pallet", () => {
+  const old = pallet("pinned-expired", 84, "19/10/2026");
+  const substitute = pallet("valid-not-assigned", 84, "31/12/2026");
+  const plan = { ...shipment(84), deliveries: [{
+    ...shipment(84).deliveries[0], dispatchDate: "2026-10-20",
+    arrivalDate: "2026-10-20", pallets: [old],
+  }] };
+  const issues = auditShipmentAvailability(settings, [old, substitute],
+    [plan], [], today);
+  assert.ok(issues.some((issue) =>
+    issue.productId === "pallet:pinned-expired" && issue.severity === "blocking"),
+  "a different valid FEFO pallet cannot secretly replace an expired assignment");
+});
+
+test("a pinned pallet edited from 84 to 42 crates fails even with unrelated valid inventory", () => {
+  const originallyPinned = pallet("pinned", 84);
+  const changed = pallet("pinned", 42);
+  const substitute = pallet("other-full", 84);
+  const plan = { ...shipment(84), deliveries: [{
+    ...shipment(84).deliveries[0], pallets: [originallyPinned],
+  }] };
+  const issues = auditShipmentAvailability(settings, [changed, substitute],
+    [plan], [], today);
+  assert.ok(issues.some((issue) =>
+    issue.productId === "pallet:pinned" && issue.severity === "blocking"),
+  "indivisible physical picks require exact quantities");
+});
+
 test("Tempo opening balance credits only 30 physically shippable crates, not 84 planned", () => {
   const noSales = { ...settings, products: [{ ...product, monthly: 0 }] };
   const physical = [pallet("partial", 30)];
