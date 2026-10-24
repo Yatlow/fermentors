@@ -45,6 +45,42 @@ export function auditShipmentAvailability(
   const physicallySelectedTrucks = new Map<string, Pallet[]>();
   const horizon = addDays(weekStart(today), 91);
 
+  // A planner may explicitly pin physical pallets to a future truck. The FEFO
+  // quantity ledger cannot silently replace that saved pallet with a different
+  // SKU-equivalent pallet: the chosen one might expire, be removed or shrink
+  // before dispatch. Such a manifest is not physically executable unchanged.
+  const liveById = new Map(pallets.map((pallet) => [pallet.id, pallet]));
+  for (const week of pending) {
+    for (const delivery of week.deliveries ?? []) {
+      if (delivery.dispatchDate < today || delivery.dispatchDate > horizon) continue;
+      const product = settings.products.find((p) => p.id === delivery.productId);
+      for (const assigned of delivery.pallets ?? []) {
+        // Virtual future production is assessed by the dated packaging ledger,
+        // not by looking for a nonexistent physical pallet today.
+        if (assigned.id.startsWith("planning:")) continue;
+        const live = liveById.get(assigned.id);
+        const valid = !!live && !!product &&
+          live.itemType === product.type &&
+          live.beerStyle === assigned.beerStyle &&
+          live.itemType === assigned.itemType &&
+          Number(live.quantity) >= Number(assigned.quantity) &&
+          !!parseDate(live.expiryDateStr) &&
+          parseDate(live.expiryDateStr)! >= delivery.dispatchDate &&
+          (!live.autoReservationTruckId ||
+            live.autoReservationTruckId ===
+              String(delivery.truckId || `date:${delivery.dispatchDate}`));
+        if (!valid) {
+          issues.push({
+            week: week.id, date: delivery.dispatchDate,
+            productId: `pallet:${assigned.id}`, missing: 1,
+            severity: "blocking",
+            message: `משלוח ${delivery.dispatchDate}: המשטח המשויך ${assigned.palletNumber ?? assigned.id} אינו קיים בכמות, בסגנון, בתוקף או בשיוך הנדרשים. אין להחליפו אוטומטית במשטח אחר ללא אישור.`,
+          });
+        }
+      }
+    }
+  }
+
   for (const product of settings.products) {
     const unitPerPallet = size(product);
     const lots: ForecastPalletLot[] = productPallets(product, pallets).flatMap((pallet) => {
