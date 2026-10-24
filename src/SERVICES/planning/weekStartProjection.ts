@@ -75,7 +75,8 @@ export function buildWeekStartProjection(args: {
         delivery.quantity > 0 && delivery.dispatchDate >= today &&
         delivery.dispatchDate < week)
       .map((delivery) => ({ date: delivery.dispatchDate, kind: "ship" as const,
-        qty: delivery.quantity, arrivalDate: delivery.arrivalDate }));
+        qty: delivery.quantity, arrivalDate: delivery.arrivalDate,
+        pallets: delivery.pallets }));
     const packagingBeforeWeek = packEvents.reduce((sum, event) => sum + event.qty, 0);
     const shipmentsBeforeWeek = shipmentEvents.reduce((sum, event) => sum + event.qty, 0);
     const events = [...packEvents, ...shipmentEvents].sort((a, b) =>
@@ -96,7 +97,7 @@ export function buildWeekStartProjection(args: {
         // projected receipt is bounded by the physically available units,
         // not by the optimistic planned manifest. Respect arrival/transit.
         const consumed = dispatchForecastPallets(
-          physicalLots, event.qty, unitsPerPallet, event.date);
+          physicalLots, event.qty, unitsPerPallet, event.date, event.pallets);
         if (event.arrivalDate < week) {
           forecastReceipts.push({
             date: event.arrivalDate,
