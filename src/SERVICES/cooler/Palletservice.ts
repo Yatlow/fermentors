@@ -3,6 +3,7 @@ import { nextShipmentMarkingRevision, shipmentMarkingGuardRef,
     shipmentMarkingGuardWrite } from "../planning/shipmentMarkingGuard";
 import { dateKey, weekStart } from "../planning/planningEngine";
 import { isDispatchTripInQueue } from "../planning/shipmentDispatchIdentity";
+import { validatePhysicalShipmentLoad } from "./shipmentDispatchSafety";
 export { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM };
 import {
     collection,
@@ -797,6 +798,9 @@ export async function createShipment(
             if (pallet.zone === "shipped") throw new Error(`המשטח ${pallet.id} כבר נשלח`);
             return pallet;
         });
+        // A banner in React is not a physical safety gate. Recheck all
+        // current pallet documents atomically at dispatch time.
+        validatePhysicalShipmentLoad(pallets, dispatchDay);
         const totalsMap = new Map<string, { itemType: string; beerStyle: string; totalQuantity: number }>();
         pallets.forEach((pallet) => {
             const key = `${pallet.itemType}__${pallet.beerStyle}`;
