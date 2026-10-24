@@ -101,6 +101,32 @@ test("metadata-only weekly saves avoid 25-document fence without weakening opera
     "sensitive changes still read the full, bounded 25-week window");
 });
 
+test("one specifically approved oversize truck does not unlock other trucks or packaging limits", () => {
+  const first = { id: "oversize-1", productId: ipa.id, quantity: 13 * 84,
+    dispatchDate: "2026-10-26", arrivalDate: "2026-10-26", truckId: "A" };
+  const second = { id: "oversize-2", productId: ipa.id, quantity: 13 * 84,
+    dispatchDate: "2026-10-27", arrivalDate: "2026-10-27", truckId: "B" };
+  const base = { ...emptyWeek("2026-10-25"), deliveries: [first, second] };
+  assert.ok(planningWeekIssues(base, settings, [base], "2026-10-22")
+    .some((message) => message.includes("נדרשים 13 מקומות")));
+  const approvedOne = { ...base, oversizeTruckApprovals: ["2026-10-26::A"] };
+  assert.ok(planningWeekIssues(approvedOne, settings, [approvedOne], "2026-10-22")
+    .some((message) => message.includes("2026-10-27")),
+    "approving A does not silently approve B");
+  const approvedBoth = { ...base, oversizeTruckApprovals: ["2026-10-26::A", "2026-10-27::B"] };
+  assert.ok(!planningWeekIssues(approvedBoth, settings, [approvedBoth], "2026-10-22")
+    .some((message) => message.includes("מקומות")),
+    "both approved physical trips can be saved as exceptional plans");
+  assert.equal(planningRequiresCrossWeekFence(base, approvedOne), true,
+    "capacity approval changes planning operations and must remain transaction-fenced");
+  const illegalPackaging = { ...approvedBoth, packaging: [{
+    id: "too-much", productId: ipa.id, quantity: 253, date: "2026-10-28",
+  }] };
+  assert.ok(planningWeekIssues(illegalPackaging, settings, [illegalPackaging], "2026-10-22")
+    .some((message) => message.includes("קיבולת 252")),
+    "truck capacity approval never grants an unrelated packaging exception");
+});
+
 test("one of two same-day dispatches leaves one real open trip", () => {
   const matches = matchActualShipments(twoTrips.deliveries, [oneActual], settings.products);
   assert.equal(matches.filter((match) => match.status === "pending").length, 1);
