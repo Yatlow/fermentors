@@ -80,6 +80,8 @@ export type WeekPlan = {
   /** Historical recommendation snapshots captured when a planner saves a decision. */
   recommendationEvidence?: import("./recommendationAudit").RecommendationEvidence[];
   allowExceptions?: boolean;
+  /** Explicit planner approvals for truck floor-slot overages, scoped by dispatch date and truck ID. */
+  oversizeTruckApprovals?: string[];
 };
 export type Actual = {
   id: string;
