@@ -10,6 +10,7 @@ try {
     "planning-integrity-audit",
     "planning-operational-safety",
     "planning-cross-system",
+    "planning-invariants",
     "planning-pallet-ledger",
     "planning-gas-reconciliation",
     "shipment-picking-regression",
