@@ -258,6 +258,26 @@ export function completedShipmentQueueTruckId(
   }]).find((match) => match.status !== "pending")?.planned.id ?? null;
 }
 
+/**
+ * A physical Tempo departure with no confident trip link means the truck may
+ * already be gone. Never repick new pallets for another still-open trip on
+ * that same dispatch date until the operator reconciles the shipment.
+ */
+export function hasUnmatchedPhysicalDepartureForToday(
+  matches: ShipmentManifestMatch[],
+  actuals: ShipmentManifestEvent[],
+  today: string,
+): boolean {
+  const attached = new Set(matches.flatMap((match) =>
+    match.actual?.id ? [match.actual.id] : []));
+  const pendingDays = new Set(matches
+    .filter((match) => match.status === "pending")
+    .map((match) => match.planned.dispatchDate));
+  return actuals.some((actual) =>
+    !attached.has(actual.id) &&
+    actual.date <= today && pendingDays.has(actual.date));
+}
+
 export function matchActualShipments(
   deliveries: DeliveryPlan[],
   actualEvents: ShipmentEvent[],
