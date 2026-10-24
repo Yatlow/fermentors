@@ -118,6 +118,15 @@ test("physical dispatch rejects 13 full loading positions even if UI is bypassed
     /12 מקומות/);
 });
 
+test("actual physical dispatch rejects 25 short pallets with the two-high loading rule", () => {
+  const shortPallets = Array.from({ length: 25 }, (_, index) =>
+    pallet(`short-${index}`, 12));
+  assert.throws(() => validatePhysicalShipmentLoad(shortPallets, "2026-10-24"),
+    /12 מקומות/, "low height does not authorize stacking three pallets per floor slot");
+  const legal = shortPallets.slice(0, 24);
+  assert.equal(validatePhysicalShipmentLoad(legal, "2026-10-24"), 12);
+});
+
 test("physical dispatch rejects expired, missing expiry, wrong zone and invalid quantity", () => {
   assert.throws(() => validatePhysicalShipmentLoad([pallet("expired", 84, "01/10/2026")],
     "2026-10-24"), /תאריך התפוגה/);
