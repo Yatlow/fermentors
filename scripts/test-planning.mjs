@@ -9,6 +9,7 @@ try {
     "planning-workflow",
     "planning-integrity-audit",
     "planning-operational-safety",
+    "planning-long-range-15-scenarios",
     "planning-cross-system",
     "planning-invariants",
     "planning-pallet-ledger",
