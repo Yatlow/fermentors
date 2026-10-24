@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { weekIsClosed, withSpecialTotals } from "./planningPresentation";
 import { planningQueryEnd } from "./planningHorizon";
+import { planningSaveFenceConflict, planningSaveFenceWeekIds } from "./planningSaveFence";
 import { shipmentHistoryStart } from "./planningReadCoverage";
 import { isPhysicalTempoShipment } from "./planningTempoShipmentFilter";
 import {
@@ -460,8 +461,30 @@ export function usePlanning(
         throw new Error(
           "השבוע נסגר לתכנון בתחילת יום שישי. ניתן לצפות בו בלבד.",
         );
-      const ref = doc(db, collectionName, id),
-        snap = await tx.get(ref);
+      const ref = doc(db, collectionName, id);
+      // Keep the pre-save, multi-week validation true at transaction commit.
+      // Both clients can otherwise validate against the same old stock, then
+      // save DIFFERENT weeks successfully, double-booking a tank or pallet.
+      // Reading every week including missing ones serializes concurrent
+      // cross-week creations as well as edits. No extra Firestore writes.
+      if (collectionName === "planningWeeks") {
+        const siblingIds = planningSaveFenceWeekIds(today).filter((weekId) => weekId !== id);
+        const expectedSettingsRevision = settings.revision ?? 0;
+        const settingsRef = doc(db, "planningSettings", "main");
+        const siblingSnaps = await Promise.all(siblingIds.map((weekId) =>
+          tx.get(doc(db, "planningWeeks", weekId))));
+        const settingsSnap = await tx.get(settingsRef);
+        if ((settingsSnap.data()?.revision ?? 0) !== expectedSettingsRevision)
+          throw new Error("הגדרות התכנון השתנו במכשיר אחר. יש לרענן ולאמת מחדש את התכנון.");
+        const changedWeek = planningSaveFenceConflict(plans,
+          siblingSnaps.map((snapshot, index) => ({
+            id: siblingIds[index],
+            revision: snapshot.exists() ? Number(snapshot.data()?.revision ?? 0) : null,
+          })), id);
+        if (changedWeek)
+          throw new Error(`שבוע ${changedWeek} עודכן במכשיר אחר. יש לרענן ולאמת מחדש את ההשלכות על שאר השבועות.`);
+      }
+      const snap = await tx.get(ref);
       if ((snap.data()?.revision ?? 0) !== value.revision)
         throw new Error(
           "התכנון עודכן במכשיר אחר. סגור את העריכה ופתח מחדש כדי לקבל את העדכון.",
