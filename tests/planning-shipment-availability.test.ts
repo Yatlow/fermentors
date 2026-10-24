@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defaultSettings, emptyWeek, type Product } from "../src/SERVICES/planning/planningEngine";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
-import { auditShipmentAvailability, newlyWorsenedShipmentShortage } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
+import { auditShipmentAvailability, classifyPlanningShortageIncreases, describePlanningShortageIncrease, newlyWorsenedShipmentShortage, newlyWorsenedShipmentShortages } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
 import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
 
 const today = "2026-10-15";
@@ -78,6 +78,53 @@ test("saving earlier week after later week blocks if it invalidates later shipme
   assert.equal(worsened?.missing, 1);
 });
 
+test("future-week shortage creates an actionable SKU/date/delta warning rather than a forced block", () => {
+  const before = auditShipmentAvailability(settings, [pallet("one")], [laterShipment()], [], today);
+  const after = auditShipmentAvailability(settings, [pallet("one")],
+    [earlierShipment(), laterShipment()], [], today);
+  const increases = newlyWorsenedShipmentShortages(before, after);
+  assert.equal(increases.length, 1);
+  assert.equal(increases[0].issue.week, "2026-10-25");
+  assert.equal(increases[0].addedSlots, 1);
+  assert.equal(increases[0].addedUnits, 84);
+  const decision = classifyPlanningShortageIncreases(increases, "2026-10-18");
+  assert.equal(decision.blocking.length, 0);
+  assert.equal(decision.confirmable.length, 1, "the planner may explicitly accept a later-week deficit");
+  const warning = describePlanningShortageIncrease(decision.confirmable[0], settings.products);
+  assert.match(warning, /2026-10-25/);
+  assert.match(warning, /2026-10-26/);
+  assert.match(warning, /IPA/);
+  assert.match(warning, /1 מקומות/);
+  assert.match(warning, /84 יחידות/);
+});
+
+test("new deficit in current week remains blocking; missing pinned physical pallet cannot be waived", () => {
+  const sameWeek = { issue: { week: "2026-10-18", date: "2026-10-19",
+    productId: p.id, missing: 1, message: "missing", severity: "blocking" as const },
+    addedSlots: 1, addedUnits: 84, totalSlots: 1, totalUnits: 84 };
+  const pinnedLater = { issue: { week: "2026-10-25", date: "2026-10-26",
+    productId: "pallet:missing-id", missing: 1, message: "pinned missing",
+    severity: "blocking" as const },
+    addedSlots: 1, addedUnits: 0, totalSlots: 1, totalUnits: 0 };
+  const { blocking, confirmable } = classifyPlanningShortageIncreases(
+    [sameWeek, pinnedLater], "2026-10-18");
+  assert.equal(blocking.length, 2);
+  assert.equal(confirmable.length, 0);
+});
+
+test("two same-day trucks have one accurate aggregated increase rather than repeated warnings", () => {
+  const before = [{ week: "2026-10-25", date: "2026-10-26",
+    productId: p.id, missing: 1, missingUnits: 84,
+    severity: "blocking" as const, message: "old missing pallet" }];
+  const after = [...before, { ...before[0], message: "second truck", missing: 1, missingUnits: 84 }];
+  const increases = newlyWorsenedShipmentShortages(before, after);
+  assert.equal(increases.length, 1);
+  assert.equal(increases[0].addedSlots, 1);
+  assert.equal(increases[0].totalSlots, 2);
+  assert.equal(increases[0].addedUnits, 84);
+  assert.equal(increases[0].totalUnits, 168);
+});
+ 
 test("saving earlier week does not block when both shipments have physical coverage", () => {
   const physical = [pallet("a25"), pallet("a26")];
   const before = auditShipmentAvailability(settings, physical, [laterShipment()], [], today);
