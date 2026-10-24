@@ -43,8 +43,8 @@ test("Saturday GAS validates 12 floor places with shared stack-aware capacity", 
   globals.SharedShipmentPicking = {
     calcTruckSlots: (pallets: unknown[]) => {
       observed.push(pallets.length);
-      // Simulate two stackable pallets per floor position.
-      return Math.ceil(pallets.length / 2);
+      // Simulate four very short pallets per floor position (height-limited).
+      return Math.ceil(pallets.length / 4);
     },
   };
   try {
@@ -53,9 +53,9 @@ test("Saturday GAS validates 12 floor places with shared stack-aware capacity", 
     ) => boolean;
     assert.equal(canFit(Array.from({ length: 11 }, (_, i) => ({ id: i })),
       [{ id: 11 }, { id: 12 }]), true);
-    assert.equal(canFit(Array.from({ length: 24 }, (_, i) => ({ id: i })),
-      [{ id: 24 }]), false);
-    assert.deepEqual(observed, [13, 25], "floor capacity considers existing plus all candidate pallets");
+    assert.equal(canFit(Array.from({ length: 48 }, (_, i) => ({ id: i })),
+      [{ id: 48 }]), false);
+    assert.deepEqual(observed, [13, 49], "floor capacity considers existing plus all candidate pallets");
     const body = source.slice(source.indexOf("function srSaturdayReconcile_()"));
     assert.match(body, /srCanFitInTruck_\(prior, o\.selected \|\| \[\]\)/);
   } finally {
