@@ -6,7 +6,7 @@ import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanning
 import { validatePlanningDecisionChange } from "../../SERVICES/planning/planningDecisionSafety";
 import { planningReadRequirements } from "../../SERVICES/planning/planningReadCoverage";
 import { pendingStockExecutionPlans } from "../../SERVICES/planning/planningStockExecution";
-import { auditShipmentAvailability, newlyWorsenedShipmentShortage } from "../../SERVICES/planning/shipmentAvailabilityAudit";
+import { auditShipmentAvailability, describePlanningShortageIncrease, newlyWorsenedShipmentShortages } from "../../SERVICES/planning/shipmentAvailabilityAudit";
 import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
@@ -135,8 +135,24 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     if ((shipmentDecisionChanged || packagingDecisionChanged) && !data.loading && readScope.pallets && readScope.actuals) {
       const after = auditShipmentAvailability(settings, pallets, nextPlans, actuals, today, data.actualShipments);
       const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments);
-      const newShortage = newlyWorsenedShipmentShortage(before, after);
-      if (newShortage) throw new Error("לא ניתן לשמור משלוח ללא מלאי זמין: " + newShortage.message);
+      const increases = newlyWorsenedShipmentShortages(before, after);
+      const nonOverridable = increases.find(({ issue }) =>
+        issue.week <= canonical.id || issue.productId.startsWith("pallet:") || issue.productId.startsWith("truck:"));
+      if (nonOverridable) {
+        throw new Error("לא ניתן לשמור חוסר חדש בשבוע הנערך או שיבוץ משטח/משאית בלתי תקינים: " +
+          describePlanningShortageIncrease(nonOverridable, settings.products));
+      }
+      const futureShortages = increases.filter(({ issue }) => issue.week > canonical.id);
+      if (futureShortages.length) {
+        const description = futureShortages.map((increase) =>
+          "• " + describePlanningShortageIncrease(increase, settings.products)).join("\\n");
+        const accepted = window.confirm(
+          "⚠️ שינוי זה ייצור או יגדיל חוסר במשלוחים בשבועות מאוחרים:\\n\\n" +
+          description +
+          "\\n\\nאפשר לשמור את התכנון, אך המשלוחים המפורטים יישארו בלתי מכוסים עד שתעודכן תוכנית האריזה או המלאי.\\n\\nלאשר שמירה למרות החוסרים?"
+        );
+        if (!accepted) throw new Error("השמירה בוטלה בעקבות חוסרים עתידיים. לא בוצע שינוי.");
+      }
     }
     const priorWeekId = addDays(canonical.id, -7);
     const priorWeek = identityAlignedPlans.find((week) => week.id === priorWeekId);
@@ -146,7 +162,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       const accepted = window.confirm(
         `שים לב: מתוכנן משלוח בשבוע ${canonical.id}, אך בשבוע הקודם (${priorWeekId}) אין משלוח מתוכנן.\\nייתכן שהוחמץ שבוע בתכנון.\\n\\nהאם לשמור בכל זאת?`
       );
-      if (!accepted) return;
+      if (!accepted) throw new Error("השמירה בוטלה לבקשתך. לא בוצע שינוי.");
     }
     const changed: RecommendationKind[] = [];
     if (JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? [])) changed.push("shipment");
@@ -198,7 +214,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   return (
     <section className="brew-planning" dir="rtl">
       {availabilityIssues.length > 0 && <div role="alert" className="bp-alert" style={{ padding: 12, marginBottom: 12 }}>
-        <strong>⚠️ בדיקת מלאי למשלוחים: {availabilityIssues.filter((issue) => issue.severity !== "partial").length} חוסרי משטחים, {availabilityIssues.filter((issue) => issue.severity === "partial").length} פערי כמות במשטחים חלקיים</strong>
+        <strong>⚠️ בדיקת משלוחים: {availabilityIssues.filter((issue) => !issue.severity || issue.severity === "blocking").length} חסימות, {availabilityIssues.filter((issue) => issue.severity === "partial").length} פערי כמות, {availabilityIssues.filter((issue) => issue.severity === "advisory").length} חריגות קיבולת שאושרו בתכנון</strong>
         <ul>{availabilityIssues.map((issue) => <li key={`${issue.week}:${issue.date}:${issue.productId}:${issue.severity ?? "blocking"}`}>שבוע {issue.week} · {issue.message}</li>)}</ul>
       </div>}
       {data.loading && !data.error && <div role="status"><BeerLoader message="טוען את לוח העבודה…" /></div>}
