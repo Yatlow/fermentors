@@ -145,11 +145,11 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       const futureShortages = increases.filter(({ issue }) => issue.week > canonical.id);
       if (futureShortages.length) {
         const description = futureShortages.map((increase) =>
-          "• " + describePlanningShortageIncrease(increase, settings.products)).join("\\n");
+          "• " + describePlanningShortageIncrease(increase, settings.products)).join("\n");
         const accepted = window.confirm(
-          "⚠️ שינוי זה ייצור או יגדיל חוסר במשלוחים בשבועות מאוחרים:\\n\\n" +
+          "⚠️ שינוי זה ייצור או יגדיל חוסר במשלוחים בשבועות מאוחרים:\n\n" +
           description +
-          "\\n\\nאפשר לשמור את התכנון, אך המשלוחים המפורטים יישארו בלתי מכוסים עד שתעודכן תוכנית האריזה או המלאי.\\n\\nלאשר שמירה למרות החוסרים?"
+          "\n\nאפשר לשמור את התכנון, אך המשלוחים המפורטים יישארו בלתי מכוסים עד שתעודכן תוכנית האריזה או המלאי.\n\nלאשר שמירה למרות החוסרים?"
         );
         if (!accepted) throw new Error("השמירה בוטלה בעקבות חוסרים עתידיים. לא בוצע שינוי.");
       }
