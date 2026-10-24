@@ -254,6 +254,25 @@ export function newlyWorsenedShipmentShortages(
   });
 }
 
+/**
+ * Only downstream SKU quantity/slot shortfalls may be saved after explicit
+ * acknowledgement. Bad pallet identity, unsafe unapproved truck loading, and
+ * a new shortfall in the edited week remain blocking safety errors.
+ */
+export function classifyPlanningShortageIncreases(
+  increases: readonly PlanningShortageIncrease[],
+  editedWeekId: string,
+): { blocking: PlanningShortageIncrease[]; confirmable: PlanningShortageIncrease[] } {
+  const unsafe = (increase: PlanningShortageIncrease) =>
+    increase.issue.week <= editedWeekId ||
+    increase.issue.productId.startsWith("pallet:") ||
+    increase.issue.productId.startsWith("truck:");
+  return {
+    blocking: increases.filter(unsafe),
+    confirmable: increases.filter((increase) => !unsafe(increase)),
+  };
+}
+
 /** Human-readable specificity used in the planner's pre-save confirmation. */
 export function describePlanningShortageIncrease(
   increase: PlanningShortageIncrease,
