@@ -63,6 +63,14 @@ test("Saturday GAS validates 12 floor places with shared stack-aware capacity", 
   }
 });
 
+test("GAS auto-picker counts real units, requests physical fill and honors stacked truck capacity", () => {
+  const body = source.slice(source.indexOf("function srSaturdayReconcile_()"));
+  assert.match(body, /already = matches\.filter/);
+  assert.match(body, /\.reduce\(function\(sum,p\) \{ return sum \+ Math\.max\(0,Number\(p\.quantity\)\|\|0\); \},0\)/);
+  assert.match(body, /shipmentDecisionPickOptions\(candidates, missing, size, true\)/);
+  assert.match(body, /srCanFitInTruck_\(prior, o\.selected \|\| \[\]\)/);
+});
+
 test("Saturday GAS submits pallet releases and reservations in one atomic guarded commit", () => {
   const previousFetch = globals.srFetch_;
   const previousRoot = globals.srRoot_;
