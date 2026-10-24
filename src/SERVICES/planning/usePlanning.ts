@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { weekIsClosed, withSpecialTotals } from "./planningPresentation";
 import { planningQueryEnd } from "./planningHorizon";
-import { planningSaveFenceConflict, planningSaveFenceWeekIds } from "./planningSaveFence";
+import { planningRequiresCrossWeekFence, planningSaveFenceConflict, planningSaveFenceWeekIds } from "./planningSaveFence";
 import { shipmentHistoryStart } from "./planningReadCoverage";
 import { isPhysicalTempoShipment } from "./planningTempoShipmentFilter";
 import {
@@ -467,7 +467,11 @@ export function usePlanning(
       // save DIFFERENT weeks successfully, double-booking a tank or pallet.
       // Reading every week including missing ones serializes concurrent
       // cross-week creations as well as edits. No extra Firestore writes.
-      if (collectionName === "planningWeeks") {
+      // Pure note/recommendation-label saves cannot change capacity and avoid
+      // the 24 sibling + settings reads; operational edits remain fully fenced.
+      if (collectionName === "planningWeeks" &&
+          planningRequiresCrossWeekFence(
+            plans.find((week) => week.id === id), value as WeekPlan)) {
         const siblingIds = planningSaveFenceWeekIds(today).filter((weekId) => weekId !== id);
         const expectedSettingsRevision = settings.revision ?? 0;
         const settingsRef = doc(db, "planningSettings", "main");
