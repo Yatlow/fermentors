@@ -107,18 +107,47 @@ test("one 42-crate partial pallet still gives a visible 42-unit advisory", () =>
   assert.equal(issues[0].missingUnits, 42);
 });
 
-test("three partial pallets are never split between two consecutive trips", () => {
+test("three partial pallets never overdispatch 90 units for an 84-unit plan", () => {
   const lots: ForecastPalletLot[] = [
     { id: "a", expiry: "2026-10-26", quantity: 30 },
     { id: "b", expiry: "2026-10-27", quantity: 30 },
     { id: "c", expiry: "2026-10-28", quantity: 30 },
   ];
   const first = dispatchForecastPallets(lots, 84, 84, "2026-10-19");
-  assert.equal(first.shippedPhysical, 90);
-  assert.equal(first.missingUnits, 0);
-  assert.equal(lots.length, 0);
+  assert.equal(first.shippedPhysical, 60, "never ship a third entire pallet above the planned 84");
+  assert.equal(first.missingUnits, 24);
+  assert.equal(lots.length, 1);
+  assert.equal(lots[0].quantity, 30, "unshipped physical inventory is conserved");
   const next = dispatchForecastPallets(lots, 84, 84, "2026-10-20");
-  assert.equal(next.missingUnits, 84);
+  assert.equal(next.shippedPhysical, 30);
+  assert.equal(next.missingUnits, 54);
+});
+
+test("FEFO cannot silently consume a later 84-crate pallet on top of an earlier 42", () => {
+  const lots: ForecastPalletLot[] = [
+    { id: "older-half", expiry: "2026-10-26", quantity: 42 },
+    { id: "later-full", expiry: "2026-11-26", quantity: 84 },
+  ];
+  const first = dispatchForecastPallets(lots, 84, 84, "2026-10-19");
+  assert.equal(first.shippedPhysical, 42);
+  assert.equal(first.missingUnits, 42);
+  assert.deepEqual(lots.map((lot) => lot.id), ["later-full"],
+    "a larger whole pallet is not silently loaded as an unrecorded over-delivery");
+  const second = dispatchForecastPallets(lots, 84, 84, "2026-10-20");
+  assert.equal(second.shippedPhysical, 84);
+  assert.equal(second.missingUnits, 0);
+});
+
+test("same expiry subset chooses 50+34 instead of greedy 60 out of 84", () => {
+  const lots: ForecastPalletLot[] = [
+    { id: "large", expiry: "2026-11-26", quantity: 60 },
+    { id: "medium", expiry: "2026-11-26", quantity: 50 },
+    { id: "small", expiry: "2026-11-26", quantity: 34 },
+  ];
+  const shipment = dispatchForecastPallets(lots, 84, 84, "2026-10-19");
+  assert.equal(shipment.shippedPhysical, 84);
+  assert.deepEqual(shipment.selectedLots.map((lot) => lot.id), ["medium", "small"]);
+  assert.deepEqual(lots.map((lot) => lot.id), ["large"]);
 });
 
 test("twelve nominal slots made from twenty-four half pallets MUST flag truck overload", () => {
