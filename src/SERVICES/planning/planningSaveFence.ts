@@ -49,7 +49,7 @@ export function planningRequiresCrossWeekFence(
   if (!previous) return true;
   const operationalFields = [
     "packaging", "brews", "deliveries", "deliveryDates", "maxRuns",
-    "allowExceptions", "calendarEvents", "calendarNotes",
+    "allowExceptions", "oversizeTruckApprovals", "calendarEvents", "calendarNotes",
   ] as const;
   // Calendar metadata is persisted by the UI's extended WeekPlan shape.
   // Keep the pure helper compatible with the core WeekPlan type while still
