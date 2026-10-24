@@ -20,7 +20,7 @@ import { automaticReservationDelta } from "../src/SERVICES/planning/automaticRes
 import { replaceShipmentTrip } from "../src/SERVICES/planning/shipmentEdit";
 import { packagingLimit } from "../src/SERVICES/planning/productionCycle";
 import { validateBrewReleaseIssues, validateProductionIssues } from "../src/SERVICES/planning/productionCycle";
-import { planningSaveFenceConflict, planningSaveFenceWeekIds } from "../src/SERVICES/planning/planningSaveFence";
+import { planningRequiresCrossWeekFence, planningSaveFenceConflict, planningSaveFenceWeekIds } from "../src/SERVICES/planning/planningSaveFence";
 
 const today = "2026-10-18";
 const ipa: Product = {
@@ -70,6 +70,35 @@ test("cross-week save fence includes prior, current, future and absent weeks", (
   assert.equal(planningSaveFenceConflict(before, [
     ...snapshot, { id: "2026-10-25", revision: 6 },
   ], "2026-10-25"), null, "the edited week has its own version check");
+});
+
+test("metadata-only weekly saves avoid 25-document fence without weakening operational edits", () => {
+  const previous = emptyWeek("2026-10-25");
+  assert.equal(planningRequiresCrossWeekFence(previous, {
+    ...previous, note: "הערת מתכנן", changeReason: "שינוי הערה",
+    dismissedRecommendations: ["optional-note"],
+  }), false, "notes and dismissal alone cannot reserve stock or a tank");
+  assert.equal(planningRequiresCrossWeekFence(previous, {
+    ...previous, deliveries: [{
+      id: "delivery", productId: ipa.id, quantity: 84,
+      dispatchDate: "2026-10-26", arrivalDate: "2026-10-26",
+    }],
+  }), true, "real shipments require the full concurrency fence");
+  assert.equal(planningRequiresCrossWeekFence(previous, {
+    ...previous, packaging: [{
+      id: "pack", productId: ipa.id, quantity: 84, date: "2026-10-27",
+    }],
+  }), true, "packaging may release a downstream tank and stock");
+  assert.equal(planningRequiresCrossWeekFence(previous, {
+    ...previous, maxRuns: 3,
+  }), true, "capacity rules remain fully fenced");
+  assert.equal(planningRequiresCrossWeekFence(previous, {
+    ...previous, calendarEvents: [{ id: "shift", date: "2026-10-26" }],
+  } as WeekPlan), true, "calendar events are not assumed to be cosmetic");
+  assert.equal(planningRequiresCrossWeekFence(undefined, previous), true,
+    "new week creation is always protected");
+  assert.equal(planningSaveFenceWeekIds("2026-10-24").length, 25,
+    "sensitive changes still read the full, bounded 25-week window");
 });
 
 test("one of two same-day dispatches leaves one real open trip", () => {
