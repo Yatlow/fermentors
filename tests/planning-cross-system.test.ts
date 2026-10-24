@@ -49,7 +49,9 @@ test("Stock and Review never skip the same real Tempo receipts required by Gantt
 });
 
 test("a two-week-old Tempo snapshot receives all later physical receipts once", () => {
-  const settings = { ...defaultSettings(), products: [ipa] };
+  // Isolate shipment replay from sales; inventory depletion is covered
+  // separately by the chronology invariants.
+  const settings = { ...defaultSettings(), products: [{ ...ipa, monthly: 0 }] };
   const actuals = [
     { id: "older", date: "2026-10-12",
       totals: [{ itemType: "crates", beerStyle: "IPA", totalQuantity: 84 }] },
@@ -59,7 +61,7 @@ test("a two-week-old Tempo snapshot receives all later physical receipts once", 
   assert.equal(settingsAfterActualShipments(settings, actuals, "2026-10-24")
     .products[0].tempo, 226);
   const newSnapshot = { ...defaultSettings(), products: [
-    { ...ipa, tempo: 50, tempoDate: "2026-10-18" },
+    { ...ipa, monthly: 0, tempo: 50, tempoDate: "2026-10-18" },
   ] };
   assert.equal(settingsAfterActualShipments(newSnapshot, actuals, "2026-10-24")
     .products[0].tempo, 92, "October 12 was already in the explicit count");
