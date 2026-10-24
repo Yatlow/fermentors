@@ -17,6 +17,6 @@ export function pendingStockExecutionPlans(
   return pendingPlansAfterActualShipments(plans, actualShipments, products)
     .map((week) => ({
       ...week,
-      packaging: pendingPackagingDecisions(week, products, packagingReports, sources),
+      packaging: pendingPackagingDecisions(week, products, packagingReports, sources, plans),
     }));
 }
