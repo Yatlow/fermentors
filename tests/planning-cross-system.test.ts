@@ -8,6 +8,7 @@ import {
   shipmentActualManifestFromTotals, shipmentManifestScore,
   matchShipmentManifests, matchActualShipments,
   hasUnmatchedPhysicalDepartureForToday, settingsAfterActualShipments,
+  forecastablePlansAfterActualShipments, pendingPlansAfterActualShipments,
 } from "../src/SERVICES/planning/shipmentActuals";
 import { planningReadRequirements, shipmentHistoryStart } from
   "../src/SERVICES/planning/planningReadCoverage";
@@ -153,4 +154,35 @@ test("usable physical stock cannot include expired or unknown-expiry pallets", (
   const stock = [pallet("valid", "31/12/2026"), pallet("expired", "01/10/2026"),
     pallet("unknown")];
   assert.equal(usableInventory(ipa, stock, "2026-10-24").brewery, 84);
+});
+
+test("unlinked same-day physical departure remains pending for review but is NOT dispatched twice in forecasts", () => {
+  const week = { ...emptyWeek("2026-10-18"), deliveries: planned };
+  const actuals = [{
+    id: "physical-unlinked", date: "2026-10-19",
+    totals: [
+      { itemType: "crates" as const, beerStyle: "IPA", totalQuantity: 10 },
+      { itemType: "crates" as const, beerStyle: "חיטה", totalQuantity: 74 },
+    ],
+  }];
+  assert.equal(pendingPlansAfterActualShipments([week], actuals, products)[0]
+    .deliveries?.length, 1, "the operator still needs to reconcile the trip");
+  assert.equal(forecastablePlansAfterActualShipments([week], actuals, products,
+    "2026-10-19")[0].deliveries?.length, 0,
+    "an unresolved departure cannot consume stock or credit Tempo again in forecasts");
+  assert.equal(forecastablePlansAfterActualShipments([week], actuals, products,
+    "2026-10-18")[0].deliveries?.length, 1,
+    "tomorrow's trip is not quarantined by a future receipt");
+});
+
+test("two planned trucks on different days are not both quarantined by one unlinked receipt", () => {
+  const week = { ...emptyWeek("2026-10-18"), deliveries: [
+    ...planned, delivery("b", "truck-b", wheat.id, 84, "2026-10-20"),
+  ] };
+  const actual = [{ id: "unlinked", date: "2026-10-19",
+    totals: [{ itemType: "crates" as const, beerStyle: "unknown",
+      totalQuantity: 100 }] }];
+  const forecast = forecastablePlansAfterActualShipments([week], actual,
+    products, "2026-10-20");
+  assert.deepEqual(forecast[0].deliveries?.map((d) => d.truckId), ["truck-b"]);
 });
