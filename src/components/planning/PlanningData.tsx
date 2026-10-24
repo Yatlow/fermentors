@@ -55,7 +55,8 @@ export default function PlanningData({ mode, settings, today, disabled, save }: 
                 ...draft,
                 lossPercent: 10,
                 deliveryTransitDays: 0,
-                products: draft.products.map((p) => stockTouched.includes(p.id) ? { ...p, tempoDate: today } : p),
+                products: draft.products.map((p) => stockTouched.includes(p.id)
+                    ? { ...p, tempoDate: today, tempoSnapshotAt: new Date().toISOString() } : p),
             };
             await save(next);
             const saved = { ...next, revision: next.revision + 1 };
