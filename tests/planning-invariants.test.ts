@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tempoInventoryAt } from "../src/SERVICES/planning/tempoInventoryTimeline";
 import { openRuns } from "../src/SERVICES/planning/dailyPlanner";
+import { pendingStockExecutionPlans } from "../src/SERVICES/planning/planningStockExecution";
 import { matchActualShipments, settingsAfterActualShipments } from "../src/SERVICES/planning/shipmentActuals";
 import { validatePhysicalShipmentLoad } from "../src/SERVICES/cooler/shipmentDispatchSafety";
 import { defaultSettings, emptyWeek, type Product } from "../src/SERVICES/planning/planningEngine";
@@ -127,4 +128,25 @@ test("physical dispatch rejects expired, missing expiry, wrong zone and invalid 
     "2026-10-24"), /כמות/);
   assert.doesNotThrow(() => validatePhysicalShipmentLoad([pallet("okay", 84)],
     "2026-10-24"));
+});
+
+test("Stock tasks cannot count one cross-week physical packaging report twice", () => {
+  const p = { ...stock, tempo: null };
+  const earlier = { ...emptyWeek("2026-10-25"), packaging: [{
+    id: "first-run", productId: p.id, quantity: 60,
+    tankNumber: "4", batchNumber: "1640", date: "2026-10-26",
+  }] };
+  const later = { ...emptyWeek("2026-11-01"), packaging: [{
+    id: "second-run", productId: p.id, quantity: 40,
+    tankNumber: "4", batchNumber: "1640", date: "2026-11-02",
+  }] };
+  const actuals = [{
+    id: "physical-pack", date: "2026-10-29", beerStyle: "IPA",
+    packagingType: "bottles", unit: "ארגזים",
+    tankNumber: "4", batchNumber: "1640", quantity: 70,
+  }];
+  const remaining = pendingStockExecutionPlans([later, earlier], [p], actuals, [], []);
+  assert.deepEqual(remaining.map((week) =>
+    [week.id, week.packaging.map((run) => run.quantity)]),
+    [["2026-11-01", [30]], ["2026-10-25", []]]);
 });
