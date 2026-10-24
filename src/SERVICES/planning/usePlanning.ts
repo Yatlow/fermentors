@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { weekIsClosed, withSpecialTotals } from "./planningPresentation";
 import { planningQueryEnd } from "./planningHorizon";
 import { shipmentHistoryStart } from "./planningReadCoverage";
+import { isPhysicalTempoShipment } from "./planningTempoShipmentFilter";
 import {
   collection,
   doc,
@@ -111,13 +112,6 @@ export function jerusalemDateKey(date: Date): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-function isTempoCustomer(customerId: unknown, customerName: unknown) {
-  if (typeof customerId === "string" && customerId.trim()) {
-    return customerId.trim().toLowerCase() === "tempo";
-  }
-  const customer = String(customerName ?? "").trim();
-  return /טמפו|tempo/i.test(customer);
-}
 
 export function usePlanning(
   today: string,
@@ -260,7 +254,7 @@ export function usePlanning(
         setActualShipments(
           snap.docs.flatMap((item) => {
             const data = item.data();
-            if (!isTempoCustomer(data.customerId, data.customerName)) return [];
+            if (!isPhysicalTempoShipment(data)) return [];
             const date = data.createdAt?.toDate?.();
             return date ? [{
               id: item.id,
