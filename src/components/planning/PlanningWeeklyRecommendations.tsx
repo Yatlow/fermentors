@@ -427,7 +427,7 @@ export default function PlanningWeeklyRecommendations({
                 .filter((key) => !oldTripKeys.has(key));
             const editedTrip = deliveries.find((d) =>
                 (d.truckId || `date:${d.dispatchDate}`) === (editingTruckId ?? `truck:${week}:1`));
-            const approval = slots > MAX_TRUCK_SLOTS && approveOversizeTruck && editedTrip
+            const approval = approveOversizeTruck && editedTrip
                 ? truckPlanningGroupKey(editedTrip) : null;
             const oversizeTruckApprovals = [...new Set([
                 ...retainedApprovals, ...(approval ? [approval] : []),
