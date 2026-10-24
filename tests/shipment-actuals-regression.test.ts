@@ -27,7 +27,10 @@ test("actual shipments are added to Tempo forecast after the last stock snapshot
     totals: [{ itemType: "crates", beerStyle: "IPA", totalQuantity: 84 }],
   } as any], "2026-09-14");
 
-  assert.equal(next.products[0].tempo, 184);
+  // Four days of sales occur between the old stock count and receipt.
+  // The correct current balance is 100 - 4*(420/4.2/7) + 84.
+  assert.ok(Math.abs(next.products[0].tempo! -
+    (100 - 4 * (420 / 4.2 / 7) + 84)) < 1e-8);
 });
 
 test("shipment is not added twice when Tempo snapshot is newer than the shipment", () => {
