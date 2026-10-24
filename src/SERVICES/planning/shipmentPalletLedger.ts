@@ -32,8 +32,9 @@ export function addForecastPackaging(
 }
 
 /** A physical departure removes whole pallets in FEFO order.
- * A partial pallet consumes a loading position, even when its physical units
- * are not enough to fulfil an order's nominal quantity. For equal expiry,
+ * A partial pallet consumes a loading position. Picking may require MORE
+ * physical positions than the nominal pallet count to fulfill actual units.
+ * For equal expiry,
  * choose the fullest pallet to avoid avoidable partial-unit shortfalls.
  */
 export function dispatchForecastPallets(
@@ -48,15 +49,24 @@ export function dispatchForecastPallets(
   if (!Number.isFinite(quantity) || quantity <= 0 || unitsPerPallet <= 0) {
     return { missingSlots: 0, missingUnits: 0, shippedPhysical: 0, provisionalPallets: 0 };
   }
-  const needSlots = Math.ceil(quantity / unitsPerPallet);
+  const nominalSlots = Math.ceil(quantity / unitsPerPallet);
   lots.sort((a, b) =>
     a.expiry.localeCompare(b.expiry) ||
     b.quantity - a.quantity ||
     a.id.localeCompare(b.id));
-  const selected = lots.splice(0, needSlots);
-  const shippedPhysical = selected.reduce((sum, lot) => sum + lot.quantity, 0);
+  // Nominal pallet slots are a LOWER bound, not a cap on picking. Two
+  // half-full pallets can satisfy 84 crates using two physical positions.
+  // Consume intact FEFO pallets until physical UNITS meet the manifest or
+  // real stock runs out. Never reuse either partial pallet downstream.
+  const selected: ForecastPalletLot[] = [];
+  let shippedPhysical = 0;
+  while (lots.length > 0 && shippedPhysical + 0.00001 < quantity) {
+    const next = lots.shift()!;
+    selected.push(next);
+    shippedPhysical += next.quantity;
+  }
   return {
-    missingSlots: Math.max(0, needSlots - selected.length),
+    missingSlots: Math.max(0, nominalSlots - selected.length),
     missingUnits: Math.max(0, quantity - shippedPhysical),
     shippedPhysical,
     provisionalPallets: selected.filter((lot) => lot.provisional).length,
