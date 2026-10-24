@@ -774,7 +774,7 @@ export async function createPallets(input: { itemType: PalletItemType; beerStyle
 
 export async function createShipment(
     palletIds: string[], customerName?: string | null, customerId?: string | null,
-    explicitPlannedTruckId?: string | null,
+    explicitPlannedTruckId?: string | null | false,
 ): Promise<string> {
     const uniquePalletIds = [...new Set(palletIds.filter(Boolean))];
     if (uniquePalletIds.length === 0) throw new Error("לא נבחרו משטחים למשלוח");
@@ -821,7 +821,10 @@ export async function createShipment(
             pallet.autoReservationTruckId !== explicitPlannedTruckId);
         if (conflictingAutomatic)
             throw new Error("המשטחים מסומנים לנסיעה שונה מזו שנבחרה; יש לתקן את הסימון לפני משלוח");
-        let plannedTruckId: string | null = tempoCustomer
+        // false means the operator explicitly selected 'unlinked'. Do not
+        // override that decision with old auto-marked pallet metadata.
+        const explicitlyUnlinked = explicitPlannedTruckId === false;
+        let plannedTruckId: string | null = tempoCustomer && !explicitlyUnlinked
             ? explicitPlannedTruckId || inferredTruckId : null;
         if (plannedTruckId) {
             // Verify the UI choice against the live transaction snapshot. An
