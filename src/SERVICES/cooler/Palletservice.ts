@@ -17,7 +17,7 @@ import {
     getCountFromServer,
     getDocsFromServer,
 } from "firebase/firestore";
-import { db } from "../../firebase";
+import { auth, db } from "../../firebase";
 import {
     calcHeightCm,
     MAX_CRATES_PER_PALLET,
@@ -830,12 +830,36 @@ export async function createShipment(
                 plannedTruckId = null;
             }
         }
+        // Claim the same planned physical truck at most once across ALL devices.
+        // The queue can still be stale for a moment after the first dispatch;
+        // this immutable claim closes that race in the shipment transaction.
+        const claimRef = plannedTruckId
+            ? doc(db, "shipmentTripClaims",
+                encodeURIComponent(`${weekStart(dispatchDay)}|${plannedTruckId}`))
+            : null;
+        if (claimRef) {
+            const existingClaim = await tx.get(claimRef);
+            if (existingClaim.exists()) {
+                throw new Error("לנסיעה המתוכננת הזו כבר נוצרה תעודת משלוח. יש לבחור נסיעה אחרת או לטפל בדוח הקיים.");
+            }
+        }
         const currentNumber = counterSnap.exists() ? Number(counterSnap.data().value) : 2389;
         if (!Number.isFinite(currentNumber)) throw new Error("מונה תעודות המשלוח אינו תקין");
         const nextNumber = currentNumber + 1;
         const shipmentRef = doc(db, SHIPMENTS_COLLECTION, String(nextNumber));
         tx.set(counterRef, { value: nextNumber }, { merge: true });
         tx.set(shipmentRef, { shipmentNumber: nextNumber, palletIds: uniquePalletIds, totals: Array.from(totalsMap.values()), ...(plannedTruckId ? { plannedTruckId } : {}), sourceType: "pallets", customerName: customerName?.trim() || null, customerId: customerId?.trim() || null, createdAt: serverTimestamp() });
+        if (claimRef) {
+            const uid = auth.currentUser?.uid;
+            if (!uid) throw new Error("נדרש חיבור משתמש לצורך שיוך נסיעה");
+            tx.set(claimRef, {
+                plannedTruckId,
+                dispatchDate: dispatchDay,
+                shipmentNumber: nextNumber,
+                createdAt: serverTimestamp(),
+                createdBy: uid,
+            });
+        }
         palletRefs.forEach((ref) => tx.update(ref, { zone: "shipped", markedForShipment: false, autoReservationWeek: null, autoReservationTruckId: null, shippedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
         const guardVersion = Number(guardSnap.data()?.revision ?? 0);
         tx.set(guardRef, shipmentMarkingGuardWrite(
