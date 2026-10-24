@@ -2,8 +2,6 @@ import { calcHeightCm, type Pallet } from "./Pallettypes ";
 
 export const MAX_TRUCK_SLOTS = 12;
 export const MAX_TRUCK_HEIGHT_CM = 190;
-/** A truck floor position may contain at most two physical pallets. */
-export const MAX_PALLETS_PER_TRUCK_SLOT = 2;
 
 export function calcTruckSlots(
     pallets: Pallet[]
@@ -20,7 +18,7 @@ export function calcTruckSlots(
     // כל מקום במשאית מתחיל כ"מקום" ריק.
     // בכל מקום אפשר לשים משטח אחד או לערום
     // משטח נוסף, כל עוד הגובה הכולל <= 190.
-    const slots: Array<{ height: number; palletCount: number }> = [];
+    const slots: number[] = [];
 
     for (const height of heights) {
         // אם המשטח עצמו גבוה מדי למשאית
@@ -43,10 +41,9 @@ export function calcTruckSlots(
             i++
         ) {
             const newHeight =
-                slots[i].height + height;
+                slots[i] + height;
 
             if (
-                slots[i].palletCount < MAX_PALLETS_PER_TRUCK_SLOT &&
                 newHeight <=
                 MAX_TRUCK_HEIGHT_CM
             ) {
@@ -67,10 +64,9 @@ export function calcTruckSlots(
         }
 
         if (bestSlotIndex >= 0) {
-            slots[bestSlotIndex].height += height;
-            slots[bestSlotIndex].palletCount += 1;
+            slots[bestSlotIndex] += height;
         } else {
-            slots.push({ height, palletCount: 1 });
+            slots.push(height);
         }
     }
 
