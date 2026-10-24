@@ -85,7 +85,7 @@ const matching = (products: Product[], style: string, type: Product["type"]) => 
 };
 /** Four-week rolling occupancy and packaging volume never use random guessing. */
 const countFor = (w: number, phase: number) => 1 + ((w + phase) % 4);
-const largeCountFor = (count: number) => count === 3 ? 2 : 1;
+const largeCountFor = (count: number) => count === 2 || count === 3 ? 2 : 1;
 function allocateFullCycle(cycle: SimCycle, products: Product[]): Array<{ product: Product; quantity: number }> {
   const kegs = matching(products, cycle.style, "kegs");
   if (cycle.tankNumber < 9) {
@@ -111,7 +111,7 @@ function allocateFullCycle(cycle: SimCycle, products: Product[]): Array<{ produc
 
 function buildSimulation(seed: number): Simulation {
   const random = rng(0x5f3759df ^ (seed * 1103515245));
-  const phase = seed % 3; // avoid week-zero needing three of only two free small tanks
+  const phase = seed % 4; // rotate all four weekly production intensities
   const products = productsFor(seed);
   const settings = {
     ...defaultSettings(), products,
@@ -133,7 +133,7 @@ function buildSimulation(seed: number): Simulation {
   const openLarge = [...largeTankNumbers];
 
   // Ten genuinely occupied mature tanks feed the first four weeks; seven
-  // more start clean. Week 0–3 demand exactly five small + five large tanks.
+  // more start clean. Week 0–3 demand exactly four small + six large tanks.
   for (let w = 0; w < 4; w++) {
     const count = countFor(w, phase);
     const large = largeCountFor(count);
