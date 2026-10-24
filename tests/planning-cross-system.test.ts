@@ -12,6 +12,8 @@ import {
 } from "../src/SERVICES/planning/shipmentActuals";
 import { planningReadRequirements, shipmentHistoryStart } from
   "../src/SERVICES/planning/planningReadCoverage";
+import { isPhysicalTempoShipment } from
+  "../src/SERVICES/planning/planningTempoShipmentFilter";
 import { pendingStockExecutionPlans } from "../src/SERVICES/planning/planningStockExecution";
 import { plannedTripsForDispatchDay, isDispatchTripInQueue } from
   "../src/SERVICES/planning/shipmentDispatchIdentityCore";
@@ -185,4 +187,19 @@ test("two planned trucks on different days are not both quarantined by one unlin
   const forecast = forecastablePlansAfterActualShipments([week], actual,
     products, "2026-10-20");
   assert.deepEqual(forecast[0].deliveries?.map((d) => d.truckId), ["truck-b"]);
+});
+
+test("paper-only Tempo invoice cannot close or hold a physical shipment trip", () => {
+  assert.equal(isPhysicalTempoShipment({
+    sourceType: "manual", customerId: "tempo",
+    totals: [], manualLines: [{ sku: "ipa-crates", quantity: 84 }],
+  }), false);
+  assert.equal(isPhysicalTempoShipment({
+    sourceType: "pallets", customerId: "tempo",
+    totals: [{ itemType: "crates", beerStyle: "IPA", totalQuantity: 84 }],
+  }), true);
+  assert.equal(isPhysicalTempoShipment({
+    sourceType: "pallets", customerName: "אחר",
+    totals: [{ itemType: "crates", beerStyle: "IPA", totalQuantity: 84 }],
+  }), false);
 });
