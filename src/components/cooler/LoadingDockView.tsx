@@ -153,6 +153,10 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
 
     async function handleShip() {
         if (selected.size === 0) return;
+        if (selectedTruckOverCapacity) {
+            setError("המשאית חורגת מ-12 מקומות; יש לצמצם את המשטחים לפני שילוח.");
+            return;
+        }
         const trimmedName = customerName.trim();
         if (!trimmedName) return;
         if (customerId === "tempo") {
@@ -232,7 +236,7 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
             {error && <div className="edit-specs-message error">{error}</div>}
             {lastShipmentId && <div className="edit-specs-message success">תעודת משלוח נוצרה ({lastShipmentId})</div>}
 
-            <button type="button" className={`shipment-btn ${selectedTruckOverCapacity ? "shipment-btn-over-capacity" : ""}`} disabled={busy || selected.size === 0} onClick={() => setShowCustomerModal(true)}>
+            <button type="button" className={`shipment-btn ${selectedTruckOverCapacity ? "shipment-btn-over-capacity" : ""}`} disabled={busy || selected.size === 0 || selectedTruckOverCapacity} onClick={() => setShowCustomerModal(true)}>
                 {busyAction === "ship" ? <BeerLoader message="יוצר תעודה" overlay={false} size="spinner" /> : `שלח${selected.size ? ` (${selected.size})` : ""}`}
             </button>
 
