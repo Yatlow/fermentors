@@ -106,34 +106,36 @@ test("the daily forecast agrees with week opening and physical partial-pallet sh
 });
 
 test("Tempo opening balance credits only 30 physically shippable crates, not 84 planned", () => {
+  const noSales = { ...settings, products: [{ ...product, monthly: 0 }] };
   const physical = [pallet("partial", 30)];
   const planned = [shipment(84)];
-  const issue = auditShipmentAvailability(settings, physical, planned, [], today);
+  const issue = auditShipmentAvailability(noSales, physical, planned, [], today);
   assert.equal(issue[0].missingUnits, 54);
   const weekOpening = buildWeekStartProjection({
-    settings, pallets: physical, plans: planned, actuals: [],
+    settings: noSales, pallets: physical, plans: planned, actuals: [],
     today, week: "2026-10-25",
   }).get(product.id);
   assert.equal(weekOpening?.shipmentsBeforeWeek, 84, "retain nominal planned units for review");
   assert.equal(weekOpening?.breweryUnits, 0);
   assert.equal(weekOpening?.tempoUnits, 30,
     "the future Tempo balance must never invent the 54 missing physical crates");
-  const daily = dailyForecast(settings, physical, [], planned, [], today);
+  const daily = dailyForecast(noSales, physical, [], planned, [], today);
   assert.equal(daily.points.find((p) => p.date === "2026-10-19")?.arrived, 30);
 });
 
 test("shipment physically dispatched but arriving next week is not in this week's opening Tempo", () => {
+  const noSales = { ...settings, products: [{ ...product, monthly: 0 }] };
   const delayed = { ...shipment(84), deliveries: [{
     ...shipment(84).deliveries[0], arrivalDate: "2026-10-28",
   }] };
   const opening = buildWeekStartProjection({
-    settings, pallets: [pallet("full", 84)], plans: [delayed],
+    settings: noSales, pallets: [pallet("full", 84)], plans: [delayed],
     actuals: [], today, week: "2026-10-25",
   }).get(product.id);
   assert.equal(opening?.breweryUnits, 0, "the pallet already left the brewery");
   assert.equal(opening?.tempoUnits, 0, "the truck has not reached Tempo yet");
   const next = buildWeekStartProjection({
-    settings, pallets: [pallet("full", 84)], plans: [delayed],
+    settings: noSales, pallets: [pallet("full", 84)], plans: [delayed],
     actuals: [], today, week: "2026-11-01",
   }).get(product.id);
   assert.equal(next?.tempoUnits, 84, "arriving pallets appear only after physical arrival");
