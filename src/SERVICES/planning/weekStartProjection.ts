@@ -57,16 +57,11 @@ export function buildWeekStartProjection(args: {
       const salesDays = Math.max(0, daysBetween(tempoDate, week));
       tempoUnits = Math.max(0, tempoUnits - salesDays * daily);
 
-      const arrivalsBeforeWeek = pendingPlans
-        .flatMap((plan) => plan.deliveries ?? [])
-        .filter((delivery) =>
-          delivery.productId === product.id &&
-          delivery.quantity > 0 &&
-          delivery.arrivalDate > tempoDate &&
-          delivery.arrivalDate < week,
-        )
-        .reduce((sum, delivery) => sum + delivery.quantity, 0);
-      tempoUnits += arrivalsBeforeWeek;
+      // Actual future receipts are added only AFTER running the physical FEFO
+      // dispatch ledger below. A manifest of 84 with only 30 crates on the
+      // selected physical pallet must NEVER credit 84 to Tempo.
+      // The stock baseline passed here already incorporates actual shipments
+      // since the most recent Tempo snapshot; count only future pending trips.
     }
 
     // Project physical lots chronologically instead of netting them first:
@@ -92,7 +87,7 @@ export function buildWeekStartProjection(args: {
         delivery.quantity > 0 && delivery.dispatchDate >= today &&
         delivery.dispatchDate < week)
       .map((delivery) => ({ date: delivery.dispatchDate, kind: "ship" as const,
-        qty: delivery.quantity }));
+        qty: delivery.quantity, arrivalDate: delivery.arrivalDate }));
     const packagingBeforeWeek = packEvents.reduce((sum, event) => sum + event.qty, 0);
     const shipmentsBeforeWeek = shipmentEvents.reduce((sum, event) => sum + event.qty, 0);
     const events = [...packEvents, ...shipmentEvents].sort((a, b) =>
@@ -100,18 +95,24 @@ export function buildWeekStartProjection(args: {
       (a.kind === b.kind ? 0 : a.kind === "pack" ? -1 : 1));
 
     const unitsPerPallet = product.type === "crates" ? 84 : 20;
+    let arrivedPhysicalBeforeWeek = 0;
     events.forEach((event, index) => {
       if (event.kind === "pack") {
         addForecastPackaging(physicalLots, event.qty, unitsPerPallet,
           `future:${product.id}:${event.date}:${index}`);
       } else {
-        // The planned departure occupies WHOLE pallets. Do not leave a
-        // fractional pallet for a later shipment when the earlier truck takes
-        // its physical load; use the same FEFO simulation as the availability
-        // audit so the stock and feasibility screens cannot disagree.
-        dispatchForecastPallets(physicalLots, event.qty, unitsPerPallet, event.date);
+        // The planned departure occupies WHOLE pallets. The customer's
+        // projected receipt is bounded by the physically available units,
+        // not by the optimistic planned manifest. Respect arrival/transit.
+        const consumed = dispatchForecastPallets(
+          physicalLots, event.qty, unitsPerPallet, event.date);
+        if (event.arrivalDate < week &&
+            (!parsedTempoDate || event.arrivalDate > parsedTempoDate)) {
+          arrivedPhysicalBeforeWeek += Math.min(event.qty, consumed.shippedPhysical);
+        }
       }
     });
+    if (tempoUnits !== null) tempoUnits += arrivedPhysicalBeforeWeek;
     const breweryUnits = physicalLots.filter((lot) => lot.expiry >= week)
       .reduce((sum, lot) => sum + lot.quantity, 0);
     result.set(product.id, {
