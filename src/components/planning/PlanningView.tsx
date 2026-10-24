@@ -6,7 +6,7 @@ import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanning
 import { validatePlanningDecisionChange } from "../../SERVICES/planning/planningDecisionSafety";
 import { planningReadRequirements } from "../../SERVICES/planning/planningReadCoverage";
 import { pendingStockExecutionPlans } from "../../SERVICES/planning/planningStockExecution";
-import { auditShipmentAvailability, describePlanningShortageIncrease, newlyWorsenedShipmentShortages } from "../../SERVICES/planning/shipmentAvailabilityAudit";
+import { auditShipmentAvailability, classifyPlanningShortageIncreases, describePlanningShortageIncrease, newlyWorsenedShipmentShortages } from "../../SERVICES/planning/shipmentAvailabilityAudit";
 import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
@@ -136,13 +136,12 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       const after = auditShipmentAvailability(settings, pallets, nextPlans, actuals, today, data.actualShipments);
       const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments);
       const increases = newlyWorsenedShipmentShortages(before, after);
-      const nonOverridable = increases.find(({ issue }) =>
-        issue.week <= canonical.id || issue.productId.startsWith("pallet:") || issue.productId.startsWith("truck:"));
-      if (nonOverridable) {
+      const { blocking, confirmable: futureShortages } =
+        classifyPlanningShortageIncreases(increases, canonical.id);
+      if (blocking.length) {
         throw new Error("לא ניתן לשמור חוסר חדש בשבוע הנערך או שיבוץ משטח/משאית בלתי תקינים: " +
-          describePlanningShortageIncrease(nonOverridable, settings.products));
+          blocking.map((increase) => describePlanningShortageIncrease(increase, settings.products)).join("; "));
       }
-      const futureShortages = increases.filter(({ issue }) => issue.week > canonical.id);
       if (futureShortages.length) {
         const description = futureShortages.map((increase) =>
           "• " + describePlanningShortageIncrease(increase, settings.products)).join("\n");
