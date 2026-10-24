@@ -1,6 +1,8 @@
 import { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM } from "./truckCapacity";
 import { nextShipmentMarkingRevision, shipmentMarkingGuardRef,
     shipmentMarkingGuardWrite } from "../planning/shipmentMarkingGuard";
+import { dateKey, weekStart } from "../planning/planningEngine";
+import { isDispatchTripInQueue } from "../planning/shipmentDispatchIdentity";
 export { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM };
 import {
     collection,
@@ -769,10 +771,19 @@ export async function createPallets(input: { itemType: PalletItemType; beerStyle
     return ids;
 }
 
-export async function createShipment(palletIds: string[], customerName?: string | null, customerId?: string | null): Promise<string> {
+export async function createShipment(
+    palletIds: string[], customerName?: string | null, customerId?: string | null,
+    explicitPlannedTruckId?: string | null,
+): Promise<string> {
     const uniquePalletIds = [...new Set(palletIds.filter(Boolean))];
     if (uniquePalletIds.length === 0) throw new Error("לא נבחרו משטחים למשלוח");
     if (uniquePalletIds.length !== palletIds.length) throw new Error("רשימת המשטחים מכילה כפילויות");
+    const tempoCustomer = customerId?.trim().toLowerCase() === "tempo" ||
+        (!customerId?.trim() && /טמפו|tempo/i.test(customerName?.trim() ?? ""));
+    if (explicitPlannedTruckId && !tempoCustomer)
+        throw new Error("שיוך נסיעה מתוכננת מותר רק למשלוח טמפו");
+    const dispatchDay = dateKey(new Date());
+    const queueRef = doc(db, "shipmentPlanningQueue", weekStart(dispatchDay));
     const counterRef = doc(db, "counters", "shipmentNumber");
     const shipmentNumber = await runTransaction(db, async (tx) => {
         const guardRef = shipmentMarkingGuardRef();
@@ -799,8 +810,26 @@ export async function createShipment(palletIds: string[], customerName?: string 
         const reservationIds = new Set(pallets.map((pallet) =>
             pallet.markedForShipment && pallet.autoReservationTruckId
                 ? pallet.autoReservationTruckId : ""));
-        const plannedTruckId = reservationIds.size === 1 &&
+        const inferredTruckId = reservationIds.size === 1 &&
             !reservationIds.has("") ? [...reservationIds][0] : null;
+        const conflictingAutomatic = pallets.some((pallet) =>
+            !!pallet.autoReservationTruckId && !!explicitPlannedTruckId &&
+            pallet.autoReservationTruckId !== explicitPlannedTruckId);
+        if (conflictingAutomatic)
+            throw new Error("המשטחים מסומנים לנסיעה שונה מזו שנבחרה; יש לתקן את הסימון לפני משלוח");
+        let plannedTruckId: string | null = tempoCustomer
+            ? explicitPlannedTruckId || inferredTruckId : null;
+        if (plannedTruckId) {
+            // Verify the UI choice against the live transaction snapshot. An
+            // outdated queue or another planner's changed trip must not attach
+            // the wrong immutable trip identity to a physical shipment.
+            const queueSnap = await tx.get(queueRef);
+            if (!isDispatchTripInQueue(queueSnap.data(), dispatchDay, plannedTruckId)) {
+                if (explicitPlannedTruckId)
+                    throw new Error("הנסיעה המתוכננת השתנתה או כבר אינה פתוחה. יש לפתוח מחדש ולבחור נסיעה.");
+                plannedTruckId = null;
+            }
+        }
         const currentNumber = counterSnap.exists() ? Number(counterSnap.data().value) : 2389;
         if (!Number.isFinite(currentNumber)) throw new Error("מונה תעודות המשלוח אינו תקין");
         const nextNumber = currentNumber + 1;
