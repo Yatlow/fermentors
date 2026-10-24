@@ -20,7 +20,7 @@ import {
   type DeliveryPlan,
   type WeekPlan,
 } from "./planningEngine";
-import { matchShipmentManifests, shipmentActualManifestFromTotals } from "./shipmentActuals";
+import { hasUnmatchedPhysicalDepartureForToday, matchShipmentManifests, shipmentActualManifestFromTotals } from "./shipmentActuals";
 import { automaticReservationDelta } from "./automaticReservationReconciliation";
 import { nextShipmentMarkingRevision, readShipmentMarkingRevision,
   shipmentMarkingGuardRef, shipmentMarkingGuardWrite } from "./shipmentMarkingGuard";
@@ -153,24 +153,16 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[] | nu
   // Exactly the same one-to-one matching as the planning UI. In particular,
   // unrecognized SKUs are included in manifest confidence, and two physical
   // receipts cannot accidentally close the same truck.
-  const matches = matchShipmentManifests(openDeliveries, actualShipments.map((event) => ({
+  const normalizedActuals = actualShipments.map((event) => ({
     id: event.id, date: event.date, plannedTruckId: event.plannedTruckId,
     manifest: event.actualByProduct,
-  })));
-  const pendingMatches = matches.filter((match) => match.status === "pending");
-  const pendingTruckIds = new Set(pendingMatches.map((match) => match.planned.id));
-  const attachedActualIds = new Set(matches.flatMap((match) =>
-    match.actual?.id ? [match.actual.id] : []));
-  const unmatchedActuals = actualShipments.filter((actual) =>
-    !attachedActualIds.has(actual.id));
-  // A manual departure already happened today but cannot be matched with
-  // confidence. Do not auto-pick more pallets for that same date's unclosed
-  // trip: the truck may be physically gone. Keep the current marks untouched
-  // until the operator explicitly links the physical receipt or repairs the
-  // plan. Returning null means HOLD rather than "no planned trip".
-  if (unmatchedActuals.some((actual) => actual.date <= today &&
-      pendingMatches.some((match) =>
-        match.planned.dispatchDate === actual.date))) return null;
+  }));
+  const matches = matchShipmentManifests(openDeliveries, normalizedActuals);
+  const pendingTruckIds = new Set(matches.filter((match) => match.status === "pending")
+    .map((match) => match.planned.id));
+  // A departure already occurred but could not be linked confidently. Do not
+  // mark new pallets for a same-day truck that may have physically left.
+  if (hasUnmatchedPhysicalDepartureForToday(matches, normalizedActuals, today)) return null;
   openDeliveries = openDeliveries.filter((delivery) =>
     pendingTruckIds.has(String(delivery.truckId || `date:${delivery.dispatchDate}`)),
   );
