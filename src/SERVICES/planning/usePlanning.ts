@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { weekIsClosed, withSpecialTotals } from "./planningPresentation";
 import { planningQueryEnd } from "./planningHorizon";
+import { shipmentHistoryStart } from "./planningReadCoverage";
 import {
   collection,
   doc,
@@ -154,6 +155,7 @@ export function usePlanning(
   // The last Gantt week starts at day 84. The Firestore end bound is
   // exclusive, so include its final Saturday by querying through day 91.
   const end = planningQueryEnd(start);
+  const shipmentStart = shipmentHistoryStart(start, settings.products);
   const logStart = [
     addDays(start, -84),
     ...tanks
@@ -244,7 +246,7 @@ export function usePlanning(
       return;
     }
     setPending("משלוחים");
-    const startInstant = Timestamp.fromDate(startOfJerusalemDay(start));
+    const startInstant = Timestamp.fromDate(startOfJerusalemDay(shipmentStart));
     const endInstant = Timestamp.fromDate(startOfJerusalemDay(end));
     return onSnapshot(
       query(
@@ -273,7 +275,7 @@ export function usePlanning(
       },
       fail("משלוחים"),
     );
-  }, [start, end, wantsShipments]);
+  }, [shipmentStart, end, wantsShipments]);
 
   useEffect(() => {
     if (!wantsPallets) {
