@@ -115,6 +115,46 @@ test("unlinked unexpected physical dispatch holds automatic allocation today", (
       "2026-10-20")], actual), actual, "2026-10-19"), false);
 });
 
+test("a directly linked departure today NEVER hides the second pending same-day truck", () => {
+  const week = { ...emptyWeek("2026-10-18"), deliveries: [
+    delivery("a", "truck-a", ipa.id, 84),
+    delivery("b", "truck-b", wheat.id, 84),
+  ] };
+  const actual = [{
+    id: "actual-first", date: "2026-10-19", plannedTruckId: "truck-a",
+    totals: [{ itemType: "crates" as const, beerStyle: "IPA", totalQuantity: 84 }],
+  }];
+  const pending = pendingPlansAfterActualShipments([week], actual, products);
+  const forecast = forecastablePlansAfterActualShipments([week], actual,
+    products, "2026-10-19");
+  assert.deepEqual(pending[0].deliveries?.map((d) => d.truckId), ["truck-b"]);
+  assert.deepEqual(forecast[0].deliveries?.map((d) => d.truckId), ["truck-b"],
+    "completed truck is already matched against the original complete manifest");
+});
+
+test("linked partial first truck and unrelated orphan receipt hold only risky dispatch dates", () => {
+  const week = { ...emptyWeek("2026-10-18"), deliveries: [
+    delivery("a", "truck-a", ipa.id, 84),
+    delivery("b", "truck-b", wheat.id, 84),
+    delivery("c", "truck-c", ipa.id, 84, "2026-10-20"),
+  ] };
+  const linked = [{
+    id: "partial-first", date: "2026-10-19", plannedTruckId: "truck-a",
+    totals: [{ itemType: "crates" as const, beerStyle: "IPA", totalQuantity: 12 }],
+  }];
+  const normal = forecastablePlansAfterActualShipments([week], linked, products,
+    "2026-10-20")[0];
+  assert.deepEqual(normal.deliveries?.map((d) => d.truckId), ["truck-b", "truck-c"]);
+  const orphan = {
+    id: "unknown-departure", date: "2026-10-19",
+    totals: [{ itemType: "crates" as const, beerStyle: "UNKNOWN", totalQuantity: 11 }],
+  };
+  const held = forecastablePlansAfterActualShipments([week], [...linked, orphan],
+    products, "2026-10-20")[0];
+  assert.deepEqual(held.deliveries?.map((d) => d.truckId), ["truck-c"],
+    "an extra genuinely unmatched dispatch quarantines only its same-day trips");
+});
+
 test("physical trip chooser validates the requested dispatch date and queue revision", () => {
   const queue = { projectionVersion: 1, deliveries: [
     delivery("a", "truck-a", ipa.id, 84),
