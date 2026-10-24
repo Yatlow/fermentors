@@ -144,6 +144,30 @@ try {
   }));
   console.log('PASS physical trip claim is immutable and exclusive');
 
+  // A shipment manifest must survive unchanged for batch traceability.
+  // Operators may issue/reprint the original, not rewrite or delete stock,
+  // batch, customer, physical trip identity or shipment quantities.
+  const invoice = doc(db, 'shipments', '2504');
+  await setDoc(invoice, {
+    shipmentNumber: 2504, sourceType: 'manual', palletIds: [], totals: [],
+    manualLines: [{ sku: 'IPA', description: 'IPA', quantity: 3 }],
+    customerName: 'test customer', customerId: null, createdAt: serverTimestamp(),
+  });
+  await updateDoc(invoice, {
+    originalIssuedAt: serverTimestamp(), originalIssuedBy: email,
+  });
+  await assertFails(updateDoc(invoice, {
+    totals: [{ itemType: 'crates', beerStyle: 'IPA', totalQuantity: 42 }],
+  }));
+  await assertFails(updateDoc(invoice, { customerName: 'other' }));
+  await assertFails(updateDoc(invoice, { plannedTruckId: 'truck-B' }));
+  await assertFails(setDoc(doc(db, 'shipments', '2505'), {
+    shipmentNumber: 2505, sourceType: 'pallets', palletIds: ['unguarded'],
+    totals: [{ itemType: 'crates', beerStyle: 'IPA', totalQuantity: 84 }],
+    createdAt: serverTimestamp(),
+  }));
+  console.log('PASS shipment manifest immutable and pallet dispatch requires marking guard');
+
   console.log('PASS all marking and shipment transitions require same-transaction guard');
 
 } finally {
