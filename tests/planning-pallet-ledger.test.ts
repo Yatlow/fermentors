@@ -26,19 +26,19 @@ function shipment(quantity: number) {
   }] };
 }
 
-test("a partial 42-crate pallet is not split or reused as a fraction by two trucks", () => {
+test("two 42-crate pallets both ship for an 84-crate manifest and cannot ship twice", () => {
   const lots: ForecastPalletLot[] = [
     { id: "a", expiry: "2026-12-31", quantity: 42 },
     { id: "b", expiry: "2026-12-31", quantity: 42 },
   ];
   const first = dispatchForecastPallets(lots, 84, 84, "2026-10-19");
   assert.deepEqual({ missingSlots: first.missingSlots, missingUnits: first.missingUnits },
-    { missingSlots: 0, missingUnits: 42 });
-  assert.equal(lots.length, 1, "one physical partial pallet remains, not a 42-unit fraction");
-  assert.equal(lots[0].quantity, 42);
+    { missingSlots: 0, missingUnits: 0 });
+  assert.equal(first.shippedPhysical, 84, "both actual half-pallets ship, using two physical positions");
+  assert.equal(lots.length, 0, "neither physical pallet can be reused");
   const second = dispatchForecastPallets(lots, 42, 84, "2026-10-20");
-  assert.equal(second.missingSlots, 0);
-  assert.equal(second.missingUnits, 0);
+  assert.equal(second.missingSlots, 1);
+  assert.equal(second.missingUnits, 42);
   assert.equal(lots.length, 0);
 });
 
@@ -63,18 +63,15 @@ test("FEFO expires the old pallet without deleting the newer valid lot", () => {
   assert.equal(lots.length, 0, "old expired, new pallet dispatched");
 });
 
-test("the weekly stock and availability audits agree on two partial pallets", () => {
+test("the weekly stock and availability audits agree that two partial pallets cover 84 units", () => {
   const pallets = [pallet("a", 42), pallet("b", 42)];
   const plans = [shipment(84)];
   const issues = auditShipmentAvailability(settings, pallets, plans, [], today);
-  assert.equal(issues.length, 1);
-  assert.equal(issues[0].missing, 0);
-  assert.equal(issues[0].missingUnits, 42);
-  assert.equal(issues[0].severity, "partial");
+  assert.equal(issues.length, 0, "two 42-crate physical pallets can fulfill 84 crates");
   const opening = buildWeekStartProjection({
     settings, pallets, plans, actuals: [], today, week: "2026-10-25",
   }).get(product.id);
-  assert.equal(opening?.breweryUnits, 42, "the second partial pallet remains physical stock");
+  assert.equal(opening?.breweryUnits, 0, "both physical pallets leave the brewery");
 });
 
 test("a fully stocked loading pallet is never reused after an earlier shipment", () => {
@@ -90,19 +87,38 @@ test("a fully stocked loading pallet is never reused after an earlier shipment",
   assert.equal(issues[0].missing, 1);
 });
 
-test("the daily forecast agrees with week opening and physical partial-pallet shortage", () => {
+test("daily and weekly forecasts use both partial pallets rather than fabricating shortage", () => {
   const pallets = [pallet("a", 42), pallet("b", 42)];
   const plans = [shipment(84)];
   const forecast = dailyForecast(settings, pallets, [], plans, [], today);
   const departure = forecast.points.find((point) =>
     point.productId === product.id && point.date === "2026-10-19");
   assert.ok(departure);
-  assert.equal(departure.brewery, 42,
-    "the second partial pallet stays in physical inventory");
-  assert.equal(departure.arrived, 42,
-    "only the actual first partial pallet quantity reaches Tempo in the forecast");
-  assert.ok(forecast.warnings.some((warning) => warning.includes("42 יחידות")),
-    "physical shipping shortfall is surfaced to the planner");
+  assert.equal(departure.brewery, 0, "both partial pallets leave");
+  assert.equal(departure.arrived, 84, "the full 84 physical crates reach Tempo");
+  assert.ok(!forecast.warnings.some((warning) => warning.includes("42 יחידות")));
+});
+
+test("one 42-crate partial pallet still gives a visible 42-unit advisory", () => {
+  const stock = [pallet("only", 42)];
+  const issues = auditShipmentAvailability(settings, stock, [shipment(84)], [], today);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].severity, "partial");
+  assert.equal(issues[0].missingUnits, 42);
+});
+
+test("three partial pallets are never split between two consecutive trips", () => {
+  const lots: ForecastPalletLot[] = [
+    { id: "a", expiry: "2026-10-26", quantity: 30 },
+    { id: "b", expiry: "2026-10-27", quantity: 30 },
+    { id: "c", expiry: "2026-10-28", quantity: 30 },
+  ];
+  const first = dispatchForecastPallets(lots, 84, 84, "2026-10-19");
+  assert.equal(first.shippedPhysical, 90);
+  assert.equal(first.missingUnits, 0);
+  assert.equal(lots.length, 0);
+  const next = dispatchForecastPallets(lots, 84, 84, "2026-10-20");
+  assert.equal(next.missingUnits, 84);
 });
 
 test("Tempo opening balance credits only 30 physically shippable crates, not 84 planned", () => {
