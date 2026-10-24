@@ -357,6 +357,42 @@ export function pendingPlansAfterActualShipments(
   });
 }
 
+/**
+ * Execution statuses must remain visible until an unlinked physical shipment
+ * is reconciled; however forecasts MUST NOT silently schedule a second
+ * shipment against stock that may already have left in that same physical
+ * departure. Conservatively quarantine only pending trips on the unresolved
+ * actual's dispatch date from the *forecast*, without marking them completed
+ * or altering persisted decisions. The shipment status portal still warns.
+ */
+export function forecastablePlansAfterActualShipments(
+  plans: WeekPlan[],
+  actualEvents: ShipmentEvent[],
+  products: Product[],
+  today: string,
+): WeekPlan[] {
+  const pending = pendingPlansAfterActualShipments(plans, actualEvents, products);
+  return pending.map((week) => {
+    const matches = matchActualShipments(week.deliveries ?? [], actualEvents, products);
+    const linkedActualIds = new Set(matches.flatMap((match) =>
+      match.actual?.id ? [match.actual.id] : []));
+    const unlinkedSameWeekDates = new Set(actualEvents
+      .filter((actual) =>
+        actual.date <= today &&
+        weekStart(actual.date) === week.id &&
+        !linkedActualIds.has(actual.id))
+      .map((actual) => actual.date));
+    if (!unlinkedSameWeekDates.size) return week;
+    const remaining = (week.deliveries ?? []).filter((delivery) =>
+      !unlinkedSameWeekDates.has(delivery.dispatchDate));
+    if (remaining.length === (week.deliveries ?? []).length) return week;
+    return {
+      ...week, deliveries: remaining,
+      deliveryDates: [...new Set(remaining.map((d) => d.dispatchDate))].sort(),
+    };
+  });
+}
+
 export function mergeCompletedDeliveriesBack(
   original: WeekPlan,
   pendingEdited: WeekPlan,
