@@ -259,6 +259,7 @@ export function usePlanning(
             return date ? [{
               id: item.id,
               date: jerusalemDateKey(date),
+              occurredAt: date.toISOString(),
               shipmentNumber: Number(data.shipmentNumber) || undefined,
               plannedTruckId: typeof data.plannedTruckId === "string" ? data.plannedTruckId : undefined,
               totals: Array.isArray(data.totals) ? data.totals : [],
