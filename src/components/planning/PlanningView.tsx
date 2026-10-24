@@ -115,7 +115,10 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   async function saveWeeklyPlan(next: Parameters<typeof data.saveWeek>[0], options?: Parameters<typeof data.saveWeek>[1]) {
     const original = identityAlignedPlans.find((week) => week.id === next.id);
     let merged = original ? mergeCompletedDeliveriesBack(original, next, data.actualShipments, settings.products) : next;
-    if (original) merged = mergeCompletedPackagingBack(original, merged, settings.products, actuals, productionTanks);
+    if (original) merged = mergeCompletedPackagingBack(
+      original, merged, settings.products, actuals, productionTanks,
+      identityAlignedPlans,
+    );
     const allWithEditedWeek = identityAlignedPlans.map((week) => week.id === merged.id ? merged : week);
     if (!allWithEditedWeek.some((week) => week.id === merged.id)) allWithEditedWeek.push(merged);
     const canonical = withStablePackagingIdentity(allWithEditedWeek, tankNumbersById).find((week) => week.id === merged.id) ?? merged;
