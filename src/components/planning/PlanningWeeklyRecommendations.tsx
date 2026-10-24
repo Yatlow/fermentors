@@ -439,9 +439,11 @@ export default function PlanningWeeklyRecommendations({
             setEditing(null);
             setMessage(`${slots > MAX_TRUCK_SLOTS
                 ? `אושרה חריגה תכנונית: ${slots} מקומות. חובה לתאם משאית מתאימה או לפצל לפני שילוח פיזי.`
-                : slots > 0 && slots < MAX_TRUCK_SLOTS
-                    ? `נשמר משלוח חלקי ${slots}/${MAX_TRUCK_SLOTS}.`
-                    : "החלטת המשלוח נשמרה."}${packagingDependent ? " ⚠️ חלק מהמלאי ייארז באותו שבוע." : ""}`);
+                : approveOversizeTruck
+                    ? "נשמר אישור חריגת קיבולת למשאית זו (גם אם המשטחים החלקיים יצריכו יותר מקומות מהתכנון הנומינלי)."
+                    : slots > 0 && slots < MAX_TRUCK_SLOTS
+                        ? `נשמר משלוח חלקי ${slots}/${MAX_TRUCK_SLOTS}.`
+                        : "החלטת המשלוח נשמרה."}${packagingDependent ? " ⚠️ חלק מהמלאי ייארז באותו שבוע." : ""}`);
         } catch (e) {
             setMessage(e instanceof Error ? e.message : "שמירת המשלוח נכשלה");
         } finally {
@@ -458,7 +460,8 @@ export default function PlanningWeeklyRecommendations({
         setBusy(true);
         setMessage("");
         try {
-            await saveWeek({ ...current, deliveries, deliveryDates: deliveries.length ? [date] : [], changeReason: "אישור המלצת משלוח שבועית" });
+            await saveWeek({ ...current, deliveries, oversizeTruckApprovals: [],
+                deliveryDates: deliveries.length ? [date] : [], changeReason: "אישור המלצת משלוח שבועית" });
             setMessage(current.deliveries?.length ? "החלטת המשלוח הקיימת הוחלפה בהמלצה." : "המלצת המשלוח נשמרה כהחלטה חדשה.");
         } catch (e) {
             setMessage(e instanceof Error ? e.message : "שמירת המשלוח נכשלה");
@@ -977,6 +980,12 @@ export default function PlanningWeeklyRecommendations({
                     <div><small>1 · משלוח · {selectedWeekText}</small><h3>מה לשלוח השבוע</h3></div>
                     <b>משלוח: {Number.isFinite(usedShipSlots) ? usedShipSlots : 0}/{MAX_TRUCK_SLOTS} מקומות</b>
                 </header>
+                {(current.deliveries ?? []).some((delivery) =>
+                    (current.oversizeTruckApprovals ?? []).includes(truckPlanningGroupKey(delivery))) &&
+                    <div className="bp-same-week-warning" role="status">
+                        <b>⚠️ נשמר אישור חריגת קיבולת למשאית מתוכננת בשבוע הזה.</b>
+                        <small>זהו אישור תכנוני בלבד. לפני יציאה פיזית יש להתאים את הרכב או לפצל את המשלוח.</small>
+                    </div>}
                 <p className="bp-rec-principle">
                     ● המק"טים ממוינים לפי הכיסוי הנמוך ביותר.<br />
                     ● משטח חלקי יכול לייצג מקום משטח מלא כשאין מספיק מלאי למשטח מלא; הכמות הפיזית נשמרת במפת המקרר.
