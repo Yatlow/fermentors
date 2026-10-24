@@ -6,7 +6,7 @@ import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
 import {
   addDays,
   emptyWeek,
-  inventory,
+  usableInventory,
   parseDate,
   sameStyle,
   tempoNow,
@@ -546,7 +546,10 @@ export default function PlanningGantt(props: Props) {
     const grouped = new Map<string, string[]>();
     if (weekId === currentWeek) {
       for (const product of settings.products.filter((item) => item.monthly > 0)) {
-        const inv = inventory(product, pallets);
+        // Use the same sellable, in-date inventory as the Stock overview and
+        // forward shipment forecasts. Physical expired stock is displayed in
+        // Stock details, but cannot extend coverage here.
+        const inv = usableInventory(product, pallets, today);
         const brewery = inv.brewery + inv.dock;
         const tempo = tempoNow(product, today);
         const demand = weeklyDemand(product);
