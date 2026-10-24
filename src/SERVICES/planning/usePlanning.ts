@@ -507,6 +507,7 @@ export function usePlanning(
                 deliveryDates?: unknown;
                 dismissedRecommendations?: unknown;
                 allowExceptions?: unknown;
+                oversizeTruckApprovals?: unknown;
                 changeReason?: unknown;
                 calendarEvents?: unknown;
                 calendarNotes?: unknown;
@@ -526,6 +527,9 @@ export function usePlanning(
                   : {}),
                 ...(typeof week.allowExceptions === "boolean"
                   ? { allowExceptions: week.allowExceptions }
+                  : {}),
+                ...(Array.isArray(week.oversizeTruckApprovals)
+                  ? { oversizeTruckApprovals: week.oversizeTruckApprovals }
                   : {}),
                 ...(typeof week.changeReason === "string"
                   ? { changeReason: week.changeReason }
