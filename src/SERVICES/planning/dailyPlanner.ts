@@ -1,7 +1,7 @@
 import { estimatedBrewVolume } from "./productionCycle";
 import { packagingLimit, weekday as dayOfWeek } from "./productionCycle";
 import { brewById, resolvePackagingBrewId } from "./planIdentity";
-import { pendingPlansAfterActualShipments } from "./shipmentActuals";
+import { forecastablePlansAfterActualShipments } from "./shipmentActuals";
 import {
   projectedPallets,
   selectTruck,
@@ -345,7 +345,7 @@ export function dailyForecast(
   // Physical pallet stock already excludes departed shipments. Only subtract
   // still-open trips; never suppress a second trip just because another truck
   // departed on the same calendar day.
-  const deliveries = pendingPlansAfterActualShipments(plans, actualShipments, products)
+  const deliveries = forecastablePlansAfterActualShipments(plans, actualShipments, products, today)
     .flatMap((w) => w.deliveries ?? []);
   const transit = 0;
   const maxTrips = Infinity;
