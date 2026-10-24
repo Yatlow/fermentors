@@ -128,6 +128,22 @@ try {
     quantity: 1, updatedAt: serverTimestamp(),
   }));
   console.log('PASS shipment pallet becomes immutable once shipped');
+  // A physical truck ID is a one-time resource: two devices must not be
+  // able to claim the same trip while their shipment queue view is stale.
+  const claimPath = encodeURIComponent('2026-10-18|truck-a');
+  const claim = doc(db, 'shipmentTripClaims', claimPath);
+  const claimData = {
+    plannedTruckId: 'truck-a', dispatchDate: '2026-10-19',
+    shipmentNumber: 2501, createdAt: serverTimestamp(), createdBy: uid,
+  };
+  await setDoc(claim, claimData);
+  await assertFails(setDoc(claim, { ...claimData, shipmentNumber: 2502 }));
+  await assertFails(updateDoc(claim, { shipmentNumber: 2503 }));
+  await assertFails(setDoc(doc(visitor, 'shipmentTripClaims', 'visitor'), {
+    ...claimData, createdBy: 'unapproved',
+  }));
+  console.log('PASS physical trip claim is immutable and exclusive');
+
   console.log('PASS all marking and shipment transitions require same-transaction guard');
 
 } finally {
