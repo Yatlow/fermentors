@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addForecastPackaging, dispatchForecastPallets, type ForecastPalletLot } from
+import { addForecastPackaging, dispatchForecastPallets, MAX_FEFO_SUBSET_STATES, reservedPhysicalPalletIds, type ForecastPalletLot } from
   "../src/SERVICES/planning/shipmentPalletLedger";
 import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
 import { auditShipmentAvailability } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
@@ -190,6 +190,92 @@ test("a pinned pallet edited from 84 to 42 crates fails even with unrelated vali
   assert.ok(issues.some((issue) =>
     issue.productId === "pallet:pinned" && issue.severity === "blocking"),
   "indivisible physical picks require exact quantities");
+});
+
+test("bounded FEFO DP conserves physical stock even for hundreds of fractional legacy pallets", () => {
+  assert.equal(MAX_FEFO_SUBSET_STATES, 4096);
+  const lots: ForecastPalletLot[] = Array.from({ length: 450 }, (_, index) => ({
+    id: `legacy-${index}`, expiry: "2026-11-01",
+    quantity: (101 + (index % 47)) / 1000,
+  }));
+  const startingUnits = lots.reduce((total, lot) => total + lot.quantity, 0);
+  const result = dispatchForecastPallets(lots, 38.5, 84, "2026-10-20");
+  assert.ok(result.shippedPhysical <= 38.5 + 1e-9, "no overdispatch on fractional quantities");
+  assert.ok(result.shippedPhysical > 0, "a non-empty feasible subset is found");
+  assert.ok(Math.abs(startingUnits -
+    (result.shippedPhysical + lots.reduce((total, lot) => total + lot.quantity, 0))) < 1e-7,
+    "each pallet exists in shipped or remaining physical inventory, never both");
+  assert.equal(new Set(result.selectedLots.map((lot) => lot.id)).size, result.selectedLots.length);
+});
+
+test("explicit pinned later-expiry pallet leaves earlier FEFO stock for a different shipment", () => {
+  const lots: ForecastPalletLot[] = [
+    { id: "earlier", expiry: "2026-10-26", quantity: 84 },
+    { id: "later", expiry: "2026-12-26", quantity: 84 },
+  ];
+  const pinned = [{ id: "later", quantity: 84 }];
+  const reserved = reservedPhysicalPalletIds([{ pallets: pinned }]);
+  const first = dispatchForecastPallets(lots, 84, 84, "2026-10-19", undefined, reserved);
+  assert.deepEqual(first.selectedLots.map((lot) => lot.id), ["earlier"]);
+  const second = dispatchForecastPallets(lots, 84, 84, "2026-10-20", pinned, reserved);
+  assert.deepEqual(second.selectedLots.map((lot) => lot.id), ["later"]);
+  assert.equal(second.missingUnits, 0);
+  assert.equal(lots.length, 0);
+});
+
+test("future pinned earlier-expiry pallet cannot be borrowed by an earlier unpinned truck", () => {
+  const first = pallet("reserved-for-later", 84, "26/10/2026");
+  const second = pallet("free-for-now", 84, "31/12/2026");
+  const week = { ...shipment(84), deliveries: [
+    { ...shipment(84).deliveries[0], id: "truck-1", truckId: "first" },
+    { ...shipment(84).deliveries[0], id: "truck-2", truckId: "second",
+      dispatchDate: "2026-10-20", arrivalDate: "2026-10-20",
+      pallets: [first] },
+  ] };
+  const noSales = { ...settings, products: [{ ...product, monthly: 0 }] };
+  const issues = auditShipmentAvailability(noSales, [first, second], [week], [], today);
+  assert.equal(issues.length, 0, "a valid future pin is protected from the earlier FEFO departure");
+  const weekly = buildWeekStartProjection({
+    settings: noSales, pallets: [first, second], plans: [week], actuals: [],
+    today, week: "2026-10-25",
+  }).get(product.id);
+  assert.equal(weekly?.breweryUnits, 0);
+  assert.equal(weekly?.tempoUnits, 168);
+  const daily = dailyForecast(noSales, [first, second], [], [week], [], today);
+  assert.equal(daily.points.find((point) => point.date === "2026-10-20")?.brewery, 0);
+});
+
+test("same explicit pallet in two successive trips fails rather than borrowing substitute stock", () => {
+  const same = pallet("reserved-twice", 84);
+  const substitute = pallet("available-but-not-assigned", 84);
+  const week = { ...shipment(84), deliveries: [
+    { ...shipment(84).deliveries[0], id: "first", truckId: "A", pallets: [same] },
+    { ...shipment(84).deliveries[0], id: "second", truckId: "B",
+      dispatchDate: "2026-10-20", arrivalDate: "2026-10-20", pallets: [same] },
+  ] };
+  const noSales = { ...settings, products: [{ ...product, monthly: 0 }] };
+  const issues = auditShipmentAvailability(noSales, [same, substitute], [week], [], today);
+  assert.ok(issues.some((issue) => issue.productId === "pallet:reserved-twice" &&
+    issue.date === "2026-10-20" && issue.severity === "blocking"));
+  const opening = buildWeekStartProjection({
+    settings: noSales, pallets: [same, substitute], plans: [week], actuals: [],
+    today, week: "2026-10-25",
+  }).get(product.id);
+  assert.equal(opening?.tempoUnits, 84, "only the one physically dispatched truck credits Tempo");
+  assert.equal(opening?.breweryUnits, 84, "unassigned substitute remains in real inventory");
+});
+
+test("future expiry invalidates a pinned pallet even when other full pallets exist", () => {
+  const expired = pallet("will-expire", 84, "19/10/2026");
+  const substitute = pallet("valid-unassigned", 84);
+  const lots: ForecastPalletLot[] = [
+    { id: expired.id, expiry: "2026-10-19", quantity: 84 },
+    { id: substitute.id, expiry: "2026-12-31", quantity: 84 },
+  ];
+  const result = dispatchForecastPallets(lots, 84, 84, "2026-10-20", [expired]);
+  assert.equal(result.shippedPhysical, 0);
+  assert.deepEqual(result.missingPinnedIds, ["will-expire"]);
+  assert.deepEqual(lots.map((lot) => lot.id), ["valid-unassigned"]);
 });
 
 test("Tempo opening balance credits only 30 physically shippable crates, not 84 planned", () => {
