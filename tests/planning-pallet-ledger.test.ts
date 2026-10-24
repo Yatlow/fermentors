@@ -185,6 +185,22 @@ test("twelve nominal slots made from twenty-four half pallets MUST flag truck ov
     "42-crate pallets are 111cm tall; 24 cannot stack within 12 floor positions");
 });
 
+test("an explicit per-truck planning approval changes 24 half-pallet overload to a visible advisory", () => {
+  const physical = Array.from({ length: 24 }, (_, index) => pallet(`half-${index}`, 42));
+  const unapproved = shipment(12 * 84);
+  const before = auditShipmentAvailability(settings, physical, [unapproved], [], today);
+  assert.equal(before.filter((issue) => issue.productId === "truck:truck-1")[0]?.severity, "blocking");
+  const approved = {
+    ...unapproved, oversizeTruckApprovals: ["2026-10-19::truck-1"],
+  };
+  const after = auditShipmentAvailability(settings, physical, [approved], [], today);
+  const caution = after.find((issue) => issue.productId === "truck:truck-1");
+  assert.equal(caution?.severity, "advisory", "approved oversize appears as a warning, not an error");
+  assert.equal(caution?.missing, 12);
+  assert.match(caution?.message ?? "", /תיאום|רכב מתאים/);
+  assert.equal(after.filter((issue) => issue.severity === "blocking").length, 0);
+});
+
 test("FEFO replacement stock never masks an expired explicitly pinned dispatch pallet", () => {
   const old = pallet("pinned-expired", 84, "19/10/2026");
   const substitute = pallet("valid-not-assigned", 84, "31/12/2026");
