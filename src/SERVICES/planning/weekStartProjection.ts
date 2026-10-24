@@ -13,7 +13,7 @@ import {
 import { openRuns, type ShipmentEvent } from "./dailyPlanner";
 import { forecastablePlansAfterActualShipments, settingsAfterActualShipments } from "./shipmentActuals";
 import { tempoInventoryAt, type TempoReceipt } from "./tempoInventoryTimeline";
-import { addForecastPackaging, dispatchForecastPallets, type ForecastPalletLot } from "./shipmentPalletLedger";
+import { addForecastPackaging, dispatchForecastPallets, reservedPhysicalPalletIds, type ForecastPalletLot } from "./shipmentPalletLedger";
 
 export type WeekStartProjection = {
   product: Product;
@@ -45,6 +45,8 @@ export function buildWeekStartProjection(args: {
   const result = new Map<string, WeekStartProjection>();
 
   for (const product of settings.products) {
+    const reservedIds = reservedPhysicalPalletIds(pendingPlans.flatMap((plan) =>
+      (plan.deliveries ?? []).filter((delivery) => delivery.productId === product.id)));
     const demand = weeklyDemand(product);
     // Every engine starts from the same current physical balance, including
     // sales between the stock count and the shipments that actually arrived.
@@ -97,7 +99,7 @@ export function buildWeekStartProjection(args: {
         // projected receipt is bounded by the physically available units,
         // not by the optimistic planned manifest. Respect arrival/transit.
         const consumed = dispatchForecastPallets(
-          physicalLots, event.qty, unitsPerPallet, event.date, event.pallets);
+          physicalLots, event.qty, unitsPerPallet, event.date, event.pallets, reservedIds);
         if (event.arrivalDate < week) {
           forecastReceipts.push({
             date: event.arrivalDate,
