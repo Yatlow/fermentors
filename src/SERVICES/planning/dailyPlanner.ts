@@ -2,7 +2,7 @@ import { estimatedBrewVolume } from "./productionCycle";
 import { packagingLimit, weekday as dayOfWeek } from "./productionCycle";
 import { brewById, resolvePackagingBrewId } from "./planIdentity";
 import { forecastablePlansAfterActualShipments } from "./shipmentActuals";
-import { dispatchForecastPallets } from "./shipmentPalletLedger";
+import { dispatchForecastPallets, reservedPhysicalPalletIds } from "./shipmentPalletLedger";
 import {
   projectedPallets,
   selectTruck,
@@ -337,6 +337,7 @@ export function dailyForecast(
     }));
     const { selectedLots, shippedPhysical } = dispatchForecastPallets(
       available, quantity, perPallet, dispatchDate, assignedPallets,
+      reservedPhysicalPalletIds(deliveries.filter((item) => item.productId === id)),
     );
     const shippedIds = new Set(selectedLots.map((lot) => lot.id));
     for (const lot of ls) if (shippedIds.has(lot.pallet.id)) lot.quantity = 0;
