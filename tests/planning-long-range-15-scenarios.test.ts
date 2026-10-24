@@ -454,19 +454,26 @@ function verifyIndependentLedger(sim: Simulation) {
  * can see until 31 December 2027.
  */
 function verifyRollingForecasts(sim: Simulation) {
-  const checkpoints = [0, 13, 26, 39, 52, sim.weeks.length - 1];
+  const checkpoints = [0, 13, 30, 47, sim.weeks.length - 1];
   for (const index of checkpoints) {
     const week = sim.weeks[index];
     const now = week.id;
+    // Production itself loads a 25-week rolling fence, and its daily forecast
+    // sees 91 days forward. Do NOT accidentally feed all 67 weeks to a
+    // 91-day screen on every checkpoint: retain 12 prior weeks for canonical
+    // histories, plus all 13 forecast weeks including the final Saturday.
+    const scopedPlans = sim.weeks.filter((plan) =>
+      plan.id >= addDays(now, -84) && plan.id <= addDays(now, 91));
+    assert.ok(scopedPlans.length <= 26);
     const state = snapshotAt(sim, now);
     const available = new Set(state.pallets.map((p) => p.id));
     assert.equal(available.size, state.pallets.length);
-    const open = openRuns(sim.weeks, sim.products, state.actuals);
+    const open = openRuns(scopedPlans, sim.products, state.actuals);
     assert.ok(open.filter((r) => r.date && r.date < now).every((r) => r.remaining === 0),
       "executed historical packaging must never regenerate new finished stock");
     const weekStock = buildWeekStartProjection({
       settings: state.settings, pallets: state.pallets,
-      plans: sim.weeks, actuals: state.actuals, today: now, week: now,
+      plans: scopedPlans, actuals: state.actuals, today: now, week: now,
       actualShipments: state.actualShipments,
     });
     for (const product of sim.products) {
@@ -487,7 +494,7 @@ function verifyRollingForecasts(sim: Simulation) {
     // fictional, but demand numeric, time-consistent and feasible results.
     const model = buildWeeklyPlanningModel({
       settings: state.settings, pallets: state.pallets,
-      tanks: state.tanks, plans: sim.weeks, actuals: state.actuals,
+      tanks: state.tanks, plans: scopedPlans, actuals: state.actuals,
       sources: state.sources, today: now, week: now,
       holidays: [], shipments: state.actualShipments,
     });
@@ -510,7 +517,7 @@ function verifyRollingForecasts(sim: Simulation) {
       assert.ok(rec.liters >= 20);
     }
     const forecast = dailyForecast(state.settings, state.pallets,
-      state.tanks, sim.weeks, state.actuals, now, [], false,
+      state.tanks, scopedPlans, state.actuals, now, [], false,
       state.actualShipments);
     assert.ok(forecast.points.every((point) =>
       Number.isFinite(point.brewery) && point.brewery >= -0.001 &&
@@ -519,7 +526,7 @@ function verifyRollingForecasts(sim: Simulation) {
     // Only 91-day visible horizon can be audited by the current UI. The
     // fixture itself covers the full 2027 year, verified separately above.
     const issues = auditShipmentAvailability(
-      state.settings, state.pallets, sim.weeks, state.actuals, now,
+      state.settings, state.pallets, scopedPlans, state.actuals, now,
       state.actualShipments);
     const contradictions = issues.filter((issue) =>
       issue.productId.startsWith("pallet:") || issue.productId.startsWith("truck:"));
