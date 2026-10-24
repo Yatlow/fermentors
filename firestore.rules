@@ -180,7 +180,30 @@ service cloud.firestore {
 
     match /shipments/{document} {
       allow read: if isApprovedUser();
-      allow write: if isApprovedUser();
+      // Physical shipments change inventory and must be written with the same
+      // pallet-marking transaction. Manual invoices have NO pallet movement.
+      allow create: if isApprovedUser()
+        && request.resource.data.shipmentNumber is int
+        && request.resource.data.createdAt == request.time
+        && (
+          (request.resource.data.sourceType == 'manual'
+            && request.resource.data.palletIds == []
+            && request.resource.data.totals == [])
+          ||
+          (request.resource.data.sourceType == 'pallets'
+            && request.resource.data.palletIds is list
+            && request.resource.data.palletIds.size() > 0
+            && markingGuardAdvanced())
+        );
+      // The document is permanent evidence: only original-copy issuance and
+      // controlled reprint counters can change. Never rewrite pallet IDs,
+      // manifests, customers, trip identity or dispatch timestamp after saving.
+      allow update: if isApprovedUser()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'originalIssuedAt', 'originalIssuedBy', 'originalRestoreCount',
+          'originalLastRestoredAt', 'originalLastRestoredBy'
+        ]);
+      allow delete: if false;
     }
 
     match /scheduledCellarRecommendations/{document} {
