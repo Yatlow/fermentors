@@ -33,3 +33,24 @@ export function planningSaveFenceConflict(
   }
   return null;
 }
+
+/**
+ * Notes, dismissals and historical recommendation evidence do not change
+ * physical capacity, pallet allocations or stock timing. Avoid reading the
+ * entire multi-week planning fence for these metadata-only saves.
+ *
+ * Every field that CAN affect a current or downstream production decision
+ * remains fenced. New week creations always need the full horizon.
+ */
+export function planningRequiresCrossWeekFence(
+  previous: WeekPlan | undefined,
+  edited: WeekPlan,
+): boolean {
+  if (!previous) return true;
+  const operationalFields = [
+    "packaging", "brews", "deliveries", "deliveryDates", "maxRuns",
+    "allowExceptions", "calendarEvents", "calendarNotes",
+  ] as const;
+  return operationalFields.some((key) =>
+    JSON.stringify(previous[key]) !== JSON.stringify(edited[key]));
+}
