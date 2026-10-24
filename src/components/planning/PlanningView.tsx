@@ -5,13 +5,14 @@ import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { validatePlanningDecisionChange } from "../../SERVICES/planning/planningDecisionSafety";
 import { planningReadRequirements } from "../../SERVICES/planning/planningReadCoverage";
+import { pendingStockExecutionPlans } from "../../SERVICES/planning/planningStockExecution";
 import { auditShipmentAvailability, newlyWorsenedShipmentShortage } from "../../SERVICES/planning/shipmentAvailabilityAudit";
 import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
 import { mergeCompletedDeliveriesBack, pendingPlansAfterActualShipments, settingsAfterActualShipments } from "../../SERVICES/planning/shipmentActuals";
-import { mergeCompletedPackagingBack, plansAfterActualPackagingCompletion, pendingPackagingDecisions } from "../../SERVICES/planning/packagingActuals";
+import { mergeCompletedPackagingBack, plansAfterActualPackagingCompletion } from "../../SERVICES/planning/packagingActuals";
 import PlanningBoard from "./PlanningBoard";
 import PlanningData from "./PlanningData";
 import PlanningStock from "./PlanningStock";
@@ -85,13 +86,10 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   const availabilityIssues = useMemo(() => data.loading || !readScope.pallets || !readScope.actuals ? [] : auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments), [data.loading, readScope.pallets, readScope.actuals, settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments]);
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
   const executionPlans = useMemo(() => (tab === "calendar" ? plansAfterActualPackagingCompletion(identityAlignedPlans, settings.products, actuals, productionTanks) : identityAlignedPlans), [tab, identityAlignedPlans, settings.products, actuals, productionTanks]);
-  const stockPlans = useMemo(() => pendingPlansAfterActualShipments(
-    identityAlignedPlans, data.actualShipments, settings.products).map((week) => ({
-      ...week,
-      packaging: pendingPackagingDecisions(
-        week, settings.products, actuals, productionTanks),
-    })),
-  ), [identityAlignedPlans, data.actualShipments, settings.products, actuals, productionTanks]);
+  const stockPlans = useMemo(() => pendingStockExecutionPlans(
+    identityAlignedPlans, settings.products, actuals, data.actualShipments,
+    productionTanks,
+  ), [identityAlignedPlans, settings.products, actuals, data.actualShipments, productionTanks]);
   const weeklyPlans = useMemo(() => (tab === "calendar" ? pendingPlansAfterActualShipments(executionPlans, data.actualShipments, settings.products) : identityAlignedPlans), [tab, executionPlans, identityAlignedPlans, data.actualShipments, settings.products]);
   const calendarSettings = useMemo(() => ((tab === "calendar" || tab === "fiveWeeks" || tab === "schedule") ? settingsAfterActualShipments(settings, data.actualShipments, today) : settings), [tab, settings, data.actualShipments, today]);
   const fiveWeekPlans = useMemo(() => (tab === "fiveWeeks" ? withTentativeFiveWeekTanks(identityAlignedPlans, tanks, calendarSettings) : identityAlignedPlans), [tab, identityAlignedPlans, tanks, calendarSettings]);
