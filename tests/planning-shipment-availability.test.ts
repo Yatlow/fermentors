@@ -98,6 +98,30 @@ test("future-week shortage creates an actionable SKU/date/delta warning rather t
   assert.match(warning, /84 יחידות/);
 });
 
+test("an earlier shipment that turns a later full pallet into a partial-unit shortage gets a detailed confirmation", () => {
+  const physical = [pallet("full", 84), pallet("partial", 42)];
+  const before = auditShipmentAvailability(settings, physical, [laterShipment()], [], today);
+  const after = auditShipmentAvailability(settings, physical,
+    [earlierShipment(), laterShipment()], [], today);
+  assert.deepEqual(before, []);
+  assert.equal(after.length, 1);
+  assert.equal(after[0].severity, "partial");
+  assert.equal(after[0].missingUnits, 42);
+  assert.equal(newlyWorsenedShipmentShortage(before, after), undefined,
+    "partial units do not become a new hard-stop regression");
+  const increases = newlyWorsenedShipmentShortages(before, after);
+  assert.equal(increases.length, 1);
+  assert.equal(increases[0].addedSlots, 0);
+  assert.equal(increases[0].addedUnits, 42);
+  const decision = classifyPlanningShortageIncreases(increases, "2026-10-18");
+  assert.equal(decision.blocking.length, 0);
+  assert.equal(decision.confirmable.length, 1);
+  assert.match(describePlanningShortageIncrease(decision.confirmable[0], settings.products),
+    /42 יחידות/);
+  assert.equal(classifyPlanningShortageIncreases(increases, "2026-10-25").blocking.length, 0,
+    "editing a same-week partial decision must remain a permitted advisory");
+});
+
 test("new deficit in current week remains blocking; missing pinned physical pallet cannot be waived", () => {
   const sameWeek = { issue: { week: "2026-10-18", date: "2026-10-19",
     productId: p.id, missing: 1, message: "missing", severity: "blocking" as const },
