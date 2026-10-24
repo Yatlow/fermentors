@@ -182,7 +182,7 @@ function buildSimulation(seed: number): Simulation {
   }
   const summaries = { ships: 0, packs: 0, brews: 0, slots: 0 };
   const inventoryAt = (day: string, productId?: string) => lots
-    .filter((lot) => lot.madeAt <= day && !lot.shippedAt &&
+    .filter((lot) => lot.madeAt < day && !lot.shippedAt &&
       (parseDate(lot.pallet.expiryDateStr) ?? "") >= day &&
       (!productId || productId === products.find((p) =>
         p.style === lot.pallet.beerStyle && p.type === lot.pallet.itemType)?.id))
@@ -221,6 +221,8 @@ function buildSimulation(seed: number): Simulation {
     assert.ok(runs.every((r) => SUNDAY_TO_THURSDAY.includes(
       Math.round((Date.parse(r.date! + "T12:00:00Z") -
         Date.parse(week.id + "T12:00:00Z")) / 86400000))));
+    // Sunday dispatch happens before the first Sunday packaging shift.
+    // The stock ledger therefore excludes lots made ON the dispatch day.
     for (const row of runs) {
       const product = products.find((p) => p.id === row.productId)!;
       assert.ok(row.quantity <= packagingLimit(row.date!, product.type),
@@ -318,7 +320,7 @@ function buildSimulation(seed: number): Simulation {
 
 function snapshotAt(sim: Simulation, today: string) {
   const pallets = sim.lots
-    .filter((lot) => lot.madeAt <= today && (!lot.shippedAt || lot.shippedAt >= today))
+    .filter((lot) => lot.madeAt < today && (!lot.shippedAt || lot.shippedAt >= today))
     .map((lot) => lot.pallet);
   const actuals: Actual[] = sim.cycles.flatMap((cycle) => cycle.rows
     .filter((run) => run.date! < today)
