@@ -65,16 +65,20 @@ export function openRuns(
   products: Product[],
   actuals: Actual[],
 ): OpenRun[] {
-  return plans.flatMap((w) =>
+  // Each real packaging report must be consumed at most ONCE, regardless of
+  // which weekly decision ultimately owns its tank/batch. A per-week copy of
+  // the same report can silently invent an extra completed packaging shift.
+  const remainingActuals = new Map(products.map((product) => [
+    product.id,
+    actuals.filter((actual) => matchesActual(product, actual) && !!actualDate(actual))
+      .sort((a, b) => (actualDate(a) ?? "").localeCompare(actualDate(b) ?? "") ||
+        a.id.localeCompare(b.id))
+      .map((actual) => ({ actual, left: actualUnits(product, actual) })),
+  ]));
+  const orderedPlans = [...plans].sort((a, b) => a.id.localeCompare(b.id));
+  return orderedPlans.flatMap((w) =>
     products.flatMap((p) => {
-      const completed = actuals
-        .filter(
-          (a) =>
-            matchesActual(p, a) &&
-            actualDate(a) &&
-            weekStart(actualDate(a)!) === w.id,
-        )
-        .map((a) => ({ actual: a, left: actualUnits(p, a) }));
+      const completed = remainingActuals.get(p.id) ?? [];
       return w.packaging
         .map((r, i) => ({
           ...r,
@@ -94,11 +98,17 @@ export function openRuns(
             // it to that decision only with an explicit tank AND batch identity;
             // otherwise keep the date guard to avoid consuming a different cycle.
             const samePhysicalBatch =
-              !!r.tankNumber && !!r.batchNumber &&
-              String(entry.actual.tankNumber) === String(r.tankNumber) &&
-              String(entry.actual.batchNumber) === String(r.batchNumber);
-            if (r.date && actualDate(entry.actual) &&
-                r.date > actualDate(entry.actual)! && !samePhysicalBatch) continue;
+              r.tankNumber != null && r.batchNumber != null &&
+              String(entry.actual.tankNumber ?? "").trim() === String(r.tankNumber).trim() &&
+              String(entry.actual.batchNumber ?? "").replace("#", "").trim() ===
+                String(r.batchNumber).replace("#", "").trim();
+            // A cross-week reschedule is safe to reconcile ONLY when tank AND
+            // batch identity agree. Legacy unidentified reports stay restricted
+            // to their original calendar week.
+            const actualDay = actualDate(entry.actual);
+            if (!samePhysicalBatch && (!actualDay ||
+                weekStart(actualDay) !== w.id ||
+                (r.date && r.date > actualDay))) continue;
             if (
               (r.tankNumber != null &&
                 String(entry.actual.tankNumber ?? "").trim() !== String(r.tankNumber).trim()) ||
