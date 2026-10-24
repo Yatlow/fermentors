@@ -8,6 +8,7 @@ import {
   type WeekPlan,
 } from "./planningEngine";
 import type { ShipmentEvent } from "./dailyPlanner";
+import { tempoInventoryBaselineAt } from "./tempoInventoryTimeline";
 
 export type ShipmentActualTotal = {
   itemType: "crates" | "kegs";
@@ -142,17 +143,14 @@ export function settingsAfterActualShipments(
   const actuals = actualEvents as DetailedShipmentEvent[];
   return {
     ...settings,
-    products: settings.products.map((product) => {
-      if (product.tempo === null) return product;
-      const tempoDate = parseDate(product.tempoDate);
-      const received = actuals
-        .filter((shipment) =>
-          shipment.date <= throughDate &&
-          (!tempoDate || shipment.date > tempoDate),
-        )
-        .reduce((sum, shipment) => sum + actualQuantity(shipment, product), 0);
-      return received > 0 ? { ...product, tempo: product.tempo + received } : product;
-    }),
+    products: settings.products.map((product) =>
+      tempoInventoryBaselineAt(product, throughDate,
+        actuals.map((shipment) => ({
+          date: shipment.date,
+          occurredAt: shipment.occurredAt,
+          quantity: actualQuantity(shipment, product),
+        }))),
+    ),
   };
 }
 
