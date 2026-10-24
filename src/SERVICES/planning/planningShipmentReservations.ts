@@ -20,7 +20,7 @@ import {
   type DeliveryPlan,
   type WeekPlan,
 } from "./planningEngine";
-import { completedShipmentQueueTruckId } from "./shipmentActuals";
+import { matchShipmentManifests, shipmentActualManifestFromTotals } from "./shipmentActuals";
 import { automaticReservationDelta } from "./automaticReservationReconciliation";
 import { nextShipmentMarkingRevision, readShipmentMarkingRevision,
   shipmentMarkingGuardRef, shipmentMarkingGuardWrite } from "./shipmentMarkingGuard";
@@ -57,6 +57,7 @@ type PlannedLine = {
 };
 
 type ActualQueueShipment = {
+  id: string;
   date: string;
   plannedTruckId?: string;
   actualByProduct: Record<string, number>;
@@ -85,22 +86,13 @@ function isTempoShipment(data: Record<string, unknown>): boolean {
 }
 
 function shipmentProducts(data: Record<string, unknown>): Record<string, number> {
-  const totals = Array.isArray(data.totals) ? data.totals : [];
-  const result: Record<string, number> = {};
-  totals.forEach((raw) => {
-    if (!raw || typeof raw !== "object") return;
-    const line = raw as Record<string, unknown>;
-    const itemType = line.itemType === "crates" || line.itemType === "kegs"
-      ? line.itemType
-      : null;
-    const beerStyle = String(line.beerStyle ?? "").trim();
-    const quantity = Number(line.totalQuantity ?? 0);
-    if (!itemType || !beerStyle || !Number.isFinite(quantity) || quantity <= 0) return;
-    const productId = getCatalogEntry(beerStyle, itemType)?.sku;
-    if (!productId) return;
-    result[productId] = (result[productId] ?? 0) + quantity;
-  });
-  return result;
+  const totals = Array.isArray(data.totals)
+    ? data.totals.filter((line) => !!line && typeof line === "object")
+    : [];
+  return shipmentActualManifestFromTotals(
+    totals as {beerStyle: string; itemType: "crates" | "kegs"; totalQuantity: number}[],
+    (style, itemType) => getCatalogEntry(style, itemType)?.sku ?? null,
+  );
 }
 
 async function actualTempoShipmentsThisWeek(today: string): Promise<ActualQueueShipment[]> {
@@ -129,7 +121,7 @@ async function actualTempoShipmentsThisWeek(today: string): Promise<ActualQueueS
     if (!created || !Number.isFinite(created.getTime())) return [];
     const date = dateKey(created);
     if (weekStart(date) !== currentWeek) return [];
-    return [{ date,
+    return [{ id: item.id, date,
       plannedTruckId: typeof data.plannedTruckId === "string" ? data.plannedTruckId : undefined,
       actualByProduct: shipmentProducts(data) }];
   });
@@ -157,22 +149,19 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
     ? (queue.deliveries ?? []).filter((delivery) => delivery.quantity > 0)
     : [];
 
-  // Close actual shipments in-memory before choosing the next reservation.
-  // This is deliberately independent of the planner-only queue write permission:
-  // even if usePlanning has not repaired Firestore yet, operational users cannot
-  // accidentally reserve new pallets against an already completed truck.
-  for (const actual of [...actualShipments].sort((a, b) => a.date.localeCompare(b.date))) {
-    const closedTruckId = completedShipmentQueueTruckId(
-      openDeliveries,
-      actual.actualByProduct,
-      actual.date,
-      actual.plannedTruckId,
-    );
-    if (!closedTruckId) continue;
-    openDeliveries = openDeliveries.filter((delivery) =>
-      String(delivery.truckId || `date:${delivery.dispatchDate}`) !== closedTruckId
-    );
-  }
+  // Exactly the same one-to-one matching as the planning UI. In particular,
+  // unrecognized SKUs are included in manifest confidence, and two physical
+  // receipts cannot accidentally close the same truck.
+  const matches = matchShipmentManifests(openDeliveries, actualShipments.map((event) => ({
+    id: event.id, date: event.date, plannedTruckId: event.plannedTruckId,
+    manifest: event.actualByProduct,
+  })));
+  const pendingTruckIds = new Set(matches
+    .filter((match) => match.status === "pending")
+    .map((match) => match.planned.id));
+  openDeliveries = openDeliveries.filter((delivery) =>
+    pendingTruckIds.has(String(delivery.truckId || `date:${delivery.dispatchDate}`)),
+  );
 
   const lines = openDeliveries
     .filter((delivery) => isDispatchEligibleForAutomaticReservation(delivery.dispatchDate, today))
