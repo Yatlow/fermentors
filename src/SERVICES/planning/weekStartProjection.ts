@@ -1,6 +1,7 @@
 import type { Pallet } from "../cooler/Pallettypes ";
 import {
   productPallets,
+  num,
   parseDate,
   weeklyDemand,
   weekStart,
