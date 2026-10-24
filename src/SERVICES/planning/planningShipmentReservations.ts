@@ -12,6 +12,7 @@ import {
 import { db } from "../../firebase";
 import { getCatalogEntry } from "../cooler/PalletCatalog";
 import type { Pallet, PalletZone } from "../cooler/Pallettypes ";
+import { calcTruckSlots, MAX_TRUCK_SLOTS } from "../cooler/truckCapacity";
 import {
   addDays,
   dateKey,
@@ -196,11 +197,19 @@ export function isDispatchEligibleForAutomaticReservation(dispatchDate: string, 
   return isDispatchInReservationWeek(dispatchDate, today, hour);
 }
 
-function pickForMissing(candidates: Pallet[], missing: number): Pallet[] {
+function pickForMissing(candidates: Pallet[], missing: number, reserved: Pallet[]): Pallet[] {
   if (!candidates.length || missing <= 0) return [];
   const itemType = candidates[0].itemType;
-  const options = shipmentDecisionPickOptions(candidates, missing, palletSize(itemType));
-  const best = options.sort((a, b) =>
+  // Automatic fulfillment uses REAL units, not nominal pallet slots. Filter
+  // against the whole physical truck including other SKUs and manual marks.
+  const options = shipmentDecisionPickOptions(candidates, missing, palletSize(itemType), true);
+  const best = options.filter((option) => {
+    try {
+      return calcTruckSlots([...reserved, ...option.selected]) <= MAX_TRUCK_SLOTS;
+    } catch {
+      return false;
+    }
+  }).sort((a, b) =>
     a.missingNominal - b.missingNominal ||
     a.fefoScore - b.fefoScore ||
     a.slots - b.slots ||
@@ -218,8 +227,9 @@ function pickForMissing(candidates: Pallet[], missing: number): Pallet[] {
  * picker, so an older-expiry pallet is never displaced just because a newer
  * pallet was created now.
  *
- * Shipment decisions are pallet-slot decisions. A partial physical pallet
- * therefore covers one nominal pallet slot, matching shipmentDecisionPickOptions.
+ * Manual planning decisions can reserve a nominal partial position. Auto
+ * picking is different: real shipment quantities must be covered by REAL units
+ * when stock and remaining stack-aware truck capacity permit.
  */
 export async function reserveNewPalletsForNearestShipment(
   newPalletIds: string[] = [],
@@ -259,6 +269,9 @@ export async function reserveNewPalletsForNearestShipment(
     ? { ...pallet, markedForShipment: false } : pallet);
   const newIds = new Set(newPalletIds);
   const idsToMark = new Set<string>();
+  const manualReservations = effectivePallets.filter((pallet) =>
+    pallet.markedForShipment && pallet.zone !== "shipped");
+  const newAutoPicks: Pallet[] = [];
 
   for (const line of planned) {
     const matching = effectivePallets.filter((pallet) =>
@@ -277,7 +290,9 @@ export async function reserveNewPalletsForNearestShipment(
     const markedNominalQuantity = unitPerPallet > 0
       ? Math.min(line.quantity, alreadyMarked.length * unitPerPallet)
       : markedPhysicalQuantity;
-    const missingBefore = Math.max(0, line.quantity - markedNominalQuantity);
+    // Missing units must not be hidden by nominal positions: one physical
+    // 42-crate pallet is NOT 84 shipped crates.
+    const missingBefore = Math.max(0, line.quantity - markedPhysicalQuantity);
 
     const candidates = matching.filter((pallet) =>
       !pallet.markedForShipment &&
@@ -286,12 +301,14 @@ export async function reserveNewPalletsForNearestShipment(
       expiryIso(pallet.expiryDateStr)! >= expiryCutoff,
     );
 
-    const selected = pickForMissing(candidates, missingBefore);
-    const selectedNominal = selected.length > 0
-      ? selected.length * palletSize(selected[0].itemType) : 0;
-    const missingAfter = Math.max(0, missingBefore - selectedNominal);
+    const selected = pickForMissing(candidates, missingBefore,
+      [...manualReservations, ...newAutoPicks]);
+    const selectedPhysical = selected.reduce((sum, pallet) =>
+      sum + palletQuantity(pallet), 0);
+    const missingAfter = Math.max(0, missingBefore - selectedPhysical);
 
     selected.forEach((pallet) => idsToMark.add(pallet.id));
+    newAutoPicks.push(...selected);
     diagnostics.push({
       productId: line.productId,
       plannedQuantity: line.quantity,
