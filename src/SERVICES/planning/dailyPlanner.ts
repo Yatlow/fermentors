@@ -322,24 +322,18 @@ export function dailyForecast(
     lots.get(id)!.reduce((s, l) => s + l.quantity, 0);
   function take(id: string, quantity: number) {
     if (quantity <= 0) return 0;
-    const product = products.find((candidate) => candidate.id === id);
-    const perPallet = product?.type === "crates" ? 84 : 20;
-    const neededSlots = Math.ceil(quantity / perPallet);
     const ls = lots.get(id)!;
-    // Shipment positions are whole physical pallets. Consume only the planned
-    // number of positions, in FEFO order, even when a pallet is partially
-    // filled; never leave a fractional remainder of a loaded pallet available
-    // for a second truck in the daily forecast.
+    // Same physical FEFO rule as the week-opening and availability ledgers:
+    // a truck may need two half-full pallets for one nominal pallet's UNITS.
+    // Consume whole pallets until requested units are met (or stock runs out).
     ls.sort((a, b) => a.expiry.localeCompare(b.expiry) ||
       b.quantity - a.quantity || a.pallet.id.localeCompare(b.pallet.id));
     let physical = 0;
-    let consumedSlots = 0;
     for (const lot of ls) {
-      if (consumedSlots >= neededSlots) break;
+      if (physical + 0.00001 >= quantity) break;
       if (lot.quantity <= 0) continue;
       physical += lot.quantity;
       lot.quantity = 0;
-      consumedSlots += 1;
     }
     // The planning manifest is the upper bound on forecast Tempo receipts.
     // A physically larger selected pallet reduces brewery stock entirely,
