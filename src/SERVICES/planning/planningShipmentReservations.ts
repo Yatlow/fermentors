@@ -22,6 +22,7 @@ import {
 } from "./planningEngine";
 import { hasUnmatchedPhysicalDepartureForToday, matchShipmentManifests, shipmentActualManifestFromTotals } from "./shipmentActuals";
 import { automaticReservationDelta } from "./automaticReservationReconciliation";
+import { isPhysicalTempoShipment } from "./planningTempoShipmentFilter";
 import { nextShipmentMarkingRevision, readShipmentMarkingRevision,
   shipmentMarkingGuardRef, shipmentMarkingGuardWrite } from "./shipmentMarkingGuard";
 import { expiryIso, palletQuantity } from "./shipmentPicking";
@@ -80,11 +81,6 @@ export type ShipmentReservationSyncResult = {
   }>;
 };
 
-function isTempoShipment(data: Record<string, unknown>): boolean {
-  const customerId = typeof data.customerId === "string" ? data.customerId.trim().toLowerCase() : "";
-  if (customerId) return customerId === "tempo";
-  return /טמפו|tempo/i.test(String(data.customerName ?? "").trim());
-}
 
 function shipmentProducts(data: Record<string, unknown>): Record<string, number> {
   const totals = Array.isArray(data.totals)
@@ -116,7 +112,7 @@ async function actualTempoShipmentsThisWeek(today: string): Promise<ActualQueueS
 
   return snapshot.docs.flatMap((item) => {
     const data = item.data() as Record<string, unknown>;
-    if (!isTempoShipment(data)) return [];
+    if (!isPhysicalTempoShipment(data)) return [];
     const createdAt = data.createdAt as { toDate?: () => Date } | undefined;
     const created = createdAt?.toDate?.();
     if (!created || !Number.isFinite(created.getTime())) return [];
