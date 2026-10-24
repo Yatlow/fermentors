@@ -234,7 +234,11 @@ export function matchShipmentManifests(
         )) continue;
     matched.set(planned.id, {
       planned, actual, score,
-      status: score === null || score >= threshold ? "matched" : "actual-different",
+      // Confidence >=85% identifies WHICH trip departed; only 100% SKU and
+      // quantity parity establishes that it departed AS PLANNED. A directly
+      // linked shipment with a changed load is completed but not identical.
+      status: score !== null && Math.abs(score - 1) < 1e-9
+        ? "matched" : "actual-different",
     });
     usedActuals.add(actual.id);
   }
