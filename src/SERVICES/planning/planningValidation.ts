@@ -81,7 +81,8 @@ export function planningWeekIssues(
       errors.push(`משלוח ${d.id}: פריט, כמות או תאריך יציאה/קליטה אינם תקינים`);
   }
   const truckError = validateTruckGroups(w.deliveries ?? [], settings.products,
-    w.allowExceptions ? Infinity : (settings.maxWeeklyDeliveries ?? 2));
+    w.allowExceptions ? Infinity : (settings.maxWeeklyDeliveries ?? 2),
+    w.oversizeTruckApprovals ?? []);
   if (truckError) errors.push(truckError);
   const otherPalletIds = new Set(all.filter((x) => x.id !== w.id)
     .flatMap((x) => x.deliveries ?? [])
