@@ -232,8 +232,12 @@ function srSaturdayReconcile_() {
         srSku_(p, catalog) === sku && srExpiryEligible_(p, dispatchCutoff);
     });
     var size = matches.length && matches[0].itemType === "crates" ? 84 : 20;
-    var already = matches.filter(function(p) { return p.markedForShipment && !staleIds[p.name]; }).length;
-    var missing = Math.max(0, lines[sku] - Math.min(lines[sku], already * size));
+    // Same physical-unit target as the React auto-reservation, not a
+    // nominal pallet-slot target: two half pallets may be needed for 84 crates.
+    var already = matches.filter(function(p) {
+      return p.markedForShipment && !staleIds[p.name];
+    }).reduce(function(sum,p) { return sum + Math.max(0,Number(p.quantity)||0); },0);
+    var missing = Math.max(0, lines[sku] - already);
     var candidates = matches.filter(function(p) {
       return (!p.markedForShipment || staleIds[p.name]) &&
         ["cooler","pending","bottleRoom"].indexOf(p.zone) >= 0 &&
@@ -248,7 +252,7 @@ function srSaturdayReconcile_() {
       });
     });
     if (missing <= 0 || !candidates.length) return;
-    var options = SharedShipmentPicking.shipmentDecisionPickOptions(candidates, missing, size);
+    var options = SharedShipmentPicking.shipmentDecisionPickOptions(candidates, missing, size, true);
     var best = options.filter(function(o) {
       var prior = manualReservedPallets.concat(Object.keys(selected).map(function(id) {
         return selected[id];
