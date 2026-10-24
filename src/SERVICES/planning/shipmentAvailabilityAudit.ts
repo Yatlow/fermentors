@@ -2,7 +2,7 @@ import type { Pallet } from "../cooler/Pallettypes ";
 import { addDays, productPallets, parseDate, weekStart, type Actual, type Product, type Settings, type WeekPlan } from "./planningEngine";
 import { openRuns, type ShipmentEvent } from "./dailyPlanner";
 import { addForecastPackaging, dispatchForecastPallets, type ForecastPalletLot } from "./shipmentPalletLedger";
-import { pendingPlansAfterActualShipments } from "./shipmentActuals";
+import { forecastablePlansAfterActualShipments } from "./shipmentActuals";
 
 export type PlanningAvailabilityIssue = {
   week: string;
@@ -36,7 +36,7 @@ export function auditShipmentAvailability(
   actualShipments: ShipmentEvent[] = [],
 ): PlanningAvailabilityIssue[] {
   const open = openRuns(plans, settings.products, actuals);
-  const pending = pendingPlansAfterActualShipments(plans, actualShipments, settings.products);
+  const pending = forecastablePlansAfterActualShipments(plans, actualShipments, settings.products, today);
   const issues: PlanningAvailabilityIssue[] = [];
   const horizon = addDays(weekStart(today), 91);
 
