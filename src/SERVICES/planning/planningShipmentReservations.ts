@@ -66,6 +66,7 @@ type ActualQueueShipment = {
 export type ShipmentReservationSyncResult = {
   dispatchDate: string | null;
   markedIds: string[];
+  blockedReason?: string;
   diagnostics: Array<{
     productId: string;
     plannedQuantity: number;
@@ -132,7 +133,7 @@ async function actualTempoShipmentsThisWeek(today: string): Promise<ActualQueueS
  * queue is only a projection. Actual shipments are checked on every reservation
  * pass so a stale queue can never re-reserve stock for a truck that already left.
  */
-async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
+async function nearestPlannedDelivery(today: string): Promise<PlannedLine[] | null> {
   // Operational packaging users are approved brewery users, but they are not
   // necessarily planners. Read the restricted shipment projection instead of
   // the full planningWeeks documents (same pattern as brewPlanningQueue).
@@ -156,9 +157,20 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
     id: event.id, date: event.date, plannedTruckId: event.plannedTruckId,
     manifest: event.actualByProduct,
   })));
-  const pendingTruckIds = new Set(matches
-    .filter((match) => match.status === "pending")
-    .map((match) => match.planned.id));
+  const pendingMatches = matches.filter((match) => match.status === "pending");
+  const pendingTruckIds = new Set(pendingMatches.map((match) => match.planned.id));
+  const attachedActualIds = new Set(matches.flatMap((match) =>
+    match.actual?.id ? [match.actual.id] : []));
+  const unmatchedActuals = actualShipments.filter((actual) =>
+    !attachedActualIds.has(actual.id));
+  // A manual departure already happened today but cannot be matched with
+  // confidence. Do not auto-pick more pallets for that same date's unclosed
+  // trip: the truck may be physically gone. Keep the current marks untouched
+  // until the operator explicitly links the physical receipt or repairs the
+  // plan. Returning null means HOLD rather than "no planned trip".
+  if (unmatchedActuals.some((actual) => actual.date <= today &&
+      pendingMatches.some((match) =>
+        match.planned.dispatchDate === actual.date))) return null;
   openDeliveries = openDeliveries.filter((delivery) =>
     pendingTruckIds.has(String(delivery.truckId || `date:${delivery.dispatchDate}`)),
   );
@@ -227,6 +239,11 @@ export async function reserveNewPalletsForNearestShipment(
   const today = dateKey(new Date());
   const observedMarkingRevision = await readShipmentMarkingRevision();
   const planned = await nearestPlannedDelivery(today);
+  if (planned === null) {
+    const blockedReason = "דווח משלוח טמפו שלא שויך בוודאות לנסיעה שתוכננה להיום. ההקצאה האוטומטית הושהתה עד לבירור כדי שלא יסומנו משטחים למשאית שכבר יצאה.";
+    console.warn("Shipment reservation hold", blockedReason);
+    return { dispatchDate: null, markedIds: [], diagnostics: [], blockedReason };
+  }
   const dispatchDate = planned[0]?.dispatchDate ?? null;
   // Picking must evaluate the stock at the promised dispatch date, not when
   // someone taps "sync" several days earlier.
