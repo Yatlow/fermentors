@@ -118,12 +118,12 @@ test("physical dispatch rejects 13 full loading positions even if UI is bypassed
     /12 מקומות/);
 });
 
-test("actual physical dispatch rejects 25 short pallets with the two-high loading rule", () => {
-  const shortPallets = Array.from({ length: 25 }, (_, index) =>
+test("actual physical dispatch permits three-plus low pallets per slot, but rejects overflow", () => {
+  const shortPallets = Array.from({ length: 49 }, (_, index) =>
     pallet(`short-${index}`, 12));
   assert.throws(() => validatePhysicalShipmentLoad(shortPallets, "2026-10-24"),
-    /12 מקומות/, "low height does not authorize stacking three pallets per floor slot");
-  const legal = shortPallets.slice(0, 24);
+    /12 מקומות/, "the combined height still limits the truck to 12 floor places");
+  const legal = shortPallets.slice(0, 48);
   assert.equal(validatePhysicalShipmentLoad(legal, "2026-10-24"), 12);
 });
 
