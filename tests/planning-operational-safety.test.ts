@@ -20,6 +20,7 @@ import { automaticReservationDelta } from "../src/SERVICES/planning/automaticRes
 import { replaceShipmentTrip } from "../src/SERVICES/planning/shipmentEdit";
 import { packagingLimit } from "../src/SERVICES/planning/productionCycle";
 import { validateBrewReleaseIssues, validateProductionIssues } from "../src/SERVICES/planning/productionCycle";
+import { planningSaveFenceConflict, planningSaveFenceWeekIds } from "../src/SERVICES/planning/planningSaveFence";
 
 const today = "2026-10-18";
 const ipa: Product = {
@@ -41,6 +42,35 @@ const oneActual = {
   id: "actual-a", date: "2026-10-19",
   totals: [{ itemType: "crates" as const, beerStyle: "IPA", totalQuantity: 84 }],
 };
+
+test("cross-week save fence includes prior, current, future and absent weeks", () => {
+  const ids = planningSaveFenceWeekIds("2026-10-24");
+  assert.equal(ids.length, 25);
+  assert.equal(ids[0], "2026-07-26");
+  assert.equal(ids[12], "2026-10-18");
+  assert.equal(ids.at(-1), "2027-01-10");
+  const before = [
+    { ...emptyWeek("2026-10-25"), revision: 4 },
+    { ...emptyWeek("2026-11-01"), revision: 9 },
+  ];
+  const snapshot = [
+    { id: "2026-10-25", revision: 4 },
+    { id: "2026-11-01", revision: 9 },
+    { id: "2026-11-08", revision: null },
+  ];
+  assert.equal(planningSaveFenceConflict(before, snapshot, "2026-10-25"), null);
+  assert.equal(planningSaveFenceConflict(before,
+    snapshot.map((item) => item.id === "2026-11-01"
+      ? { ...item, revision: 10 } : item), "2026-10-25"), "2026-11-01",
+    "a concurrent DIFFERENT week save must force replanning");
+  assert.equal(planningSaveFenceConflict(before,
+    snapshot.map((item) => item.id === "2026-11-08"
+      ? { ...item, revision: 1 } : item), "2026-10-25"), "2026-11-08",
+    "a concurrent creation of a previously absent week is not invisible");
+  assert.equal(planningSaveFenceConflict(before, [
+    ...snapshot, { id: "2026-10-25", revision: 6 },
+  ], "2026-10-25"), null, "the edited week has its own version check");
+});
 
 test("one of two same-day dispatches leaves one real open trip", () => {
   const matches = matchActualShipments(twoTrips.deliveries, [oneActual], settings.products);
