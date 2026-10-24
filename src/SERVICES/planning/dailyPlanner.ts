@@ -1,6 +1,8 @@
 import { estimatedBrewVolume } from "./productionCycle";
 import { packagingLimit, weekday as dayOfWeek } from "./productionCycle";
-import { resolvePackagingBrewId } from "./planIdentity";
+import { brewById, resolvePackagingBrewId } from "./planIdentity";
+import { forecastablePlansAfterActualShipments } from "./shipmentActuals";
+import { dispatchForecastPallets, reservedPhysicalPalletIds } from "./shipmentPalletLedger";
 import {
   projectedPallets,
   selectTruck,
@@ -64,16 +66,20 @@ export function openRuns(
   products: Product[],
   actuals: Actual[],
 ): OpenRun[] {
-  return plans.flatMap((w) =>
+  // Each real packaging report must be consumed at most ONCE, regardless of
+  // which weekly decision ultimately owns its tank/batch. A per-week copy of
+  // the same report can silently invent an extra completed packaging shift.
+  const remainingActuals = new Map(products.map((product) => [
+    product.id,
+    actuals.filter((actual) => matchesActual(product, actual) && !!actualDate(actual))
+      .sort((a, b) => (actualDate(a) ?? "").localeCompare(actualDate(b) ?? "") ||
+        a.id.localeCompare(b.id))
+      .map((actual) => ({ actual, left: actualUnits(product, actual) })),
+  ]));
+  const orderedPlans = [...plans].sort((a, b) => a.id.localeCompare(b.id));
+  return orderedPlans.flatMap((w) =>
     products.flatMap((p) => {
-      const completed = actuals
-        .filter(
-          (a) =>
-            matchesActual(p, a) &&
-            actualDate(a) &&
-            weekStart(actualDate(a)!) === w.id,
-        )
-        .map((a) => ({ actual: a, left: actualUnits(p, a) }));
+      const completed = remainingActuals.get(p.id) ?? [];
       return w.packaging
         .map((r, i) => ({
           ...r,
@@ -93,11 +99,17 @@ export function openRuns(
             // it to that decision only with an explicit tank AND batch identity;
             // otherwise keep the date guard to avoid consuming a different cycle.
             const samePhysicalBatch =
-              !!r.tankNumber && !!r.batchNumber &&
-              String(entry.actual.tankNumber) === String(r.tankNumber) &&
-              String(entry.actual.batchNumber) === String(r.batchNumber);
-            if (r.date && actualDate(entry.actual) &&
-                r.date > actualDate(entry.actual)! && !samePhysicalBatch) continue;
+              r.tankNumber != null && r.batchNumber != null &&
+              String(entry.actual.tankNumber ?? "").trim() === String(r.tankNumber).trim() &&
+              String(entry.actual.batchNumber ?? "").replace("#", "").trim() ===
+                String(r.batchNumber).replace("#", "").trim();
+            // A cross-week reschedule is safe to reconcile ONLY when tank AND
+            // batch identity agree. Legacy unidentified reports stay restricted
+            // to their original calendar week.
+            const actualDay = actualDate(entry.actual);
+            if (!samePhysicalBatch && (!actualDay ||
+                weekStart(actualDay) !== w.id ||
+                (r.date && r.date > actualDay))) continue;
             if (
               (r.tankNumber != null &&
                 String(entry.actual.tankNumber ?? "").trim() !== String(r.tankNumber).trim()) ||
@@ -144,8 +156,12 @@ export function futureTanks(
       // Planned brew liters are already the NET packaging volume from the
       // canonical tank × style fallback. Do not apply lossPercent/shrinkage a
       // second time when projecting a future packaging cycle.
+      // A saved brew's explicit net volume is the source of truth. The
+      // tank/style fallback is only for legacy brews without an explicit amount;
+      // overriding a smaller custom batch would invent future packable stock.
       const netPackagingLiters =
-        estimatedBrewVolume(physicalTankNumber, b.style) || Number(b.liters) || 0;
+        Number(b.liters) > 0 ? Number(b.liters) :
+        estimatedBrewVolume(physicalTankNumber, b.style);
       return [
         {
           id: `planned:${b.id}`,
@@ -192,7 +208,7 @@ export type DailyResult = {
   open: OpenRun[];
 };
 type Lot = StockPallet;
-export type ShipmentEvent = { id: string; date: string };
+export type ShipmentEvent = { id: string; date: string; occurredAt?: string };
 export function dailyForecast(
   settings: Settings,
   pallets: Pallet[],
@@ -207,7 +223,8 @@ export function dailyForecast(
   const warnings = new Set<string>(),
     products = settings.products,
     open = openRuns(plans, products, actuals),
-    end = addDays(weekStart(today), 84);
+    // The Gantt includes week +84 through Saturday +90. End is exclusive.
+    end = addDays(weekStart(today), 91);
   const pool = futureTanks(
     tanks,
     plans.map((w) => ({
@@ -246,11 +263,22 @@ export function dailyForecast(
     // readiness, so forecast that committed work on its chosen date. Newly
     // generated recommendations below still obey normal tank readiness.
     const canonicalBrewId = resolvePackagingBrewId(r, plans);
+    // An old planned brew may be the *current physical batch*. In that
+    // case futureTanks deliberately does not create a duplicate virtual tank.
+    // Resolve canonical identity against that actual tank before allocating.
+    const canonicalBrew = canonicalBrewId ? brewById(plans, canonicalBrewId) : null;
+    const physicalCanonical = canonicalBrew ? pool.find((tank) =>
+      tank.id === canonicalBrew.tankId &&
+      tank.brewed === canonicalBrew.date &&
+      sameStyle(tank.style, canonicalBrew.style) &&
+      (!canonicalBrew.batchNumber ||
+        String(tank.batch).replace("#", "").trim() === String(canonicalBrew.batchNumber).replace("#", "").trim())
+    ) : undefined;
     const committedPool = (
       canonicalBrewId
-        ? pool.filter((t) => t.id === `planned:${canonicalBrewId}`)
+        ? pool.filter((tank) => tank.id === (physicalCanonical?.id ?? `planned:${canonicalBrewId}`))
         : r.tankId
-          ? pool.filter((t) => t.id === r.tankId)
+          ? pool.filter((tank) => tank.id === r.tankId)
           : pool
     ).map((tank) => tank.ready > r.date! ? { ...tank, ready: r.date! } : tank);
     const allocations = allocate(
@@ -293,17 +321,27 @@ export function dailyForecast(
   }
   const stock = (id: string) =>
     lots.get(id)!.reduce((s, l) => s + l.quantity, 0);
-  function take(id: string, quantity: number) {
-    let need = quantity;
+  function take(
+    id: string, quantity: number, dispatchDate: string,
+    assignedPallets?: ReadonlyArray<{ id: string; quantity: number }>,
+  ) {
+    if (quantity <= 0) return 0;
     const ls = lots.get(id)!;
-    ls.sort((a, b) => a.expiry.localeCompare(b.expiry));
-    for (const l of ls) {
-      const qty = Math.min(l.quantity, need);
-      l.quantity -= qty;
-      need -= qty;
-      if (need <= 0) break;
-    }
-    return quantity - need;
+    const product = products.find((candidate) => candidate.id === id);
+    const perPallet = product?.type === "crates" ? 84 : 20;
+    // The daily, shipment-availability and week-opening views must consume
+    // the SAME indivisible FEFO subset: no invented fractional reusable pallet,
+    // no 90-crate physical dispatch silently recorded as an 84-crate shipment.
+    const available = ls.filter((lot) => lot.quantity > 0).map((lot) => ({
+      id: lot.pallet.id, expiry: lot.expiry, quantity: lot.quantity,
+    }));
+    const { selectedLots, shippedPhysical } = dispatchForecastPallets(
+      available, quantity, perPallet, dispatchDate, assignedPallets,
+      reservedPhysicalPalletIds(deliveries.filter((item) => item.productId === id)),
+    );
+    const shippedIds = new Set(selectedLots.map((lot) => lot.id));
+    for (const lot of ls) if (shippedIds.has(lot.pallet.id)) lot.quantity = 0;
+    return shippedPhysical;
   }
   const incoming = new Map<string, Map<string, number>>();
   const addIncoming = (day: string, id: string, qty: number) => {
@@ -311,7 +349,11 @@ export function dailyForecast(
     values.set(id, (values.get(id) ?? 0) + qty);
     incoming.set(day, values);
   };
-  const deliveries = plans.flatMap((w) => w.deliveries ?? []);
+  // Physical pallet stock already excludes departed shipments. Only subtract
+  // still-open trips; never suppress a second trip just because another truck
+  // departed on the same calendar day.
+  const deliveries = forecastablePlansAfterActualShipments(plans, actualShipments, products, today)
+    .flatMap((w) => w.deliveries ?? []);
   const transit = 0;
   const maxTrips = Infinity;
   const dismissed = new Set(
@@ -321,7 +363,6 @@ export function dailyForecast(
     ...deliveries.filter((d) => d.quantity > 0).map((d) => d.dispatchDate),
     ...actualShipments.map((s) => s.date),
   ]);
-  const actualTripDates = new Set(actualShipments.map((s) => s.date));
   const batchDates = new Map<string, string>();
   for (const p of products)
     for (const t of tanks)
@@ -509,25 +550,9 @@ export function dailyForecast(
         break;
       }
     }
-    for (const d of deliveries.filter(
-      (d) => d.dispatchDate === day && !actualTripDates.has(day),
-    )) {
+    for (const d of deliveries.filter((d) => d.dispatchDate === day)) {
       if (!lots.has(d.productId) || d.arrivalDate < day) continue;
-      let sent = 0;
-      if (d.pallets?.length) {
-        for (const selected of d.pallets) {
-          if (selected.id.startsWith("planning:")) {
-            sent += take(d.productId, selected.quantity);
-            continue;
-          }
-          const lot = lots
-            .get(d.productId)!
-            .find((x) => x.pallet.id === selected.id);
-          const qty = Math.min(lot?.quantity ?? 0, selected.quantity);
-          if (lot) lot.quantity -= qty;
-          sent += qty;
-        }
-      } else sent = take(d.productId, d.quantity);
+      const sent = take(d.productId, d.quantity, day, d.pallets);
       addIncoming(d.arrivalDate, d.productId, sent);
       if (sent + 0.01 < d.quantity)
         warnings.add(
@@ -545,7 +570,7 @@ export function dailyForecast(
         .sort();
       const count =
         actualShipments.filter((x) => weekStart(x.date) === week).length +
-        scheduled.filter((date) => !actualTripDates.has(date)).length;
+        scheduled.filter((date) => !actualShipments.some((shipment) => shipment.date === date)).length;
       const pending = [...deliveries].filter(
         (d) => d.dispatchDate >= day && weekStart(d.dispatchDate) === week,
       );

@@ -24,7 +24,7 @@ import {
   type ShipmentEvent,
 } from "./dailyPlanner";
 import { buildShipmentRecommendation } from "./shipmentRecommendation";
-import { brewSizeLabel, tankReleases, reconcilePhysicalCycleEmptying, type BrewSizeLabel, type TankSource } from "./productionCycle";
+import { brewSizeLabel, estimatedBrewVolume, tankReleases, reconcilePhysicalCycleEmptying, type BrewSizeLabel, type TankSource } from "./productionCycle";
 import { displayStyle, isCoreStyle } from "./planningPresentation";
 import { buildWeekStartProjection, type WeekStartProjection } from "./weekStartProjection";
 import { projectTankSchedules } from "./tankScheduleProjection";
@@ -181,6 +181,10 @@ function skuRows(settings: Settings, result: DailyResult, date: string) {
   return map;
 }
 
+function normalizedBatchForPlanning(value: unknown): string {
+  return String(value ?? "").replace("#", "").trim();
+}
+
 function plannedBrewId(tank: Tank) {
   return tank.id.startsWith("planned:") ? tank.id.slice("planned:".length) : "";
 }
@@ -323,7 +327,18 @@ function buildPackagingRecommendation(
       })) return false;
       const linked = resolvePackagingBrewId(run, plans);
       if (brewId) return linked === brewId;
-      if (linked) return false;
+      if (linked) {
+        // Canonical identity can already refer to the physical LIVE batch.
+        // Such packaging is unfinished physical production, not an unrelated
+        // future brew merely because it carries brewId.
+        const linkedBrew = brewById(plans, linked);
+        return !!linkedBrew && linkedBrew.tankId === tank.id &&
+          linkedBrew.date === tank.brewed && sameStyle(linkedBrew.style, tank.style) &&
+          (!normalizedBatchForPlanning(linkedBrew.batchNumber) ||
+            normalizedBatchForPlanning(linkedBrew.batchNumber) === normalizedBatchForPlanning(tank.batch)) &&
+          (!normalizedBatchForPlanning(run.batchNumber) ||
+            normalizedBatchForPlanning(run.batchNumber) === normalizedBatchForPlanning(tank.batch));
+      }
       const sameTank = run.tankId === tank.id ||
         (!run.tankId && String(run.tankNumber ?? "") === String(tank.number));
       if (!sameTank) return false;
@@ -496,7 +511,9 @@ function buildBrewRecommendation(
   const schedules = projectTankSchedules(plans, settings, today, tanks);
   const releaseFitsCanonicalWindow = (release: (typeof capacityReleases)[number], style?: string) => {
     const candidateDate = release.date && release.date > week ? release.date : week;
-    if (candidateDate > weekEnd) return false;
+    // Weekly brewery shifts run Monday–Wednesday; a tank released on
+    // Thursday or later cannot support a brew in this operational week.
+    if (candidateDate > addDays(week, 3)) return false;
     const cycles = reconcilePhysicalCycleEmptying(
       schedules.get(release.tankId) ?? [],
       sources.find((source) => source.id === release.tankId),
@@ -529,31 +546,41 @@ function buildBrewRecommendation(
   }).filter((state) => state.demandLiters > 0);
   const recommendations: WeeklyBrewRecommendation[] = [];
   const remainingReleases = [...canonicalAvailableReleases];
-  const remainingStyles = [...styleStates];
-  while (recommendations.length < remainingCapacity && remainingReleases.length && remainingStyles.length) {
+  // A shortage may need more than one brew of the same style. Conversely, a
+  // spare tank alone is never sufficient reason to recommend an overstock brew.
+  // Recalculate style coverage after each proposed brew rather than removing
+  // the style from consideration permanently.
+  while (remainingReleases.length && styleStates.length) {
     let best: { styleIndex: number; releaseIndex: number; score: number } | null = null;
-    for (let si = 0; si < remainingStyles.length; si++) {
-      const state = remainingStyles[si];
+    for (let si = 0; si < styleStates.length; si++) {
+      const state = styleStates[si];
+      const urgency = state.targets.targetWeeks - state.cover;
+      if (urgency <= 0.000001) continue;
       for (let ri = 0; ri < remainingReleases.length; ri++) {
         const release = remainingReleases[ri];
         if (!releaseFitsCanonicalWindow(release, state.style)) continue;
-        const liters = release.workLiters || 2500;
+        // Compute the capacity of the proposed new style, not the previous one.
+        const source = sources.find((item) => item.id === release.tankId);
+        const tank = tanks.find((item) => item.id === release.tankId);
+        const liters = estimatedBrewVolume(source?.tankNumber ?? tank?.number, state.style);
+        if (!liters) continue;
         const postCover = (state.stockLiters + liters) / state.demandLiters;
-        const targetGap = Math.max(0, state.targets.targetWeeks - postCover);
         const overTarget = Math.max(0, postCover - state.targets.targetWeeks);
         const overMax = Math.max(0, postCover - state.targets.maxTotalWeeks);
-        const urgency = Math.max(0, state.targets.targetWeeks - state.cover);
-        const score = targetGap * 100 + overMax * 1000 + overTarget * 10 - urgency;
-        if (!best || score < best.score) best = { styleIndex: si, releaseIndex: ri, score };
+        const score = urgency * 100 - overTarget * 10 - overMax * 1000;
+        if (!best || score > best.score) best = { styleIndex: si, releaseIndex: ri, score };
       }
     }
     if (!best) break;
-    const state = remainingStyles.splice(best.styleIndex, 1)[0];
+    const state = styleStates[best.styleIndex];
     const release = remainingReleases.splice(best.releaseIndex, 1)[0];
     const source = sources.find((s) => s.id === release.tankId);
     const tankNumber = String(source?.tankNumber ?? release.tankId);
-    const liters = release.workLiters || 2500;
+    const liters = estimatedBrewVolume(source?.tankNumber ?? tanks.find((tank) => tank.id === release.tankId)?.number, state.style);
+    if (!liters) continue;
     recommendations.push({ style: state.style, liters, sizeLabel: brewSizeLabel(liters, source?.tankNumber), tankId: release.tankId, tankNumber, availableDate: release.date! });
+    state.stockLiters += liters;
+    state.cover = state.stockLiters / state.demandLiters;
   }
   return { recommendations, capacity: remainingCapacity, capacityBeforeCurrent, tankOptions };
 }
@@ -581,7 +608,7 @@ export function buildWeeklyPlanningModel(args: {
     forecasts[stage] = dailyForecast(normalized, pallets, tanks, plansAtStage(forecastPlans, week, stage), actuals, today, holidays, false, shipments);
     rows[stage] = skuRows(normalized, forecasts[stage], weekEnd);
   }
-  const weekStartRows = buildWeekStartProjection({ settings, pallets, plans, actuals, today, week });
+  const weekStartRows = buildWeekStartProjection({ settings, pallets, plans, actuals, today, week, actualShipments: shipments });
   const shipment = buildShipmentRecommendation(normalized, weekStartRows);
   const packaging = buildPackagingRecommendation(normalized, rows.afterShipment, tanks, plans, actuals, sources, week, weekEnd, today);
   const brew = buildBrewRecommendation(normalized, rows.afterPackaging, tanks, forecastPlans, actuals, sources, today, week, weekEnd);

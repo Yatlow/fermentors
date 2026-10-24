@@ -18,8 +18,12 @@ import { orderedTankSchedule, tankCanHostCycle, type TankScheduleCycle } from ".
 export const weekday = (date: string) => new Date(`${date}T12:00:00Z`).getUTCDay();
 export const nextBrewingWeek = (emptied: string) => addDays(weekStart(emptied), 8);
 
+// These are hard operational ceilings, not only forecast estimates.
+// Sunday has a shorter packing shift; Monday–Thursday standard capacity is
+// 252 crates or 150 kegs. Friday/Saturday require an explicit exception
+// through the planning validator regardless of this numeric ceiling.
 export const packagingLimit = (date: string, type: "crates" | "kegs") =>
-  weekday(date) === 0 ? (type === "crates" ? 168 : 100) : type === "crates" ? 252 : Infinity;
+  weekday(date) === 0 ? (type === "crates" ? 168 : 100) : type === "crates" ? 252 : 150;
 
 export type TankSource = {
   id: string;
@@ -123,24 +127,40 @@ export function tankReleases(
   // remaining balance. It can nevertheless prove the physical cycle emptied.
   // Require both the explicit empty marker and actual packaging for the same
   // tank, batch, type and day; a plan alone never proves past execution.
+  const allCompletedBalances = new Map(openRuns(plans, settings.products, actuals)
+    .map((run) => [`${run.week}:${run.key}`, run.remaining]));
   const completedEmptyRuns = plans.flatMap((week) => (week.packaging ?? [])
-    .filter((run) => !!run.emptyTank && !!run.date && run.date <= today &&
-      !resolvePackagingBrewId(run, plans))
-    .filter((run) => {
+    .flatMap((run, index) => {
+      if (!run.emptyTank || !run.date || !run.quantity ||
+          resolvePackagingBrewId(run, plans)) return [];
       const product = settings.products.find((p) => p.id === run.productId);
       const style = run.nonInventoryStyle ?? product?.style;
       const type = run.nonInventoryType ?? product?.type;
-      return !!run.batchNumber && !!run.tankNumber && !!style && !!type &&
-        actuals.some((actual) =>
+      if (!run.batchNumber || !run.tankNumber || !style || !type) return [];
+      const key = run.id ?? `${week.id}:${run.productId}:${index}`;
+      // A merely reported PART of the planned final run never proves emptying.
+      // The real physical batch must satisfy this final packaging decision.
+      if ((allCompletedBalances.get(`${week.id}:${key}`) ?? run.quantity) > 0) return [];
+      const actualDates = actuals.flatMap((actual) => {
+        const date = actualDate(actual);
+        return date && date <= today &&
           String(actual.tankNumber) === String(run.tankNumber) &&
           normalizedBatch(actual.batchNumber) === normalizedBatch(run.batchNumber) &&
           sameStyle(actual.beerStyle ?? "", style) &&
           actual.packagingType === (type === "crates" ? "bottles" : "kegs") &&
-          actualDate(actual) === run.date &&
-          num(actual.quantity) > 0);
-    })
-    .map((run) => ({ ...run, remaining: 0, week: week.id,
-      key: run.id ?? `${week.id}:completed-empty` })));
+          num(actual.quantity) > 0 ? [date] : [];
+      });
+      if (!actualDates.length) return [];
+      // When an entire batch was packaged BEFORE its planned day (including a
+      // different week), release timing follows reality, not the stale plan.
+      return [{
+        ...run,
+        date: actualDates.sort().at(-1)!,
+        remaining: 0,
+        week: week.id,
+        key,
+      }];
+    }));
   // Legacy decisions sometimes store a physical tank number instead of its
   // Firestore document id. Only accept an unambiguous number match.
   const physicalRunTank = (run: PackagingPlan): string | undefined => {
@@ -322,14 +342,17 @@ export function normalizeEmptyTankFlagsForSchedule(plan: WeekPlan): WeekPlan {
   return { ...plan, packaging };
 }
 
-export function validateProduction(
+export type PlanningValidationIssue = { key: string; message: string };
+
+export function validateProductionIssues(
   plans: WeekPlan[],
   settings: Settings,
   tanks: Tank[],
   actuals: Actual[],
   today: string,
   options?: { allowEarlyPackaging?: boolean },
-): string | null {
+): PlanningValidationIssue[] {
+  const issues: PlanningValidationIssue[] = [];
   const inventoryRuns = openRuns(plans, settings.products, actuals)
     .filter((r) => r.remaining > 0 && (!r.date || r.date >= today));
   const specialRuns = plans.flatMap((week) => (week.packaging ?? [])
@@ -337,6 +360,7 @@ export function validateProduction(
     .map((run, index) => ({ ...run, remaining: run.quantity, week: week.id, key: run.id ?? `${week.id}:special:${index}` })));
   const runs = [...inventoryRuns, ...specialRuns]
     .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+  const projectedSchedules = projectTankSchedules(plans, settings, today, tanks);
   const tankRuns = new Map<string, { date: string; type: "crates" | "kegs" }[]>();
   const used = new Map<string, number>();
 
@@ -347,6 +371,9 @@ export function validateProduction(
     // without brewId even though the source is an unambiguous planned brew.
     // Resolve that narrow case from tank + style + chronology before treating
     // it as legacy physical-tank packaging.
+    const report = (message: string) => {
+      issues.push({ key: `pack:${r.week}:${r.id ?? r.key}`, message });
+    };
     const product = settings.products.find((candidate) => candidate.id === r.productId);
     const runStyle = r.nonInventoryStyle ?? product?.style;
     const batch = normalizedBatch(r.batchNumber);
@@ -398,13 +425,13 @@ export function validateProduction(
         normalizedBatch(numberMatches[0].batch) === batch)
         ? numberMatches[0] : undefined);
     const tankId = linkedBrew?.tankId ?? t?.id ?? recordedTankId;
-    if (!tankId || !r.date) return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
+    if (!tankId || !r.date) { report("יש לשייך מיכל מקור ויום לכל אריזה עתידית"); continue; }
     const p = settings.products.find((p) => p.id === r.productId);
     const runType = r.nonInventoryType ?? p?.type;
-    if (!linkedBrew && !t) return `חסר מיכל מקור לאריזה: שבוע ${r.week ?? "לא ידוע"}, תאריך ${r.date}, מיכל ${String(r.tankNumber ?? r.tankId ?? "לא משויך")}, אצווה ${String(r.batchNumber ?? "לא ידועה")}, אריזה ${String(r.id ?? "ללא מזהה")}`;
+    if (!linkedBrew && !t) { report(`חסר מיכל מקור לאריזה: שבוע ${r.week ?? "לא ידוע"}, תאריך ${r.date}, מיכל ${String(r.tankNumber ?? r.tankId ?? "לא משויך")}, אצווה ${String(r.batchNumber ?? "לא ידועה")}, אריזה ${String(r.id ?? "ללא מזהה")}`); continue; }
 
     const projectedCycle = linkedBrewId
-      ? projectTankSchedules(plans, settings, today, tanks).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
+      ? projectedSchedules.get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
       : null;
     const fallbackLeadDays = linkedBrew
       ? Math.max(21, ...settings.products.filter((product) => sameStyle(product.style, linkedBrew.style)).map((product) => product.leadDays))
@@ -417,7 +444,7 @@ export function validateProduction(
       ?? (linkedBrew ? addDays(linkedBrew.date, fallbackLeadDays) : physicalReady);
     const tankLabel = physicalTank?.number ?? t?.number ?? linkedBrew?.tankId ?? tankId;
     if (readyDate && r.date < readyDate && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)
-      return `מיכל ${tankLabel}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${readyDate}`;
+      { report(`מיכל ${tankLabel}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${readyDate}`); continue; }
 
     // During scheduling the planner can place the future brew on a packaging day
     // before choosing crates/kegs. Type-dependent validation is deferred until
@@ -432,9 +459,9 @@ export function validateProduction(
     const types = new Set(history.map((x) => x.type));
     const allowExceptions = plans.find((w) => w.id === r.week)?.allowExceptions;
     if (!allowExceptions && dates.length > 1 && types.size < 2)
-      return `מיכל ${tankLabel}: פיצול לימים שונים מותר רק בין בקבוקים לחביות`;
+      { report(`מיכל ${tankLabel}: פיצול לימים שונים מותר רק בין בקבוקים לחביות`); continue; }
     if (!allowExceptions && dates.length > 2)
-      return `מיכל ${tankLabel}: ניתן לפצל לכל היותר לשני ימי אריזה`;
+      { report(`מיכל ${tankLabel}: ניתן לפצל לכל היותר לשני ימי אריזה`); continue; }
 
     const unitLiters = p ? litersPerUnit(p) : runType === "crates" ? 24 * 0.33 : 20;
     used.set(cycleKey, (used.get(cycleKey) ?? 0) + r.remaining * unitLiters);
@@ -460,9 +487,9 @@ export function validateProduction(
     const cycleLiters = isCurrentPhysicalCycle
       ? t!.liters
       : linkedBrew ? Math.max(0, linkedBrew.liters - packedLiters) : t?.liters ?? 0;
-    if (!cycleLiters) return `מיכל ${tankLabel}: חסר נפח מחזור לחישוב האריזה`;
+    if (!cycleLiters) { report(`מיכל ${tankLabel}: חסר נפח מחזור לחישוב האריזה`); continue; }
     if (used.get(cycleKey)! > cycleLiters + 0.01)
-      return `מיכל ${tankLabel}: הכמות המתוכננת גדולה מהנפח הזמין במחזור`;
+      { report(`מיכל ${tankLabel}: הכמות המתוכננת גדולה מהנפח הזמין במחזור`); continue; }
     // For the current physical batch, an explicit planned emptying is an
     // operational decision, not a claim that estimated liters exactly match
     // packed units. Beer may be lost to shrinkage or discarded at emptying.
@@ -494,9 +521,17 @@ export function validateProduction(
       (sameDeclaredPhysicalBatch || matchingPhysicalDate || inferredPhysicalLegacy) &&
       !nextBrewAlreadyStarted;
     if (r.emptyTank && !currentPhysicalBatch && cycleLiters - used.get(cycleKey)! >= 20)
-      return `מיכל ${tankLabel}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמחזור`;
+      { report(`מיכל ${tankLabel}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמחזור`); continue; }
   }
-  return null;
+  return issues;
+}
+
+/** Legacy single-message interface retained for direct form validation. */
+export function validateProduction(
+  plans: WeekPlan[], settings: Settings, tanks: Tank[], actuals: Actual[],
+  today: string, options?: { allowEarlyPackaging?: boolean },
+): string | null {
+  return validateProductionIssues(plans, settings, tanks, actuals, today, options)[0]?.message ?? null;
 }
 
 /**
@@ -542,7 +577,7 @@ function conflictingTankCycle(
     cycle.brewDate <= brewDate && (!cycle.emptyDate || brewDate <= cycle.emptyDate))
     ?? other.find((cycle) => cycle.brewDate > brewDate && readyDate >= cycle.brewDate);
 }
-export function validateBrewReleases(
+export function validateBrewReleaseIssues(
   sources: TankSource[],
   tanks: Tank[],
   plans: WeekPlan[],
@@ -550,12 +585,14 @@ export function validateBrewReleases(
   actuals: Actual[],
   today: string,
   editedWeekId?: string,
-): string | null {
+): PlanningValidationIssue[] {
+  const issues: PlanningValidationIssue[] = [];
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today);
   const schedules = projectTankSchedules(plans, settings, today, tanks);
 
   for (const b of plans.filter((w) => !editedWeekId || w.id === editedWeekId).flatMap((w) => w.brews).filter((b) => b.date >= today)) {
     if (!b.tankId) continue;
+    const report = (message: string) => issues.push({ key: `brew:${b.id}`, message });
     const tank = tanks.find((t) => t.id === b.tankId);
     const source = sources.find((s) => s.id === b.tankId);
     // Validate the FUTURE planned cycle against the tank's estimated brew
@@ -564,9 +601,9 @@ export function validateBrewReleases(
     // cap a later planned brew.
     const workLiters = estimatedBrewVolume(source?.tankNumber ?? tank?.number, b.style);
     if (!workLiters)
-      return `למיכל ${source?.tankNumber ?? tank?.number ?? b.tankId} חסר נפח עבודה ולא ניתן היה לחשב אומדן`;
+      { report(`למיכל ${source?.tankNumber ?? tank?.number ?? b.tankId} חסר נפח עבודה ולא ניתן היה לחשב אומדן`); continue; }
     if (b.liters > workLiters)
-      return `מיכל ${source?.tankNumber ?? tank?.number ?? b.tankId}: תוכננו ${Math.round(b.liters)} ל׳, אבל נפח העבודה המחושב לבישול ${b.style} הוא ${Math.round(workLiters)} ל׳`;
+      { report(`מיכל ${source?.tankNumber ?? tank?.number ?? b.tankId}: תוכננו ${Math.round(b.liters)} ל׳, אבל נפח העבודה המחושב לבישול ${b.style} הוא ${Math.round(workLiters)} ל׳`); continue; }
 
     const release = releases.find((r) => r.tankId === b.tankId);
     const cycles = reconcilePhysicalCycleEmptying(
@@ -584,7 +621,7 @@ export function validateBrewReleases(
       const otherLabel = other
         ? `${other.style}${otherBatch ? ` (אצווה ${otherBatch})` : ""}, בישול ${other.brewDate}, ${other.emptyDate ? `ריקון ${other.emptyDate}` : "ללא ריקון משויך"}`
         : "מחזור אחר";
-      return `מיכל ${String(source?.tankNumber ?? tank?.number ?? b.tankId)}: בישול ${b.style} (${b.date}) מתנגש עם ${otherLabel}. יש לאמת שהאריזה משויכת למחזור הנכון ושהמיכל מתרוקן לפני הבישול הבא.`;
+      { report(`מיכל ${String(source?.tankNumber ?? tank?.number ?? b.tankId)}: בישול ${b.style} (${b.date}) מתנגש עם ${otherLabel}. יש לאמת שהאריזה משויכת למחזור הנכון ושהמיכל מתרוקן לפני הבישול הבא.`); continue; }
     }
 
     if (tank && tank.brewed === b.date && sameStyle(tank.style, b.style)) continue;
@@ -592,7 +629,16 @@ export function validateBrewReleases(
       ? addDays(release.emptyDate, 1)
       : release?.date;
     if (!requiredReleaseDate || b.date < requiredReleaseDate)
-      return `בישול ${b.style} במיכל ${String(source?.tankNumber ?? tank?.number ?? b.tankId)} (${b.date}): תוכנית הריקון עדיין לא משחררת את המיכל בשבוע הזה. שחרור מחושב: ${String(release?.date ?? "אין")}; ריקון: ${String(release?.emptyDate ?? "אין")}; מצב: ${String(source?.action ?? "לא ידוע")}; סיבה: ${release?.reason ?? "לא נמצאו נתוני שחרור"}`;
+      { report(`בישול ${b.style} במיכל ${String(source?.tankNumber ?? tank?.number ?? b.tankId)} (${b.date}): תוכנית הריקון עדיין לא משחררת את המיכל בשבוע הזה. שחרור מחושב: ${String(release?.date ?? "אין")}; ריקון: ${String(release?.emptyDate ?? "אין")}; מצב: ${String(source?.action ?? "לא ידוע")}; סיבה: ${release?.reason ?? "לא נמצאו נתוני שחרור"}`); continue; }
   }
-  return null;
+  return issues;
+}
+/** Legacy single-message interface retained for backward compatibility. */
+export function validateBrewReleases(
+  sources: TankSource[], tanks: Tank[], plans: WeekPlan[], settings: Settings,
+  actuals: Actual[], today: string, editedWeekId?: string,
+): string | null {
+  return validateBrewReleaseIssues(
+    sources, tanks, plans, settings, actuals, today, editedWeekId,
+  )[0]?.message ?? null;
 }

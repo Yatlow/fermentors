@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { weekIsClosed, withSpecialTotals } from "./planningPresentation";
+import { planningQueryEnd } from "./planningHorizon";
+import { planningRequiresCrossWeekFence, planningSaveFenceConflict, planningSaveFenceWeekIds } from "./planningSaveFence";
+import { shipmentHistoryStart } from "./planningReadCoverage";
+import { isPhysicalTempoShipment } from "./planningTempoShipmentFilter";
 import {
   collection,
   doc,
@@ -109,13 +113,6 @@ export function jerusalemDateKey(date: Date): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-function isTempoCustomer(customerId: unknown, customerName: unknown) {
-  if (typeof customerId === "string" && customerId.trim()) {
-    return customerId.trim().toLowerCase() === "tempo";
-  }
-  const customer = String(customerName ?? "").trim();
-  return /טמפו|tempo/i.test(customer);
-}
 
 export function usePlanning(
   today: string,
@@ -140,7 +137,7 @@ export function usePlanning(
   const [ready, setReady] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [offline, setOffline] = useState<Record<string, boolean>>({});
-  const shipmentQueueBackfillAttempted = useState(() => new Set<string>())[0];
+  const shipmentQueueBackfillAttempted = useState(() => new Map<string, string>())[0];
   const [serverReadCounts, setServerReadCounts] = useState<Omit<PlanningReadCounts, "recordedAt" | "tab">>({
     settings: null,
     plans: null,
@@ -150,7 +147,10 @@ export function usePlanning(
   });
 
   const start = weekStart(today);
-  const end = addDays(start, 84);
+  // The last Gantt week starts at day 84. The Firestore end bound is
+  // exclusive, so include its final Saturday by querying through day 91.
+  const end = planningQueryEnd(start);
+  const shipmentStart = shipmentHistoryStart(start, settings.products);
   const logStart = [
     addDays(start, -84),
     ...tanks
@@ -241,7 +241,7 @@ export function usePlanning(
       return;
     }
     setPending("משלוחים");
-    const startInstant = Timestamp.fromDate(startOfJerusalemDay(start));
+    const startInstant = Timestamp.fromDate(startOfJerusalemDay(shipmentStart));
     const endInstant = Timestamp.fromDate(startOfJerusalemDay(end));
     return onSnapshot(
       query(
@@ -255,12 +255,14 @@ export function usePlanning(
         setActualShipments(
           snap.docs.flatMap((item) => {
             const data = item.data();
-            if (!isTempoCustomer(data.customerId, data.customerName)) return [];
+            if (!isPhysicalTempoShipment(data)) return [];
             const date = data.createdAt?.toDate?.();
             return date ? [{
               id: item.id,
               date: jerusalemDateKey(date),
+              occurredAt: date.toISOString(),
               shipmentNumber: Number(data.shipmentNumber) || undefined,
+              plannedTruckId: typeof data.plannedTruckId === "string" ? data.plannedTruckId : undefined,
               totals: Array.isArray(data.totals) ? data.totals : [],
             }] : [];
           }),
@@ -269,7 +271,7 @@ export function usePlanning(
       },
       fail("משלוחים"),
     );
-  }, [start, end, wantsShipments]);
+  }, [shipmentStart, end, wantsShipments]);
 
   useEffect(() => {
     if (!wantsPallets) {
@@ -317,16 +319,26 @@ export function usePlanning(
   useEffect(() => {
     if (!wantsPlans || !wantsShipments || !auth.currentUser) return;
     const currentWeek = weekStart(today);
+    const productSignature = settings.products.map((p) =>
+      `${p.id}:${p.style}:${p.type}`).join(",");
+    // An actual Tempo shipment can close a planned truck AFTER the first
+    // backfill. Retry on relevant weekly manifest/revision changes, not only
+    // once per mounted page; avoid recomputing unrelated weeks.
+    const signatureFor = (week: WeekPlan) =>
+      `${week.revision}:${productSignature}:${JSON.stringify(
+        actualShipments.filter((shipment) => weekStart(shipment.date) === week.id)
+      )}`;
     const candidates = plans.filter((week) =>
       week.id >= currentWeek &&
       Array.isArray(week.deliveries) &&
       week.deliveries.length > 0 &&
-      !shipmentQueueBackfillAttempted.has(week.id),
+      shipmentQueueBackfillAttempted.get(week.id) !== signatureFor(week),
     );
     if (!candidates.length) return;
 
     for (const week of candidates) {
-      shipmentQueueBackfillAttempted.add(week.id);
+      const signature = signatureFor(week);
+      shipmentQueueBackfillAttempted.set(week.id, signature);
       const queueDeliveries = pendingDeliveriesForReservationQueue(
         week.deliveries ?? [],
         actualShipments,
@@ -340,8 +352,18 @@ export function usePlanning(
 
       void runTransaction(db, async (tx) => {
         const queueRef = doc(db, "shipmentPlanningQueue", week.id);
+        const planRef = doc(db, "planningWeeks", week.id);
+        // The listener snapshot can be stale when another device has just
+        // committed a newer week. Read both documents in this transaction so
+        // no stale queue projection can overwrite a newer reservation state.
+        const planSnap = await tx.get(planRef);
         const queueSnap = await tx.get(queueRef);
+        if (!planSnap.exists() ||
+            Number(planSnap.data()?.revision ?? 0) !== Number(week.revision ?? 0) ||
+            JSON.stringify(planSnap.data()?.deliveries ?? []) !== JSON.stringify(week.deliveries ?? []))
+          return;
         const existing = queueSnap.data();
+        if (Number(existing?.revision ?? 0) > Number(week.revision ?? 0)) return;
         const existingDeliveries = Array.isArray(existing?.deliveries) ? existing.deliveries : [];
         const comparable = (deliveries: typeof queueDeliveries) =>
           deliveries
@@ -359,18 +381,22 @@ export function usePlanning(
             );
         const queueIsCurrent =
           existing?.projectionVersion === 1 &&
+          Number(existing?.revision ?? 0) === Math.max(1, Number(week.revision) || 1) &&
           JSON.stringify(comparable(existingDeliveries)) === JSON.stringify(comparable(queueDeliveries));
         if (queueIsCurrent) return;
         tx.set(queueRef, {
           id: week.id,
-          revision: Number(week.revision) || 1,
+          // Legacy planningWeeks records can predate revision metadata.
+          // The queue's Firestore rules require a positive revision.
+          revision: Math.max(1, Number(week.revision) || 1),
           projectionVersion: 1,
           deliveries: queueDeliveries,
           updatedAt: serverTimestamp(),
           updatedBy: auth.currentUser!.uid,
         });
       }).catch((error) => {
-        shipmentQueueBackfillAttempted.delete(week.id);
+        if (shipmentQueueBackfillAttempted.get(week.id) === signature)
+          shipmentQueueBackfillAttempted.delete(week.id);
         console.error("Failed backfilling shipment planning queue", week.id, error);
       });
     }
@@ -435,8 +461,34 @@ export function usePlanning(
         throw new Error(
           "השבוע נסגר לתכנון בתחילת יום שישי. ניתן לצפות בו בלבד.",
         );
-      const ref = doc(db, collectionName, id),
-        snap = await tx.get(ref);
+      const ref = doc(db, collectionName, id);
+      // Keep the pre-save, multi-week validation true at transaction commit.
+      // Both clients can otherwise validate against the same old stock, then
+      // save DIFFERENT weeks successfully, double-booking a tank or pallet.
+      // Reading every week including missing ones serializes concurrent
+      // cross-week creations as well as edits. No extra Firestore writes.
+      // Pure note/recommendation-label saves cannot change capacity and avoid
+      // the 24 sibling + settings reads; operational edits remain fully fenced.
+      if (collectionName === "planningWeeks" &&
+          planningRequiresCrossWeekFence(
+            plans.find((week) => week.id === id), value as WeekPlan)) {
+        const siblingIds = planningSaveFenceWeekIds(today).filter((weekId) => weekId !== id);
+        const expectedSettingsRevision = settings.revision ?? 0;
+        const settingsRef = doc(db, "planningSettings", "main");
+        const siblingSnaps = await Promise.all(siblingIds.map((weekId) =>
+          tx.get(doc(db, "planningWeeks", weekId))));
+        const settingsSnap = await tx.get(settingsRef);
+        if ((settingsSnap.data()?.revision ?? 0) !== expectedSettingsRevision)
+          throw new Error("הגדרות התכנון השתנו במכשיר אחר. יש לרענן ולאמת מחדש את התכנון.");
+        const changedWeek = planningSaveFenceConflict(plans,
+          siblingSnaps.map((snapshot, index) => ({
+            id: siblingIds[index],
+            revision: snapshot.exists() ? Number(snapshot.data()?.revision ?? 0) : null,
+          })), id);
+        if (changedWeek)
+          throw new Error(`שבוע ${changedWeek} עודכן במכשיר אחר. יש לרענן ולאמת מחדש את ההשלכות על שאר השבועות.`);
+      }
+      const snap = await tx.get(ref);
       if ((snap.data()?.revision ?? 0) !== value.revision)
         throw new Error(
           "התכנון עודכן במכשיר אחר. סגור את העריכה ופתח מחדש כדי לקבל את העדכון.",
@@ -455,6 +507,7 @@ export function usePlanning(
                 deliveryDates?: unknown;
                 dismissedRecommendations?: unknown;
                 allowExceptions?: unknown;
+                oversizeTruckApprovals?: unknown;
                 changeReason?: unknown;
                 calendarEvents?: unknown;
                 calendarNotes?: unknown;
@@ -474,6 +527,9 @@ export function usePlanning(
                   : {}),
                 ...(typeof week.allowExceptions === "boolean"
                   ? { allowExceptions: week.allowExceptions }
+                  : {}),
+                ...(Array.isArray(week.oversizeTruckApprovals)
+                  ? { oversizeTruckApprovals: week.oversizeTruckApprovals }
                   : {}),
                 ...(typeof week.changeReason === "string"
                   ? { changeReason: week.changeReason }

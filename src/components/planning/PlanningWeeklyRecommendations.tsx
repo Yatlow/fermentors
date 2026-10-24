@@ -26,9 +26,10 @@ import {
 } from "../../SERVICES/planning/planningEngine";
 import { futureTanks, openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, isCoreStyle, CORE_STYLES, formatPalletCount } from "../../SERVICES/planning/planningPresentation";
-import { projectedPallets } from "../../SERVICES/planning/truckPlanner";
+import { projectedPallets, truckPlanningGroupKey } from "../../SERVICES/planning/truckPlanner";
 import { nominalPlanningUnits } from "../../SERVICES/planning/shipmentRecommendation";
 import { groupPlannedShipments, matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
+import { replaceShipmentTrip } from "../../SERVICES/planning/shipmentEdit";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import {
     brewLitersForSize,
@@ -119,6 +120,7 @@ export default function PlanningWeeklyRecommendations({
     const [editing, setEditing] = useState<Kind | null>(null);
     const [shipDraft, setShipDraft] = useState<Record<string, number>>({});
     const [editingTruckId, setEditingTruckId] = useState<string | null>(null);
+    const [approveOversizeTruck, setApproveOversizeTruck] = useState(false);
     const [packDraft, setPackDraft] = useState<Record<string, number>>({});
     const [manualPacks, setManualPacks] = useState<ManualPackDraft[]>([]);
     const [cancelledPackagingKeys, setCancelledPackagingKeys] = useState<Set<string>>(new Set());
@@ -216,12 +218,16 @@ export default function PlanningWeeklyRecommendations({
         try { return calcTruckSlots(manifest); } catch { return Infinity; }
     }
 
-    const shipmentDispatchDate = (productId: string) =>
-        (current.deliveries ?? [])
+    const shipmentDispatchDate = (productId: string) => {
+        const active = groupPlannedShipments(current.deliveries ?? [])
+            .find((group) => group.id === editingTruckId);
+        if (active) return active.dispatchDate;
+        return (current.deliveries ?? [])
             .filter((delivery) => delivery.productId === productId && delivery.quantity > 0)
             .map((delivery) => delivery.dispatchDate)
             .filter(Boolean)
             .sort()[0] ?? addDays(week, 1);
+    };
 
     const sameWeekPackagingQty = (p: Product) => {
         const dispatchDate = shipmentDispatchDate(p.id);
@@ -363,6 +369,10 @@ export default function PlanningWeeklyRecommendations({
         if (kind === "delivery") {
             const targetTruckId = truckId ?? openShipmentGroups[0]?.id ?? `truck:${week}:1`;
             setEditingTruckId(targetTruckId);
+            const existingRow = (current.deliveries ?? []).find((d) =>
+                (d.truckId || `date:${d.dispatchDate}`) === targetTruckId);
+            setApproveOversizeTruck(!!existingRow &&
+                (current.oversizeTruckApprovals ?? []).includes(truckPlanningGroupKey(existingRow)));
             setShipDraft(Object.fromEntries(products.map((p) => [p.id, currentShipmentQty(p.id, targetTruckId)])));
         } else if (kind === "packaging") {
             setPackDraft(Object.fromEntries(current.packaging.map((r) => [r.id ?? `${r.productId}:${r.tankId}`, r.quantity])));
@@ -381,11 +391,10 @@ export default function PlanningWeeklyRecommendations({
                 return prev;
             }
             const next = { ...prev, [p.id]: proposed };
-            if (delta > 0 && shipmentSlots(next) > MAX_TRUCK_SLOTS) {
-                setMessage(`המשאית מלאה — מקסימום ${MAX_TRUCK_SLOTS} מקומות.`);
-                return prev;
-            }
-            setMessage("");
+            const slots = shipmentSlots(next);
+            setMessage(slots > MAX_TRUCK_SLOTS
+                ? `נדרשים ${slots} מקומות במשאית (רגילה: ${MAX_TRUCK_SLOTS}). יש לאשר חריגת קיבולת בתכנון ולתאם רכב מתאים או חלוקת משלוח.`
+                : "");
             setShipmentError(null);
             return next;
         });
@@ -394,26 +403,47 @@ export default function PlanningWeeklyRecommendations({
     async function saveShipment() {
         if (disabled || busy) return;
         const slots = shipmentSlots(shipDraft);
-        if (slots > MAX_TRUCK_SLOTS || products.some((p) => (shipDraft[p.id] ?? 0) > maxShipmentQty(p))) {
-            return setMessage("המלאי או הקיבולת השתנו. יש לעדכן את החלטת המשלוח לפני השמירה.");
+        if (!Number.isFinite(slots) || products.some((p) => (shipDraft[p.id] ?? 0) > maxShipmentQty(p))) {
+            return setMessage("המלאי השתנה או שאחד המשטחים גבוה מהגובה המותר. יש לעדכן את החלטת המשלוח.");
+        }
+        if (slots > MAX_TRUCK_SLOTS && !approveOversizeTruck) {
+            return setMessage(`משלוח של ${slots} מקומות דורש אישור חריגת קיבולת מפורש. יש לסמן את תיבת האישור להלן.`);
         }
         const packagingDependent = products.some((p) => packagingDependencyQty(p, shipDraft[p.id] ?? 0) > 0);
         setBusy(true);
         setMessage("");
         try {
-            const date = addDays(week, 1);
-            const truckId = editingTruckId ?? `truck:${week}:1`;
-            const otherDeliveries = (current.deliveries ?? []).filter(
-                (delivery) => (delivery.truckId || `date:${delivery.dispatchDate}`) !== truckId,
-            );
-            const editedDeliveries: DeliveryPlan[] = products.flatMap((p) => {
-                const quantity = Math.max(0, shipDraft[p.id] ?? 0);
-                return quantity ? [{ id: crypto.randomUUID(), productId: p.id, quantity, dispatchDate: date, arrivalDate: date, truckId, pallets: [] }] : [];
+            const deliveries = replaceShipmentTrip({
+                deliveries: current.deliveries ?? [],
+                truckId: editingTruckId ?? `truck:${week}:1`,
+                defaultDate: addDays(week, 1),
+                products, draft: shipDraft,
+                createId: () => crypto.randomUUID(),
             });
-            const deliveries = [...otherDeliveries, ...editedDeliveries];
-            await saveWeek({ ...current, deliveries, deliveryDates: [...new Set(deliveries.map((delivery) => delivery.dispatchDate))].sort(), changeReason: "עדכון החלטת משלוח שבועית" });
+            const oldTripKeys = new Set((current.deliveries ?? [])
+                .filter((d) => (d.truckId || `date:${d.dispatchDate}`) === editingTruckId)
+                .map(truckPlanningGroupKey));
+            const retainedApprovals = (current.oversizeTruckApprovals ?? [])
+                .filter((key) => !oldTripKeys.has(key));
+            const editedTrip = deliveries.find((d) =>
+                (d.truckId || `date:${d.dispatchDate}`) === (editingTruckId ?? `truck:${week}:1`));
+            const approval = approveOversizeTruck && editedTrip
+                ? truckPlanningGroupKey(editedTrip) : null;
+            const oversizeTruckApprovals = [...new Set([
+                ...retainedApprovals, ...(approval ? [approval] : []),
+            ])];
+            await saveWeek({ ...current, deliveries,
+                oversizeTruckApprovals,
+                deliveryDates: [...new Set(deliveries.map((delivery) => delivery.dispatchDate))].sort(),
+                changeReason: "עדכון החלטת משלוח שבועית" });
             setEditing(null);
-            setMessage(`${slots > 0 && slots < MAX_TRUCK_SLOTS ? `נשמר משלוח חלקי ${slots}/${MAX_TRUCK_SLOTS}.` : "החלטת המשלוח נשמרה."}${packagingDependent ? " ⚠️ חלק מהמלאי ייארז באותו שבוע." : ""}`);
+            setMessage(`${slots > MAX_TRUCK_SLOTS
+                ? `אושרה חריגה תכנונית: ${slots} מקומות. חובה לתאם משאית מתאימה או לפצל לפני שילוח פיזי.`
+                : approveOversizeTruck
+                    ? "נשמר אישור חריגת קיבולת למשאית זו (גם אם המשטחים החלקיים יצריכו יותר מקומות מהתכנון הנומינלי)."
+                    : slots > 0 && slots < MAX_TRUCK_SLOTS
+                        ? `נשמר משלוח חלקי ${slots}/${MAX_TRUCK_SLOTS}.`
+                        : "החלטת המשלוח נשמרה."}${packagingDependent ? " ⚠️ חלק מהמלאי ייארז באותו שבוע." : ""}`);
         } catch (e) {
             setMessage(e instanceof Error ? e.message : "שמירת המשלוח נכשלה");
         } finally {
@@ -430,7 +460,8 @@ export default function PlanningWeeklyRecommendations({
         setBusy(true);
         setMessage("");
         try {
-            await saveWeek({ ...current, deliveries, deliveryDates: deliveries.length ? [date] : [], changeReason: "אישור המלצת משלוח שבועית" });
+            await saveWeek({ ...current, deliveries, oversizeTruckApprovals: [],
+                deliveryDates: deliveries.length ? [date] : [], changeReason: "אישור המלצת משלוח שבועית" });
             setMessage(current.deliveries?.length ? "החלטת המשלוח הקיימת הוחלפה בהמלצה." : "המלצת המשלוח נשמרה כהחלטה חדשה.");
         } catch (e) {
             setMessage(e instanceof Error ? e.message : "שמירת המשלוח נכשלה");
@@ -471,7 +502,7 @@ export default function PlanningWeeklyRecommendations({
                         pallet.zone === "cooler" && !pallet.markedForShipment &&
                         pallet.itemType === line.product.type &&
                         sameStyle(pallet.beerStyle, line.product.style) &&
-                        (!!expiryIso(pallet.expiryDateStr) && expiryIso(pallet.expiryDateStr)! >= today),
+                        (!!expiryIso(pallet.expiryDateStr) && expiryIso(pallet.expiryDateStr)! >= shipmentToMark.dispatchDate),
                     );
                     const available = candidates.reduce((sum, pallet) => sum + palletQuantity(pallet), 0);
                     const options = shipmentDecisionPickOptions(candidates, line.requested, palletSize(line.product));
@@ -533,7 +564,7 @@ export default function PlanningWeeklyRecommendations({
 
             if (best.selected.length) {
                 setMarkFeedback("מסמן את המשטחים הזמינים במפת המקרר…");
-                await markPlanningPallets(best.selected);
+                await markPlanningPallets(best.selected, shipmentToMark.dispatchDate);
             }
             const result = best.selected.length
                 ? `סומנו ${formatPalletCount(palletIds.length)} זמינים למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).`
@@ -636,19 +667,24 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function recomputeEmptyTankFlags(lines: Plan[]) {
-        const usedByTank = new Map<string, number>();
+        const usedByCycle = new Map<string, number>();
         return lines.map((run) => {
             if (!run.tankId) return run;
             const p = product(run.productId);
             if (!p) return run;
-            const base = model.tankAvailableLiters.get(run.tankId) ?? tanks.find((t) => t.id === run.tankId)?.liters ?? 0;
+            const cycleId = run.brewId ? `planned:${run.brewId}` : run.tankId;
+            // The current canonical brew may already be physical, in which
+            // case no virtual tank exists; use the live remaining balance.
+            const base = model.tankAvailableLiters.get(cycleId)
+                ?? model.tankAvailableLiters.get(run.tankId)
+                ?? tanks.find((t) => t.id === run.tankId)?.liters ?? 0;
             const existing = current.packaging.find((saved) =>
                 saved.id && run.id ? saved.id === run.id : saved.productId === run.productId && saved.tankId === run.tankId,
             );
             const futureQuantity = existing ? effectiveSavedRemaining(existing, run.quantity) : run.quantity;
-            const usedBefore = usedByTank.get(run.tankId) ?? 0;
+            const usedBefore = usedByCycle.get(cycleId) ?? 0;
             const usedNow = futureQuantity * litersPerUnit(p);
-            usedByTank.set(run.tankId, usedBefore + usedNow);
+            usedByCycle.set(cycleId, usedBefore + usedNow);
             return { ...run, emptyTank: base - usedBefore - usedNow < 20 };
         });
     }
@@ -676,7 +712,10 @@ export default function PlanningWeeklyRecommendations({
                     quantity,
                     tankId: rec.tankId,
                     tankNumber: rec.tankNumber,
-                    batchNumber: tanks.find((tank) => tank.id === rec.tankId)?.batch,
+                    batchNumber: rec.brewId
+                        ? plans.flatMap((week) => week.brews).find((brew) => brew.id === rec.brewId)?.batchNumber
+                        : tanks.find((tank) => tank.id === rec.tankId)?.batch,
+                    ...(rec.brewId ? { brewId: rec.brewId } : {}),
                     source: "recommendation",
                 });
             }
@@ -732,7 +771,10 @@ export default function PlanningWeeklyRecommendations({
             quantity: r.quantity,
             tankId: r.tankId,
             tankNumber: r.tankNumber,
-            batchNumber: tanks.find((tank) => tank.id === r.tankId)?.batch,
+            batchNumber: r.brewId
+                ? plans.flatMap((week) => week.brews).find((brew) => brew.id === r.brewId)?.batchNumber
+                : tanks.find((tank) => tank.id === r.tankId)?.batch,
+            ...(r.brewId ? { brewId: r.brewId } : {}),
             source: "recommendation",
         }));
         if (!additions.length) return;
@@ -938,6 +980,12 @@ export default function PlanningWeeklyRecommendations({
                     <div><small>1 · משלוח · {selectedWeekText}</small><h3>מה לשלוח השבוע</h3></div>
                     <b>משלוח: {Number.isFinite(usedShipSlots) ? usedShipSlots : 0}/{MAX_TRUCK_SLOTS} מקומות</b>
                 </header>
+                {(current.deliveries ?? []).some((delivery) =>
+                    (current.oversizeTruckApprovals ?? []).includes(truckPlanningGroupKey(delivery))) &&
+                    <div className="bp-same-week-warning" role="status">
+                        <b>⚠️ נשמר אישור חריגת קיבולת למשאית מתוכננת בשבוע הזה.</b>
+                        <small>זהו אישור תכנוני בלבד. לפני יציאה פיזית יש להתאים את הרכב או לפצל את המשלוח.</small>
+                    </div>}
                 <p className="bp-rec-principle">
                     ● המק"טים ממוינים לפי הכיסוי הנמוך ביותר.<br />
                     ● משטח חלקי יכול לייצג מקום משטח מלא כשאין מספיק מלאי למשטח מלא; הכמות הפיזית נשמרת במפת המקרר.
@@ -964,6 +1012,13 @@ export default function PlanningWeeklyRecommendations({
                     </>}
                 </div>
 
+                {editing === "delivery" && <div className="bp-same-week-warning" role="group" aria-label="אישור חריגת קיבולת משאית">
+                    <label><input type="checkbox" checked={approveOversizeTruck}
+                        onChange={(event) => setApproveOversizeTruck(event.target.checked)} />
+                        אני מאשר חריגת קיבולת בתכנון המשלוח הזה בלבד (מעל {MAX_TRUCK_SLOTS} מקומות)
+                    </label>
+                    <small>אישור זה אינו מתיר שילוח פיזי במשאית רגילה העולה על {MAX_TRUCK_SLOTS} מקומות. יש לתאם רכב מתאים או לפצל את המטען.</small>
+                </div>}
                 {!model.shipmentCanFillTruck && model.shipmentSlots > 0 &&
                     <p className="bp-alert">אין כרגע מספיק מלאי צפוי כדי להרכיב משאית מלאה. אפשר לשמור משלוח חלקי ידנית.</p>}
 

@@ -111,7 +111,7 @@ test("two actual shipments in the same week are matched to two planned trips ind
   assert.deepEqual(matches.map((match) => match.actual?.id).sort(), ["s1", "s2"]);
 });
 
-test("a shipment below 85 percent SKU overlap is flagged as actual-different", () => {
+test("a shipment below 85 percent SKU overlap remains unmatched without a physical trip id", () => {
   const crates = product("ipa-crates", "crates");
   const deliveries = [
     { id: "d1", productId: crates.id, quantity: 100, dispatchDate: "2026-09-14", arrivalDate: "2026-09-14", truckId: "truck-a" },
@@ -121,6 +121,6 @@ test("a shipment below 85 percent SKU overlap is flagged as actual-different", (
   ];
 
   const [match] = matchActualShipments(deliveries, actuals, [crates]);
-  assert.equal(match.status, "actual-different");
-  assert.equal(match.score, 0.7);
+  assert.equal(match.status, "pending", "weak unlinked reports must not close a different trip");
+  assert.equal(match.actual, undefined);
 });

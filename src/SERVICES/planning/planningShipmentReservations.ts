@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDocsFromServer,
+  getDocFromServer,
   query,
   runTransaction,
   serverTimestamp,
@@ -11,6 +12,7 @@ import {
 import { db } from "../../firebase";
 import { getCatalogEntry } from "../cooler/PalletCatalog";
 import type { Pallet, PalletZone } from "../cooler/Pallettypes ";
+import { calcTruckSlots, MAX_TRUCK_SLOTS } from "../cooler/truckCapacity";
 import {
   addDays,
   dateKey,
@@ -19,7 +21,11 @@ import {
   type DeliveryPlan,
   type WeekPlan,
 } from "./planningEngine";
-import { completedShipmentQueueTruckId } from "./shipmentActuals";
+import { hasUnmatchedPhysicalDepartureForToday, matchShipmentManifests, shipmentActualManifestFromTotals } from "./shipmentActuals";
+import { automaticReservationDelta } from "./automaticReservationReconciliation";
+import { isPhysicalTempoShipment } from "./planningTempoShipmentFilter";
+import { nextShipmentMarkingRevision, readShipmentMarkingRevision,
+  shipmentMarkingGuardRef, shipmentMarkingGuardWrite } from "./shipmentMarkingGuard";
 import { expiryIso, palletQuantity } from "./shipmentPicking";
 import { shipmentDecisionPickOptions } from "./shipmentDecisionPicking";
 import { autoReservationWeek, isDispatchInReservationWeek } from "./shipmentReservationWeek";
@@ -53,13 +59,16 @@ type PlannedLine = {
 };
 
 type ActualQueueShipment = {
+  id: string;
   date: string;
+  plannedTruckId?: string;
   actualByProduct: Record<string, number>;
 };
 
 export type ShipmentReservationSyncResult = {
   dispatchDate: string | null;
   markedIds: string[];
+  blockedReason?: string;
   diagnostics: Array<{
     productId: string;
     plannedQuantity: number;
@@ -73,29 +82,15 @@ export type ShipmentReservationSyncResult = {
   }>;
 };
 
-function isTempoShipment(data: Record<string, unknown>): boolean {
-  const customerId = typeof data.customerId === "string" ? data.customerId.trim().toLowerCase() : "";
-  if (customerId) return customerId === "tempo";
-  return /טמפו|tempo/i.test(String(data.customerName ?? "").trim());
-}
 
 function shipmentProducts(data: Record<string, unknown>): Record<string, number> {
-  const totals = Array.isArray(data.totals) ? data.totals : [];
-  const result: Record<string, number> = {};
-  totals.forEach((raw) => {
-    if (!raw || typeof raw !== "object") return;
-    const line = raw as Record<string, unknown>;
-    const itemType = line.itemType === "crates" || line.itemType === "kegs"
-      ? line.itemType
-      : null;
-    const beerStyle = String(line.beerStyle ?? "").trim();
-    const quantity = Number(line.totalQuantity ?? 0);
-    if (!itemType || !beerStyle || !Number.isFinite(quantity) || quantity <= 0) return;
-    const productId = getCatalogEntry(beerStyle, itemType)?.sku;
-    if (!productId) return;
-    result[productId] = (result[productId] ?? 0) + quantity;
-  });
-  return result;
+  const totals = Array.isArray(data.totals)
+    ? data.totals.filter((line) => !!line && typeof line === "object")
+    : [];
+  return shipmentActualManifestFromTotals(
+    totals as {beerStyle: string; itemType: "crates" | "kegs"; totalQuantity: number}[],
+    (style, itemType) => getCatalogEntry(style, itemType)?.sku ?? null,
+  );
 }
 
 async function actualTempoShipmentsThisWeek(today: string): Promise<ActualQueueShipment[]> {
@@ -105,19 +100,28 @@ async function actualTempoShipmentsThisWeek(today: string): Promise<ActualQueueS
   const queryStart = Timestamp.fromDate(
     new Date(`${addDays(currentWeek, -1)}T00:00:00Z`),
   );
+  // Avoid scanning every historical/future shipment each time a pallet is
+  // created. The Jerusalem week is contained in this bounded UTC window.
+  const queryEnd = Timestamp.fromDate(
+    new Date(`${addDays(currentWeek, 8)}T00:00:00Z`),
+  );
   const snapshot = await getDocsFromServer(
-    query(collection(db, "shipments"), where("createdAt", ">=", queryStart)),
+    query(collection(db, "shipments"),
+      where("createdAt", ">=", queryStart),
+      where("createdAt", "<", queryEnd)),
   );
 
   return snapshot.docs.flatMap((item) => {
     const data = item.data() as Record<string, unknown>;
-    if (!isTempoShipment(data)) return [];
+    if (!isPhysicalTempoShipment(data)) return [];
     const createdAt = data.createdAt as { toDate?: () => Date } | undefined;
     const created = createdAt?.toDate?.();
     if (!created || !Number.isFinite(created.getTime())) return [];
     const date = dateKey(created);
     if (weekStart(date) !== currentWeek) return [];
-    return [{ date, actualByProduct: shipmentProducts(data) }];
+    return [{ id: item.id, date,
+      plannedTruckId: typeof data.plannedTruckId === "string" ? data.plannedTruckId : undefined,
+      actualByProduct: shipmentProducts(data) }];
   });
 }
 
@@ -126,40 +130,39 @@ async function actualTempoShipmentsThisWeek(today: string): Promise<ActualQueueS
  * queue is only a projection. Actual shipments are checked on every reservation
  * pass so a stale queue can never re-reserve stock for a truck that already left.
  */
-async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
+async function nearestPlannedDelivery(today: string): Promise<PlannedLine[] | null> {
   // Operational packaging users are approved brewery users, but they are not
   // necessarily planners. Read the restricted shipment projection instead of
   // the full planningWeeks documents (same pattern as brewPlanningQueue).
   const [snapshot, actualShipments] = await Promise.all([
-    getDocsFromServer(
-      query(collection(db, "shipmentPlanningQueue"), where("id", "==", activeReservationWeek(today)))
-    ),
+    getDocFromServer(doc(db, "shipmentPlanningQueue", activeReservationWeek(today))),
     actualTempoShipmentsThisWeek(today),
   ]);
 
-  let openDeliveries: DeliveryPlan[] = snapshot.docs.flatMap((snapshot) => {
-    const week = snapshot.data() as WeekPlan & { projectionVersion?: number };
-    // Ignore every legacy projection. Current queue documents are rewritten
-    // atomically with planningWeeks and explicitly carry projectionVersion=1.
-    if (week.projectionVersion !== 1) return [];
-    return (week.deliveries ?? []).filter((delivery) => delivery.quantity > 0);
-  });
+  const queue = snapshot.exists()
+    ? snapshot.data() as WeekPlan & { projectionVersion?: number }
+    : null;
+  // Only current queue projections are operationally authoritative.
+  let openDeliveries: DeliveryPlan[] = queue?.projectionVersion === 1
+    ? (queue.deliveries ?? []).filter((delivery) => delivery.quantity > 0)
+    : [];
 
-  // Close actual shipments in-memory before choosing the next reservation.
-  // This is deliberately independent of the planner-only queue write permission:
-  // even if usePlanning has not repaired Firestore yet, operational users cannot
-  // accidentally reserve new pallets against an already completed truck.
-  for (const actual of [...actualShipments].sort((a, b) => a.date.localeCompare(b.date))) {
-    const closedTruckId = completedShipmentQueueTruckId(
-      openDeliveries,
-      actual.actualByProduct,
-      actual.date,
-    );
-    if (!closedTruckId) continue;
-    openDeliveries = openDeliveries.filter((delivery) =>
-      String(delivery.truckId || `date:${delivery.dispatchDate}`) !== closedTruckId
-    );
-  }
+  // Exactly the same one-to-one matching as the planning UI. In particular,
+  // unrecognized SKUs are included in manifest confidence, and two physical
+  // receipts cannot accidentally close the same truck.
+  const normalizedActuals = actualShipments.map((event) => ({
+    id: event.id, date: event.date, plannedTruckId: event.plannedTruckId,
+    manifest: event.actualByProduct,
+  }));
+  const matches = matchShipmentManifests(openDeliveries, normalizedActuals);
+  const pendingTruckIds = new Set(matches.filter((match) => match.status === "pending")
+    .map((match) => match.planned.id));
+  // A departure already occurred but could not be linked confidently. Do not
+  // mark new pallets for a same-day truck that may have physically left.
+  if (hasUnmatchedPhysicalDepartureForToday(matches, normalizedActuals, today)) return null;
+  openDeliveries = openDeliveries.filter((delivery) =>
+    pendingTruckIds.has(String(delivery.truckId || `date:${delivery.dispatchDate}`)),
+  );
 
   const lines = openDeliveries
     .filter((delivery) => isDispatchEligibleForAutomaticReservation(delivery.dispatchDate, today))
@@ -194,11 +197,19 @@ export function isDispatchEligibleForAutomaticReservation(dispatchDate: string, 
   return isDispatchInReservationWeek(dispatchDate, today, hour);
 }
 
-function pickForMissing(candidates: Pallet[], missing: number): Pallet[] {
+function pickForMissing(candidates: Pallet[], missing: number, reserved: Pallet[]): Pallet[] {
   if (!candidates.length || missing <= 0) return [];
   const itemType = candidates[0].itemType;
-  const options = shipmentDecisionPickOptions(candidates, missing, palletSize(itemType));
-  const best = options.sort((a, b) =>
+  // Automatic fulfillment uses REAL units, not nominal pallet slots. Filter
+  // against the whole physical truck including other SKUs and manual marks.
+  const options = shipmentDecisionPickOptions(candidates, missing, palletSize(itemType), true);
+  const best = options.filter((option) => {
+    try {
+      return calcTruckSlots([...reserved, ...option.selected]) <= MAX_TRUCK_SLOTS;
+    } catch {
+      return false;
+    }
+  }).sort((a, b) =>
     a.missingNominal - b.missingNominal ||
     a.fefoScore - b.fefoScore ||
     a.slots - b.slots ||
@@ -216,71 +227,88 @@ function pickForMissing(candidates: Pallet[], missing: number): Pallet[] {
  * picker, so an older-expiry pallet is never displaced just because a newer
  * pallet was created now.
  *
- * Shipment decisions are pallet-slot decisions. A partial physical pallet
- * therefore covers one nominal pallet slot, matching shipmentDecisionPickOptions.
+ * Manual planning decisions can reserve a nominal partial position. Auto
+ * picking is different: real shipment quantities must be covered by REAL units
+ * when stock and remaining stack-aware truck capacity permit.
  */
 export async function reserveNewPalletsForNearestShipment(
   newPalletIds: string[] = [],
 ): Promise<ShipmentReservationSyncResult> {
   const today = dateKey(new Date());
+  const observedMarkingRevision = await readShipmentMarkingRevision();
   const planned = await nearestPlannedDelivery(today);
+  if (planned === null) {
+    const blockedReason = "דווח משלוח טמפו שלא שויך בוודאות לנסיעה שתוכננה להיום. ההקצאה האוטומטית הושהתה עד לבירור כדי שלא יסומנו משטחים למשאית שכבר יצאה.";
+    console.warn("Shipment reservation hold", blockedReason);
+    return { dispatchDate: null, markedIds: [], diagnostics: [], blockedReason };
+  }
   const dispatchDate = planned[0]?.dispatchDate ?? null;
+  // Picking must evaluate the stock at the promised dispatch date, not when
+  // someone taps "sync" several days earlier.
+  const expiryCutoff = dispatchDate ?? today;
   const diagnostics: ShipmentReservationSyncResult["diagnostics"] = [];
-  const palletSnapshot = await getDocsFromServer(collection(db, "pallets"));
+  // Only operational zones can supply or hold a shipment reservation.
+  // Historical shipped pallets are retained for traceability elsewhere, not
+  // charged to every 5-minute planning synchronization.
+  const palletSnapshot = await getDocsFromServer(query(
+    collection(db, "pallets"),
+    where("zone", "in", ["cooler", "pending", "bottleRoom", "loadingDock"]),
+  ));
   const pallets = palletSnapshot.docs.map(
     (snapshot) => ({ id: snapshot.id, ...snapshot.data() }) as Pallet,
   );
   const currentWeek = activeReservationWeek(today);
   const activeTruckId = planned[0]?.truckId ?? null;
-  // Only our own explicitly tagged automatic reservations may be released.
-  const staleAutoIds = pallets.filter((pallet) =>
-    pallet.markedForShipment &&
-    pallet.autoReservationWeek &&
-    (pallet.autoReservationWeek !== currentWeek ||
-      pallet.autoReservationTruckId !== activeTruckId)
-  ).map((pallet) => pallet.id);
-  const staleSet = new Set(staleAutoIds);
-  const effectivePallets = pallets.map((pallet) => staleSet.has(pallet.id)
+  // The correct set of automatic reservations is recalculated on every pass.
+  // An edited smaller trip can release excess auto-marked pallets. Manual
+  // marks are never released or converted into automatic reservations.
+  const priorAuto = pallets.filter((pallet) =>
+    pallet.markedForShipment && !!pallet.autoReservationWeek);
+  const priorAutoIds = new Set(priorAuto.map((pallet) => pallet.id));
+  const effectivePallets = pallets.map((pallet) => priorAutoIds.has(pallet.id)
     ? { ...pallet, markedForShipment: false } : pallet);
   const newIds = new Set(newPalletIds);
   const idsToMark = new Set<string>();
+  const manualReservations = effectivePallets.filter((pallet) =>
+    pallet.markedForShipment && pallet.zone !== "shipped");
+  const newAutoPicks: Pallet[] = [];
 
   for (const line of planned) {
     const matching = effectivePallets.filter((pallet) =>
       pallet.zone !== "shipped" &&
       palletQuantity(pallet) > 0 &&
-      skuForPallet(pallet) === line.productId,
+      skuForPallet(pallet) === line.productId &&
+      !!expiryIso(pallet.expiryDateStr) &&
+      expiryIso(pallet.expiryDateStr)! >= expiryCutoff,
     );
 
     const alreadyMarked = matching.filter((pallet) => pallet.markedForShipment);
     const itemType = matching[0]?.itemType;
     const unitPerPallet = itemType ? palletSize(itemType) : 0;
     const markedPhysicalQuantity = alreadyMarked.reduce(
-      (sum, pallet) => sum + palletQuantity(pallet),
-      0,
-    );
+      (sum, pallet) => sum + palletQuantity(pallet), 0);
     const markedNominalQuantity = unitPerPallet > 0
       ? Math.min(line.quantity, alreadyMarked.length * unitPerPallet)
       : markedPhysicalQuantity;
-    const missingBefore = Math.max(0, line.quantity - markedNominalQuantity);
+    // Missing units must not be hidden by nominal positions: one physical
+    // 42-crate pallet is NOT 84 shipped crates.
+    const missingBefore = Math.max(0, line.quantity - markedPhysicalQuantity);
 
     const candidates = matching.filter((pallet) =>
       !pallet.markedForShipment &&
       isPlanningShipmentPickZone(pallet.zone) &&
       !!expiryIso(pallet.expiryDateStr) &&
-      expiryIso(pallet.expiryDateStr)! >= today,
+      expiryIso(pallet.expiryDateStr)! >= expiryCutoff,
     );
 
-    // Important: new pallets only trigger this pass; they do not jump the queue.
-    // The normal picker keeps FEFO first and only uses access/proximity as a
-    // secondary tie-breaker inside the same expiry priority.
-    const selected = pickForMissing(candidates, missingBefore);
-    const selectedNominal = selected.length > 0
-      ? selected.length * palletSize(selected[0].itemType)
-      : 0;
-    const missingAfter = Math.max(0, missingBefore - selectedNominal);
+    const selected = pickForMissing(candidates, missingBefore,
+      [...manualReservations, ...newAutoPicks]);
+    const selectedPhysical = selected.reduce((sum, pallet) =>
+      sum + palletQuantity(pallet), 0);
+    const missingAfter = Math.max(0, missingBefore - selectedPhysical);
 
     selected.forEach((pallet) => idsToMark.add(pallet.id));
+    newAutoPicks.push(...selected);
     diagnostics.push({
       productId: line.productId,
       plannedQuantity: line.quantity,
@@ -294,35 +322,46 @@ export async function reserveNewPalletsForNearestShipment(
     });
   }
 
-  if (idsToMark.size > 0 || staleAutoIds.length > 0) {
+  const { releaseIds: staleAutoIds, assignIds, originalAuto } =
+    automaticReservationDelta(pallets, idsToMark, currentWeek, activeTruckId);
+  const staleSet = new Set(staleAutoIds);
+  const idsToUpdate = new Set([...staleAutoIds, ...assignIds]);
+  if (idsToUpdate.size > 0) {
     await runTransaction(db, async (tx) => {
-      const allIds = [...new Set([...staleAutoIds, ...idsToMark])];
+      const guardRef = shipmentMarkingGuardRef();
+      const guardSnap = await tx.get(guardRef);
+      const allIds = [...idsToUpdate];
       const refs = allIds.map((id) => doc(db, "pallets", id));
       const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
+      const nextRevision = nextShipmentMarkingRevision(
+        Number(guardSnap.data()?.revision ?? 0), observedMarkingRevision);
 
       snapshots.forEach((snapshot, index) => {
         if (!snapshot.exists()) return;
         const pallet = { id: snapshot.id, ...snapshot.data() } as Pallet;
-        if (staleSet.has(pallet.id) && pallet.markedForShipment &&
-            pallet.autoReservationWeek &&
-            (pallet.autoReservationWeek !== currentWeek ||
-             pallet.autoReservationTruckId !== activeTruckId)) {
+        if (staleSet.has(pallet.id)) {
+          // Never release a pallet which was manually marked in the meantime.
+          const prior = originalAuto.get(pallet.id);
+          if (!prior || !pallet.markedForShipment ||
+              pallet.autoReservationWeek !== prior.week ||
+              (pallet.autoReservationTruckId ?? null) !== prior.truckId) return;
           tx.update(refs[index], {
-            markedForShipment: idsToMark.has(pallet.id),
-            autoReservationWeek: idsToMark.has(pallet.id) ? currentWeek : null,
-            autoReservationTruckId: idsToMark.has(pallet.id) ? activeTruckId : null,
+            markedForShipment: false,
+            autoReservationWeek: null,
+            autoReservationTruckId: null,
             updatedAt: serverTimestamp(),
           });
           return;
         }
-        if (
-          !idsToMark.has(pallet.id) ||
-          pallet.markedForShipment ||
-          !isPlanningShipmentPickZone(pallet.zone) ||
-          !expiryIso(pallet.expiryDateStr) ||
-          expiryIso(pallet.expiryDateStr)! < today
-        ) return;
-
+        const prior = originalAuto.get(pallet.id);
+        if (!idsToMark.has(pallet.id) ||
+            (pallet.markedForShipment && !pallet.autoReservationWeek) ||
+            (pallet.markedForShipment && prior &&
+              (pallet.autoReservationWeek !== prior.week ||
+               (pallet.autoReservationTruckId ?? null) !== prior.truckId)) ||
+            !isPlanningShipmentPickZone(pallet.zone) ||
+            !expiryIso(pallet.expiryDateStr) ||
+            expiryIso(pallet.expiryDateStr)! < expiryCutoff) return;
         tx.update(refs[index], {
           markedForShipment: true,
           autoReservationWeek: currentWeek,
@@ -330,6 +369,7 @@ export async function reserveNewPalletsForNearestShipment(
           updatedAt: serverTimestamp(),
         });
       });
+      tx.set(guardRef, shipmentMarkingGuardWrite(nextRevision));
     });
   }
 

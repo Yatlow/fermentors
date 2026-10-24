@@ -1,5 +1,4 @@
 import {
-  parseDate,
   sameStyle,
   weekStart,
   type DeliveryPlan,
@@ -8,6 +7,7 @@ import {
   type WeekPlan,
 } from "./planningEngine";
 import type { ShipmentEvent } from "./dailyPlanner";
+import { tempoInventoryBaselineAt } from "./tempoInventoryTimeline";
 
 export type ShipmentActualTotal = {
   itemType: "crates" | "kegs";
@@ -17,6 +17,8 @@ export type ShipmentActualTotal = {
 
 export type DetailedShipmentEvent = ShipmentEvent & {
   shipmentNumber?: number;
+  /** Direct physical link when the shipment was dispatched from one auto-reserved truck. */
+  plannedTruckId?: string;
   totals?: ShipmentActualTotal[];
 };
 
@@ -45,12 +47,6 @@ export function groupPlannedShipments(deliveries: DeliveryPlan[]): PlannedShipme
   return [...groups.values()].sort((a, b) => a.dispatchDate.localeCompare(b.dispatchDate) || a.id.localeCompare(b.id));
 }
 
-function plannedQuantity(group: PlannedShipmentGroup, product: Product) {
-  return group.deliveries
-    .filter((d) => d.productId === product.id)
-    .reduce((sum, d) => sum + d.quantity, 0);
-}
-
 function actualQuantity(actual: DetailedShipmentEvent, product: Product) {
   return (actual.totals ?? [])
     .filter((line) =>
@@ -58,6 +54,79 @@ function actualQuantity(actual: DetailedShipmentEvent, product: Product) {
       sameStyle(line.beerStyle, product.style),
     )
     .reduce((sum, line) => sum + Number(line.totalQuantity || 0), 0);
+}
+
+/** The same SKU + quantity overlap is used in the UI and in the operational
+ * reservation queue. Unexpected SKUs count against match confidence.
+ */
+export function shipmentManifestScore(
+  expected: Readonly<Record<string, number>>,
+  sent: Readonly<Record<string, number>>,
+): number | null {
+  const ids = new Set([...Object.keys(expected), ...Object.keys(sent)]);
+  let overlap = 0;
+  let union = 0;
+  for (const id of ids) {
+    const planned = Number(expected[id] ?? 0);
+    const actual = Number(sent[id] ?? 0);
+    if (!Number.isFinite(planned) || !Number.isFinite(actual) ||
+        planned < 0 || actual < 0) return null;
+    overlap += Math.min(planned, actual);
+    union += Math.max(planned, actual);
+  }
+  return union > 0 ? overlap / union : null;
+}
+
+function plannedManifest(group: PlannedShipmentGroup): Record<string, number> {
+  const expected: Record<string, number> = {};
+  for (const line of group.deliveries) {
+    expected[line.productId] = (expected[line.productId] ?? 0) + line.quantity;
+  }
+  return expected;
+}
+
+/** Canonical receipt manifest, shared between planner UI and operational queue.
+ * Unknown catalog lines MUST be retained, not dropped: otherwise an unrelated
+ * shipment can appear to match 100% and close the wrong planned truck.
+ */
+export function shipmentActualManifestFromTotals(
+  totals: ShipmentActualTotal[],
+  resolveProductId: (style: string, type: "crates" | "kegs") => string | null,
+): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const line of totals) {
+    if (line.itemType !== "crates" && line.itemType !== "kegs") continue;
+    const quantity = Number(line.totalQuantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    const style = String(line.beerStyle ?? "").trim();
+    const productId = resolveProductId(style, line.itemType) ||
+      `__unmapped__:${line.itemType}:${style.toLowerCase()}`;
+    result[productId] = (result[productId] ?? 0) + quantity;
+  }
+  return result;
+}
+
+function actualManifest(
+  actual: DetailedShipmentEvent,
+  products: Product[],
+): Record<string, number> | null {
+  if (!actual.totals?.length) return null;
+  return shipmentActualManifestFromTotals(actual.totals, (style, kind) => {
+    const candidates = products.filter((p) =>
+      p.type === kind && sameStyle(p.style, style));
+    // Two catalog entries for the same style are ambiguous, not interchangeable.
+    return candidates.length === 1 ? candidates[0].id : null;
+  });
+}
+
+function distinctManifestsConflict(
+  winner: { manifest: string; score: number | null },
+  ranked: Array<{ manifest: string; score: number | null }>,
+): boolean {
+  return ranked.some((candidate) =>
+    candidate.score !== null && winner.score !== null &&
+    Math.abs(candidate.score - winner.score) < 1e-9 &&
+    candidate.manifest !== winner.manifest);
 }
 
 /**
@@ -73,17 +142,14 @@ export function settingsAfterActualShipments(
   const actuals = actualEvents as DetailedShipmentEvent[];
   return {
     ...settings,
-    products: settings.products.map((product) => {
-      if (product.tempo === null) return product;
-      const tempoDate = parseDate(product.tempoDate);
-      const received = actuals
-        .filter((shipment) =>
-          shipment.date <= throughDate &&
-          (!tempoDate || shipment.date > tempoDate),
-        )
-        .reduce((sum, shipment) => sum + actualQuantity(shipment, product), 0);
-      return received > 0 ? { ...product, tempo: product.tempo + received } : product;
-    }),
+    products: settings.products.map((product) =>
+      tempoInventoryBaselineAt(product, throughDate,
+        actuals.map((shipment) => ({
+          date: shipment.date,
+          occurredAt: shipment.occurredAt,
+          quantity: actualQuantity(shipment, product),
+        }))),
+    ),
   };
 }
 
@@ -93,16 +159,8 @@ export function shipmentMatchScore(
   actual: DetailedShipmentEvent,
   products: Product[],
 ): number | null {
-  if (!actual.totals?.length) return null;
-  let overlap = 0;
-  let union = 0;
-  for (const product of products) {
-    const planned = plannedQuantity(group, product);
-    const sent = actualQuantity(actual, product);
-    overlap += Math.min(planned, sent);
-    union += Math.max(planned, sent);
-  }
-  return union > 0 ? overlap / union : null;
+  const sent = actualManifest(actual, products);
+  return sent ? shipmentManifestScore(plannedManifest(group), sent) : null;
 }
 
 /**
@@ -110,89 +168,138 @@ export function shipmentMatchScore(
  * Queue rows already use product ids/SKUs, so this version does not depend on a
  * settings snapshot and can run synchronously in the shipment completion flow.
  */
+export const MIN_TRIP_MATCH_CONFIDENCE = 0.85;
+
+/** Only unambiguously high-overlap reports can close an unlinked queue trip.
+ * A direct immutable trip reference takes precedence over heuristic scoring.
+ */
+/** Normalized actual shipment, with a catalog-aware product quantity manifest. */
+export type ShipmentManifestEvent = ShipmentEvent & {
+  plannedTruckId?: string;
+  manifest: Readonly<Record<string, number>> | null;
+};
+export type ShipmentManifestMatch = {
+  planned: PlannedShipmentGroup;
+  actual?: ShipmentManifestEvent;
+  score: number | null;
+  status: "pending" | "matched" | "actual-different";
+};
+
+/**
+ * The single matching engine for UI, audit, pending decisions and the
+ * operational pallet reservation queue. One actual can close at most one
+ * planned trip; a direct persisted trip ID takes priority. Unlinked records
+ * need strong, unambiguous SKU/quantity overlap. No date-only matching.
+ */
+export function matchShipmentManifests(
+  deliveries: DeliveryPlan[],
+  actuals: ShipmentManifestEvent[],
+  threshold = MIN_TRIP_MATCH_CONFIDENCE,
+): ShipmentManifestMatch[] {
+  const groups = groupPlannedShipments(deliveries);
+  const candidates = groups.flatMap((planned) =>
+    actuals.filter((actual) =>
+      weekStart(actual.date) === weekStart(planned.dispatchDate))
+      .map((actual) => ({
+        planned, actual,
+        score: actual.manifest
+          ? shipmentManifestScore(plannedManifest(planned), actual.manifest)
+          : null,
+        direct: actual.plannedTruckId === planned.id,
+        manifest: JSON.stringify(Object.entries(plannedManifest(planned))
+          .sort(([a], [b]) => a.localeCompare(b))),
+        distance: Math.abs(Date.parse(`${actual.date}T12:00:00Z`) -
+          Date.parse(`${planned.dispatchDate}T12:00:00Z`)),
+      }))
+      .filter((candidate) => candidate.actual.plannedTruckId
+        ? candidate.direct
+        : candidate.score !== null && candidate.score >= threshold),
+  ).sort((a, b) =>
+    Number(b.direct) - Number(a.direct) ||
+    (b.score ?? -1) - (a.score ?? -1) ||
+    a.distance - b.distance ||
+    a.planned.id.localeCompare(b.planned.id) ||
+    a.actual.id.localeCompare(b.actual.id),
+  );
+  const matched = new Map<string, ShipmentManifestMatch>();
+  const usedActuals = new Set<string>();
+  for (const { planned, actual, score } of candidates) {
+    if (matched.has(planned.id) || usedActuals.has(actual.id)) continue;
+    if (!actual.plannedTruckId &&
+        distinctManifestsConflict(
+          { manifest: JSON.stringify(Object.entries(plannedManifest(planned))
+            .sort(([a], [b]) => a.localeCompare(b))), score },
+          candidates.filter((candidate) => candidate.actual.id === actual.id),
+        )) continue;
+    matched.set(planned.id, {
+      planned, actual, score,
+      // Confidence >=85% identifies WHICH trip departed; only 100% SKU and
+      // quantity parity establishes that it departed AS PLANNED. A directly
+      // linked shipment with a changed load is completed but not identical.
+      status: score !== null && Math.abs(score - 1) < 1e-9
+        ? "matched" : "actual-different",
+    });
+    usedActuals.add(actual.id);
+  }
+  return groups.map((planned) =>
+    matched.get(planned.id) ?? { planned, score: null, status: "pending" });
+}
+
+/** Compatibility adapter for a one-receipt queue check. */
 export function completedShipmentQueueTruckId(
   deliveries: DeliveryPlan[],
   actualByProduct: Readonly<Record<string, number>>,
   shipmentDate: string,
+  explicitTruckId?: string | null,
 ): string | null {
-  const groups = groupPlannedShipments(deliveries)
-    .filter((group) => weekStart(group.dispatchDate) === weekStart(shipmentDate));
-  if (!groups.length) return null;
+  return matchShipmentManifests(deliveries, [{
+    id: "one-receipt", date: shipmentDate,
+    plannedTruckId: explicitTruckId ?? undefined,
+    manifest: actualByProduct,
+  }]).find((match) => match.status !== "pending")?.planned.id ?? null;
+}
 
-  const actualKeys = Object.keys(actualByProduct);
-  const ranked = groups.map((group) => {
-    const planned = new Map<string, number>();
-    group.deliveries.forEach((delivery) => {
-      planned.set(
-        delivery.productId,
-        (planned.get(delivery.productId) ?? 0) + Number(delivery.quantity || 0),
-      );
-    });
-    const keys = new Set([...planned.keys(), ...actualKeys]);
-    let overlap = 0;
-    let union = 0;
-    keys.forEach((productId) => {
-      const expected = planned.get(productId) ?? 0;
-      const sent = Number(actualByProduct[productId] ?? 0);
-      overlap += Math.min(expected, sent);
-      union += Math.max(expected, sent);
-    });
-    return {
-      group,
-      score: union > 0 ? overlap / union : null,
-      distance: Math.abs(
-        Date.parse(`${shipmentDate}T12:00:00Z`) -
-        Date.parse(`${group.dispatchDate}T12:00:00Z`),
-      ),
-    };
-  });
-
-  ranked.sort((a, b) =>
-    (b.score ?? -1) - (a.score ?? -1) ||
-    a.distance - b.distance ||
-    a.group.id.localeCompare(b.group.id),
-  );
-  return ranked[0]?.group.id ?? null;
+/**
+ * A physical Tempo departure with no confident trip link means the truck may
+ * already be gone. Never repick new pallets for another still-open trip on
+ * that same dispatch date until the operator reconciles the shipment.
+ */
+export function hasUnmatchedPhysicalDepartureForToday(
+  matches: ShipmentManifestMatch[],
+  actuals: ShipmentManifestEvent[],
+  today: string,
+): boolean {
+  const attached = new Set(matches.flatMap((match) =>
+    match.actual?.id ? [match.actual.id] : []));
+  const pendingDays = new Set(matches
+    .filter((match) => match.status === "pending")
+    .map((match) => match.planned.dispatchDate));
+  return actuals.some((actual) =>
+    !attached.has(actual.id) &&
+    actual.date <= today && pendingDays.has(actual.date));
 }
 
 export function matchActualShipments(
   deliveries: DeliveryPlan[],
   actualEvents: ShipmentEvent[],
   products: Product[],
-  threshold = 0.85,
+  threshold = MIN_TRIP_MATCH_CONFIDENCE,
 ): ShipmentMatch[] {
-  const groups = groupPlannedShipments(deliveries);
-  const actuals = actualEvents as DetailedShipmentEvent[];
-  const unused = new Set(actuals.map((event) => event.id));
-
-  return groups.map((planned) => {
-    const sameWeek = actuals.filter((actual) =>
-      unused.has(actual.id) && weekStart(actual.date) === weekStart(planned.dispatchDate),
-    );
-    if (!sameWeek.length) return { planned, score: null, status: "pending" as const };
-
-    const ranked = sameWeek
-      .map((actual) => ({ actual, score: shipmentMatchScore(planned, actual, products) }))
-      .sort((a, b) =>
-        (b.score ?? -1) - (a.score ?? -1) ||
-        Math.abs(Date.parse(`${a.actual.date}T12:00:00Z`) - Date.parse(`${planned.dispatchDate}T12:00:00Z`)) -
-          Math.abs(Date.parse(`${b.actual.date}T12:00:00Z`) - Date.parse(`${planned.dispatchDate}T12:00:00Z`)),
-      );
-    const best = ranked[0];
-    if (!best) return { planned, score: null, status: "pending" as const };
-
-    if (best.score === null || best.score >= threshold) {
-      unused.delete(best.actual.id);
-      return { planned, actual: best.actual, score: best.score, status: "matched" as const };
-    }
-
-    // A shipment happened in the planned week, but its SKU mix differs materially.
-    // It still closes that trip operationally; the UI flags the mismatch instead of hiding it.
-    unused.delete(best.actual.id);
-    return { planned, actual: best.actual, score: best.score, status: "actual-different" as const };
-  });
+  const detailed = actualEvents as DetailedShipmentEvent[];
+  const events: ShipmentManifestEvent[] = detailed.map((actual) => ({
+    id: actual.id,
+    date: actual.date,
+    plannedTruckId: actual.plannedTruckId,
+    manifest: actualManifest(actual, products),
+  }));
+  const byId = new Map(detailed.map((event) => [event.id, event]));
+  return matchShipmentManifests(deliveries, events, threshold).map((match) => ({
+    planned: match.planned,
+    actual: match.actual ? byId.get(match.actual.id) : undefined,
+    score: match.score,
+    status: match.status,
+  }));
 }
-
 
 export function pendingDeliveriesForReservationQueue(
   deliveries: DeliveryPlan[],
@@ -251,6 +358,49 @@ export function pendingPlansAfterActualShipments(
   });
 }
 
+/**
+ * Execution statuses must remain visible until an unlinked physical shipment
+ * is reconciled; however forecasts MUST NOT silently schedule a second
+ * shipment against stock that may already have left in that same physical
+ * departure. Conservatively quarantine only pending trips on the unresolved
+ * actual's dispatch date from the *forecast*, without marking them completed
+ * or altering persisted decisions. The shipment status portal still warns.
+ */
+export function forecastablePlansAfterActualShipments(
+  plans: WeekPlan[],
+  actualEvents: ShipmentEvent[],
+  products: Product[],
+  today: string,
+): WeekPlan[] {
+  // Match against the ORIGINAL complete manifest, before completed trips are
+  // removed. Matching against the already-filtered pending trips makes a
+  // correctly linked first departure appear "unmatched" and quarantines a
+  // second genuinely pending truck on the SAME day.
+  return plans.map((week) => {
+    const matches = matchActualShipments(week.deliveries ?? [], actualEvents, products);
+    const pendingGroupIds = new Set(matches
+      .filter((match) => match.status === "pending")
+      .map((match) => match.planned.id));
+    const linkedActualIds = new Set(matches.flatMap((match) =>
+      match.actual?.id ? [match.actual.id] : []));
+    const unlinkedSameWeekDates = new Set(actualEvents
+      .filter((actual) =>
+        actual.date <= today &&
+        weekStart(actual.date) === week.id &&
+        !linkedActualIds.has(actual.id))
+      .map((actual) => actual.date));
+    const pendingDeliveries = (week.deliveries ?? []).filter((delivery) =>
+      pendingGroupIds.has(delivery.truckId || `date:${delivery.dispatchDate}`));
+    const remaining = pendingDeliveries.filter((delivery) =>
+      !unlinkedSameWeekDates.has(delivery.dispatchDate));
+    if (remaining.length === (week.deliveries ?? []).length) return week;
+    return {
+      ...week, deliveries: remaining,
+      deliveryDates: [...new Set(remaining.map((d) => d.dispatchDate))].sort(),
+    };
+  });
+}
+
 export function mergeCompletedDeliveriesBack(
   original: WeekPlan,
   pendingEdited: WeekPlan,
@@ -264,7 +414,11 @@ export function mergeCompletedDeliveriesBack(
   const completed = (original.deliveries ?? []).filter((delivery) =>
     completedGroupIds.has(delivery.truckId || `date:${delivery.dispatchDate}`),
   );
-  const deliveries = [...completed, ...(pendingEdited.deliveries ?? [])];
+  // Weekly editors can send the full original plan, including completed rows.
+  // Keep immutable completed trips exactly once; only append still-open edits.
+  const pending = (pendingEdited.deliveries ?? []).filter((delivery) =>
+    !completedGroupIds.has(delivery.truckId || `date:${delivery.dispatchDate}`));
+  const deliveries = [...completed, ...pending];
   return {
     ...pendingEdited,
     deliveries,

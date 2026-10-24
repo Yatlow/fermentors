@@ -63,7 +63,7 @@ export default function PlanningWeekEditor({
   const [busy, setBusy] = useState(false);
   const [otherStyle, setOtherStyle] = useState("");
   const [brewRangeStart, setBrewRangeStart] = useState(1);
-  const [brewRangeEnd, setBrewRangeEnd] = useState(4);
+  const [brewRangeEnd, setBrewRangeEnd] = useState(3);
 
   const dayPacks = draft.packaging.map((r, i) => ({ r, i })).filter(({ r }) => r.date === day || !r.date);
   const visibleBrews = draft.brews.map((b, i) => ({ b, i }));
@@ -101,9 +101,11 @@ export default function PlanningWeekEditor({
   }
 
   function releaseVolume(tankId: string, style: string) {
-    const release = releases.find((r) => r.tankId === tankId);
     const source = brews.find((t) => t.id === tankId);
-    return release?.workLiters || estimatedBrewVolume(source?.tankNumber, style);
+    const physical = tanks.find((tank) => tank.id === tankId);
+    // release.workLiters describes the PREVIOUS recipe. Never transfer its
+    // volume to a future brew of another style.
+    return estimatedBrewVolume(source?.tankNumber ?? physical?.number, style);
   }
 
   async function save() {
@@ -192,9 +194,9 @@ export default function PlanningWeekEditor({
         {scope === "brews" && <>
           <div className="bp-settings">
             <b>טווח ימי בישול</b>
-            <label>מיום<select value={brewRangeStart} onChange={(e) => setBrewRangeStart(Math.min(Number(e.target.value), brewRangeEnd))}>{WEEK_DAYS.slice(0, 5).map((name, i) => <option value={i} key={name}>{name}</option>)}</select></label>
-            <label>עד יום<select value={brewRangeEnd} onChange={(e) => setBrewRangeEnd(Math.max(Number(e.target.value), brewRangeStart))}>{WEEK_DAYS.slice(0, 5).map((name, i) => <option value={i} key={name}>{name}</option>)}</select></label>
-            <small>ברירת מחדל: שני–חמישי. אפשר להרחיב/לצמצם בתוך שבוע העבודה.</small>
+            <label>מיום<select value={brewRangeStart} onChange={(e) => setBrewRangeStart(Math.min(Number(e.target.value), brewRangeEnd))}>{WEEK_DAYS.slice(0, 5).map((name, i) => <option value={i} disabled={!draft.allowExceptions && (i === 0 || i === 4)} key={name}>{name}</option>)}</select></label>
+            <label>עד יום<select value={brewRangeEnd} onChange={(e) => setBrewRangeEnd(Math.max(Number(e.target.value), brewRangeStart))}>{WEEK_DAYS.slice(0, 5).map((name, i) => <option value={i} disabled={!draft.allowExceptions && (i === 0 || i === 4)} key={name}>{name}</option>)}</select></label>
+            <small>ברירת מחדל: שני–רביעי. ראשון וחמישי דורשים אישור חריגה משגרת העבודה.</small>
           </div>
 
           <h4>בישולים השבוע</h4>
@@ -231,7 +233,7 @@ export default function PlanningWeekEditor({
                   updateBrew(i, { tankId: e.target.value, liters: volume || b.liters });
                 }}><option value="">בחירת מיכל</option>{available.map((t) => {
                   const release = releases.find((r) => r.tankId === t.id);
-                  const volume = release?.workLiters || estimatedBrewVolume(t.tankNumber, b.style);
+                  const volume = releaseVolume(t.id, b.style);
                   return <option key={t.id} value={t.id}>מיכל {t.tankNumber ?? t.id} · {tankType(t.tankNumber)} · {t.id === b.tankId ? "משובץ לבישול הזה" : `פנוי ${release?.date ? `מ־${shortDate(release.date)}` : ""}`} · {Math.round(volume)} ל׳</option>;
                 })}</select></label>
                 <label>נפח בישול<TransientNumberInput min="1" value={b.liters} readOnly={capacity > 0} onNumberChange={(value) => updateBrew(i, { liters: value })}/><small>{capacity > 0 ? `לפי נפח העבודה של מיכל ${source?.tankNumber ?? ""}` : "בחר מיכל לקבלת נפח עבודה אוטומטי."}</small></label>
@@ -242,7 +244,7 @@ export default function PlanningWeekEditor({
           <button type="button" disabled={!defaultBrewDate} onClick={addBrew}>הוספת בישול לשבוע</button>
         </>}
 
-        <div className="bp-settings"><label><input type="checkbox" checked={draft.allowExceptions ?? false} onChange={(e) => setDraft({ ...draft, allowExceptions: e.target.checked })}/>חריגה משגרת ימי העבודה</label><label>הערה / סיבת שינוי<textarea value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value, changeReason: "שינוי ידני בלוח העבודה" })}/></label></div>
+        <div className="bp-settings"><label><input type="checkbox" checked={draft.allowExceptions ?? false} onChange={(e) => { const approved = e.target.checked; setDraft({ ...draft, allowExceptions: approved }); if (!approved && scope === "brews") { setBrewRangeStart((day) => Math.max(1, Math.min(3, day))); setBrewRangeEnd((day) => Math.max(1, Math.min(3, day))); } }}/>חריגה משגרת ימי העבודה</label><label>הערה / סיבת שינוי<textarea value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value, changeReason: "שינוי ידני בלוח העבודה" })}/></label></div>
         {error && <p role="alert" className="bp-alert">{error}</p>}
       </fieldset>
 

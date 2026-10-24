@@ -12,6 +12,8 @@ export type Product = {
   monthly: number;
   tempo: number | null;
   tempoDate: string;
+  /** ISO instant of the physical stock count, for same-day receipt ordering. */
+  tempoSnapshotAt?: string;
   leadDays: number;
 };
 export type Settings = {
@@ -78,6 +80,8 @@ export type WeekPlan = {
   /** Historical recommendation snapshots captured when a planner saves a decision. */
   recommendationEvidence?: import("./recommendationAudit").RecommendationEvidence[];
   allowExceptions?: boolean;
+  /** Explicit planner approvals for truck floor-slot overages, scoped by dispatch date and truck ID. */
+  oversizeTruckApprovals?: string[];
 };
 export type Actual = {
   id: string;
@@ -404,11 +408,10 @@ export function shipmentAdvice(
   const fifoKnown = eligible.every((x) => !!production(x));
   eligible.sort(
     (a, b) =>
-      (fifoKnown
-        ? production(a)!.localeCompare(production(b)!)
-        : parseDate(a.expiryDateStr)!.localeCompare(
-            parseDate(b.expiryDateStr)!,
-          )) || a.id.localeCompare(b.id),
+      // FEFO always has priority. Production FIFO breaks equal-expiry ties.
+      parseDate(a.expiryDateStr)!.localeCompare(parseDate(b.expiryDateStr)!) ||
+      (fifoKnown ? production(a)!.localeCompare(production(b)!) : 0) ||
+      a.id.localeCompare(b.id),
   );
   let selected = 0;
   const picks = eligible.filter((x) => {

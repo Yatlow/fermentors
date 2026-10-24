@@ -90,27 +90,79 @@ function srActiveCatalog_() {
   return catalog;
 }
 function srExpiry_(value) {
-  var s = String(value || "").trim(), m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  return m ? m[3]+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2) : s;
+  var s = String(value || "").trim();
+  var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (m) {
+    var year = m[3].length === 2 ? "20"+m[3] : m[3];
+    s = year+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
+  var parsed = new Date(s + "T12:00:00Z");
+  return !isNaN(parsed.getTime()) && parsed.toISOString().slice(0,10) === s ? s : "";
 }
-function srPatch_(p, fields) {
+function srExpiryEligible_(pallet, dispatchDate) {
+  var expiry = srExpiry_(pallet.expiryDateStr);
+  return !!expiry && expiry >= dispatchDate;
+}
+// The Saturday job shares one atomic revision guard with React manual/auto
+// marking transactions. No partial set of pallets is released or reserved.
+function srReadMarkingGuard_() {
+  var name = srRoot_() + "/shipmentMarkingGuard/active";
+  try { return srDecode_(srFetch_(name)); }
+  catch (e) {
+    if (String(e).indexOf(" 404:") >= 0) return {name:name, revision:0};
+    throw e;
+  }
+}
+function srPalletMarkWrite_(p, fields) {
   var encoded = {}, masks = [];
   Object.keys(fields).forEach(function(k) {
     var v = fields[k];
     encoded[k] = v === null ? {nullValue: null} :
       typeof v === "boolean" ? {booleanValue: v} : {stringValue: String(v)};
-    masks.push("updateMask.fieldPaths=" + encodeURIComponent(k));
+    masks.push(k);
   });
-  // updateTime precondition prevents overwriting a simultaneous manual decision.
-  var url = "https://firestore.googleapis.com/v1/" + p.name + "?" +
-    masks.join("&") + "&currentDocument.updateTime=" + encodeURIComponent(p.updateTime);
-  srFetch_(url, "patch", {fields: encoded});
+  return {
+    update: {name:p.name, fields:encoded},
+    updateMask: {fieldPaths:masks},
+    updateTransforms: [{fieldPath:"updatedAt", setToServerValue:"REQUEST_TIME"}],
+    currentDocument: {updateTime:p.updateTime}
+  };
 }
+function srCommitMarking_(mutations, guard) {
+  if (!mutations.length) return;
+  if (mutations.length > 400) throw new Error("Too many pallet marking changes for one atomic commit");
+  var writes = mutations.map(function(change) {
+    return srPalletMarkWrite_(change.pallet, change.fields);
+  });
+  var revision = Number(guard.revision || 0);
+  if (!isFinite(revision) || revision < 0) throw new Error("Invalid shipment marking guard version");
+  writes.push({
+    update: {name:guard.name, fields:{
+      revision: {integerValue:String(revision + 1)},
+      updatedBy: {stringValue:"apps-script"}
+    }},
+    updateMask: {fieldPaths:["revision","updatedBy"]},
+    updateTransforms: [{fieldPath:"updatedAt", setToServerValue:"REQUEST_TIME"}],
+    currentDocument: guard.updateTime ?
+      {updateTime:guard.updateTime} : {exists:false}
+  });
+  srFetch_(srRoot_() + ":commit", "post", {writes:writes});
+}
+
 function srStackOrder_(p) {
   if (p.orderInCell != null) return Number(p.orderInCell);
   if (p.slotIndex != null) return Number(p.slotIndex);
   if (p.cellOrder != null) return Number(p.cellOrder);
   return null;
+}
+function srCanFitInTruck_(alreadyMarked, additional) {
+  try {
+    // The truck has 12 FLOOR places, not 12 pallets. Some pallets can stack.
+    return SharedShipmentPicking.calcTruckSlots(alreadyMarked.concat(additional)) <= 12;
+  } catch (e) {
+    return false;
+  }
 }
 function srBlockedInCell_(candidate, physical, selected) {
   if (!candidate.cell) return false;
@@ -154,9 +206,15 @@ function srSaturdayReconcile_() {
       String(a.truckId || "").localeCompare(String(b.truckId || ""));
   });
   var first = open[0], truck = first ? String(first.truckId || "date:" + first.dispatchDate) : "";
+  // Saturday auto-marking must not reserve stock that expires before the
+  // upcoming physical dispatch. Browser marking and this GAS fallback agree.
+  var dispatchCutoff = first ? String(first.dispatchDate).slice(0,10) : targetWeek;
   var lines = {};
   open.filter(function(d) { return String(d.truckId || "date:" + d.dispatchDate) === truck; })
     .forEach(function(d) { lines[d.productId] = (lines[d.productId] || 0) + Number(d.quantity); });
+  // Read the guard BEFORE reading the pallet set. A conflicting React/GAS
+  // transaction then causes the full Firestore commit to fail safely.
+  var markingGuard = srReadMarkingGuard_();
   var catalog = srActiveCatalog_();
   var pallets = srListPallets_(), tagged = [];
   pallets.forEach(function(p) {
@@ -165,20 +223,25 @@ function srSaturdayReconcile_() {
   var staleIds = {};
   tagged.forEach(function(p) { staleIds[p.name] = true; });
   var selected = {};
-  var reservedSlots = pallets.filter(function(p) {
+  var manualReservedPallets = pallets.filter(function(p) {
     return p.markedForShipment && !staleIds[p.name] && p.zone !== "shipped";
-  }).length;
+  });
   Object.keys(lines).forEach(function(sku) {
     var matches = pallets.filter(function(p) {
-      return p.zone !== "shipped" && Number(p.quantity) > 0 && srSku_(p, catalog) === sku;
+      return p.zone !== "shipped" && Number(p.quantity) > 0 &&
+        srSku_(p, catalog) === sku && srExpiryEligible_(p, dispatchCutoff);
     });
     var size = matches.length && matches[0].itemType === "crates" ? 84 : 20;
-    var already = matches.filter(function(p) { return p.markedForShipment && !staleIds[p.name]; }).length;
-    var missing = Math.max(0, lines[sku] - Math.min(lines[sku], already * size));
+    // Same physical-unit target as the React auto-reservation, not a
+    // nominal pallet-slot target: two half pallets may be needed for 84 crates.
+    var already = matches.filter(function(p) {
+      return p.markedForShipment && !staleIds[p.name];
+    }).reduce(function(sum,p) { return sum + Math.max(0,Number(p.quantity)||0); },0);
+    var missing = Math.max(0, lines[sku] - already);
     var candidates = matches.filter(function(p) {
       return (!p.markedForShipment || staleIds[p.name]) &&
         ["cooler","pending","bottleRoom"].indexOf(p.zone) >= 0 &&
-        srExpiry_(p.expiryDateStr) >= localDay;
+        srExpiryEligible_(p, dispatchCutoff);
     }).map(function(p) {
       return Object.assign({}, p, {
         id: p.name,
@@ -189,26 +252,36 @@ function srSaturdayReconcile_() {
       });
     });
     if (missing <= 0 || !candidates.length) return;
-    var options = SharedShipmentPicking.shipmentDecisionPickOptions(candidates, missing, size);
+    var options = SharedShipmentPicking.shipmentDecisionPickOptions(candidates, missing, size, true);
     var best = options.filter(function(o) {
-      return Number.isFinite(o.slots) && o.slots + reservedSlots <= 12;
+      var prior = manualReservedPallets.concat(Object.keys(selected).map(function(id) {
+        return selected[id];
+      }));
+      return Number.isFinite(o.slots) &&
+        srCanFitInTruck_(prior, o.selected || []);
     }).sort(function(a,b) {
       return a.missingNominal-b.missingNominal ||
         a.fefoScore-b.fefoScore || a.slots-b.slots || a.overage-b.overage;
     })[0];
     if (!best) return;
     (best.selected || []).forEach(function(p) { selected[p.name] = p; });
-    reservedSlots += best.slots;
-  });
-  // Only changed documents are patched; retries after partial failure are safe.
+   });
+  // Commit the entire change set atomically. A stale pallet updateTime or
+  // guard revision aborts the whole batch; the next maintenance cycle retries.
+  var mutations = [];
   tagged.forEach(function(p) {
-    if (!selected[p.name]) srPatch_(p, {markedForShipment:false, autoReservationWeek:null, autoReservationTruckId:null});
+    if (!selected[p.name]) mutations.push({pallet:p, fields:{
+      markedForShipment:false, autoReservationWeek:null, autoReservationTruckId:null
+    }});
   });
   Object.keys(selected).forEach(function(id) {
     var p = selected[id];
     if (p.markedForShipment && p.autoReservationWeek === targetWeek && p.autoReservationTruckId === truck) return;
-    srPatch_(p, {markedForShipment:true, autoReservationWeek:targetWeek,autoReservationTruckId:truck});
+    mutations.push({pallet:p, fields:{
+      markedForShipment:true, autoReservationWeek:targetWeek, autoReservationTruckId:truck
+    }});
   });
+  srCommitMarking_(mutations, markingGuard);
   props.setProperty(marker, "complete");
   Logger.log("Saturday shipment reconciliation complete: " + targetWeek +
     ", truck=" + truck + ", released=" + tagged.length + ", selected=" + Object.keys(selected).length);

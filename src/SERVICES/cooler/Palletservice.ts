@@ -1,4 +1,9 @@
 import { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM } from "./truckCapacity";
+import { nextShipmentMarkingRevision, shipmentMarkingGuardRef,
+    shipmentMarkingGuardWrite } from "../planning/shipmentMarkingGuard";
+import { dateKey, weekStart } from "../planning/planningEngine";
+import { isDispatchTripInQueue } from "../planning/shipmentDispatchIdentity";
+import { validatePhysicalShipmentLoad } from "./shipmentDispatchSafety";
 export { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM };
 import {
     collection,
@@ -13,7 +18,7 @@ import {
     getCountFromServer,
     getDocsFromServer,
 } from "firebase/firestore";
-import { db } from "../../firebase";
+import { auth, db } from "../../firebase";
 import {
     calcHeightCm,
     MAX_CRATES_PER_PALLET,
@@ -767,12 +772,23 @@ export async function createPallets(input: { itemType: PalletItemType; beerStyle
     return ids;
 }
 
-export async function createShipment(palletIds: string[], customerName?: string | null, customerId?: string | null): Promise<string> {
+export async function createShipment(
+    palletIds: string[], customerName?: string | null, customerId?: string | null,
+    explicitPlannedTruckId?: string | null | false,
+): Promise<string> {
     const uniquePalletIds = [...new Set(palletIds.filter(Boolean))];
     if (uniquePalletIds.length === 0) throw new Error("לא נבחרו משטחים למשלוח");
     if (uniquePalletIds.length !== palletIds.length) throw new Error("רשימת המשטחים מכילה כפילויות");
+    const tempoCustomer = customerId?.trim().toLowerCase() === "tempo" ||
+        (!customerId?.trim() && /טמפו|tempo/i.test(customerName?.trim() ?? ""));
+    if (explicitPlannedTruckId && !tempoCustomer)
+        throw new Error("שיוך נסיעה מתוכננת מותר רק למשלוח טמפו");
+    const dispatchDay = dateKey(new Date());
+    const queueRef = doc(db, "shipmentPlanningQueue", weekStart(dispatchDay));
     const counterRef = doc(db, "counters", "shipmentNumber");
     const shipmentNumber = await runTransaction(db, async (tx) => {
+        const guardRef = shipmentMarkingGuardRef();
+        const guardSnap = await tx.get(guardRef);
         const counterSnap = await tx.get(counterRef);
         const palletRefs = uniquePalletIds.map((id) => doc(db, PALLETS_COLLECTION, id));
         const palletSnaps = await Promise.all(palletRefs.map((ref) => tx.get(ref)));
@@ -782,6 +798,9 @@ export async function createShipment(palletIds: string[], customerName?: string 
             if (pallet.zone === "shipped") throw new Error(`המשטח ${pallet.id} כבר נשלח`);
             return pallet;
         });
+        // A banner in React is not a physical safety gate. Recheck all
+        // current pallet documents atomically at dispatch time.
+        validatePhysicalShipmentLoad(pallets, dispatchDay);
         const totalsMap = new Map<string, { itemType: string; beerStyle: string; totalQuantity: number }>();
         pallets.forEach((pallet) => {
             const key = `${pallet.itemType}__${pallet.beerStyle}`;
@@ -789,13 +808,69 @@ export async function createShipment(palletIds: string[], customerName?: string 
             if (current) current.totalQuantity += pallet.quantity;
             else totalsMap.set(key, { itemType: pallet.itemType, beerStyle: pallet.beerStyle, totalQuantity: pallet.quantity });
         });
+        // A direct planned-trip reference is reliable only when EVERY pallet
+        // was automatically reserved for the exact same truck. Manual/mixed
+        // loads remain unlinked and will use conservative manifest matching.
+        const reservationIds = new Set(pallets.map((pallet) =>
+            pallet.markedForShipment && pallet.autoReservationTruckId
+                ? pallet.autoReservationTruckId : ""));
+        const inferredTruckId = reservationIds.size === 1 &&
+            !reservationIds.has("") ? [...reservationIds][0] : null;
+        const conflictingAutomatic = pallets.some((pallet) =>
+            !!pallet.autoReservationTruckId && !!explicitPlannedTruckId &&
+            pallet.autoReservationTruckId !== explicitPlannedTruckId);
+        if (conflictingAutomatic)
+            throw new Error("המשטחים מסומנים לנסיעה שונה מזו שנבחרה; יש לתקן את הסימון לפני משלוח");
+        // false means the operator explicitly selected 'unlinked'. Do not
+        // override that decision with old auto-marked pallet metadata.
+        const explicitlyUnlinked = explicitPlannedTruckId === false;
+        let plannedTruckId: string | null = tempoCustomer && !explicitlyUnlinked
+            ? explicitPlannedTruckId || inferredTruckId : null;
+        if (plannedTruckId) {
+            // Verify the UI choice against the live transaction snapshot. An
+            // outdated queue or another planner's changed trip must not attach
+            // the wrong immutable trip identity to a physical shipment.
+            const queueSnap = await tx.get(queueRef);
+            if (!isDispatchTripInQueue(queueSnap.data(), dispatchDay, plannedTruckId)) {
+                if (explicitPlannedTruckId)
+                    throw new Error("הנסיעה המתוכננת השתנתה או כבר אינה פתוחה. יש לפתוח מחדש ולבחור נסיעה.");
+                plannedTruckId = null;
+            }
+        }
+        // Claim the same planned physical truck at most once across ALL devices.
+        // The queue can still be stale for a moment after the first dispatch;
+        // this immutable claim closes that race in the shipment transaction.
+        const claimRef = plannedTruckId
+            ? doc(db, "shipmentTripClaims",
+                encodeURIComponent(`${weekStart(dispatchDay)}|${plannedTruckId}`))
+            : null;
+        if (claimRef) {
+            const existingClaim = await tx.get(claimRef);
+            if (existingClaim.exists()) {
+                throw new Error("לנסיעה המתוכננת הזו כבר נוצרה תעודת משלוח. יש לבחור נסיעה אחרת או לטפל בדוח הקיים.");
+            }
+        }
         const currentNumber = counterSnap.exists() ? Number(counterSnap.data().value) : 2389;
         if (!Number.isFinite(currentNumber)) throw new Error("מונה תעודות המשלוח אינו תקין");
         const nextNumber = currentNumber + 1;
         const shipmentRef = doc(db, SHIPMENTS_COLLECTION, String(nextNumber));
         tx.set(counterRef, { value: nextNumber }, { merge: true });
-        tx.set(shipmentRef, { shipmentNumber: nextNumber, palletIds: uniquePalletIds, totals: Array.from(totalsMap.values()), sourceType: "pallets", customerName: customerName?.trim() || null, customerId: customerId?.trim() || null, createdAt: serverTimestamp() });
+        tx.set(shipmentRef, { shipmentNumber: nextNumber, palletIds: uniquePalletIds, totals: Array.from(totalsMap.values()), ...(plannedTruckId ? { plannedTruckId } : {}), sourceType: "pallets", customerName: customerName?.trim() || null, customerId: customerId?.trim() || null, createdAt: serverTimestamp() });
+        if (claimRef) {
+            const uid = auth.currentUser?.uid;
+            if (!uid) throw new Error("נדרש חיבור משתמש לצורך שיוך נסיעה");
+            tx.set(claimRef, {
+                plannedTruckId,
+                dispatchDate: dispatchDay,
+                shipmentNumber: nextNumber,
+                createdAt: serverTimestamp(),
+                createdBy: uid,
+            });
+        }
         palletRefs.forEach((ref) => tx.update(ref, { zone: "shipped", markedForShipment: false, autoReservationWeek: null, autoReservationTruckId: null, shippedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+        const guardVersion = Number(guardSnap.data()?.revision ?? 0);
+        tx.set(guardRef, shipmentMarkingGuardWrite(
+            nextShipmentMarkingRevision(guardVersion, guardVersion)));
         return nextNumber;
     });
     return String(shipmentNumber);
@@ -830,7 +905,25 @@ export async function movePalletsToZone(palletIds: string[], zone: PalletZone): 
     await batch.commit();
 }
 
-export async function setMarkedForShipment(palletId: string, marked: boolean): Promise<void> { await updateDoc(doc(db, PALLETS_COLLECTION, palletId), { markedForShipment: marked, autoReservationWeek: null, autoReservationTruckId: null, updatedAt: serverTimestamp() }); }
+export async function setMarkedForShipment(palletId: string, marked: boolean): Promise<void> {
+    await runTransaction(db, async (tx) => {
+        const guardRef = shipmentMarkingGuardRef();
+        const guardSnap = await tx.get(guardRef);
+        const palletRef = doc(db, PALLETS_COLLECTION, palletId);
+        const palletSnap = await tx.get(palletRef);
+        if (!palletSnap.exists() || palletSnap.data()?.zone === "shipped")
+            throw new Error("המשטח כבר אינו זמין לסימון");
+        const guardVersion = Number(guardSnap.data()?.revision ?? 0);
+        tx.update(palletRef, {
+            markedForShipment: marked,
+            autoReservationWeek: null,
+            autoReservationTruckId: null,
+            updatedAt: serverTimestamp(),
+        });
+        tx.set(guardRef, shipmentMarkingGuardWrite(
+            nextShipmentMarkingRevision(guardVersion, guardVersion)));
+    });
+}
 
 export async function reorderPalletsInZone(orderedPalletIds: string[]): Promise<void> {
     const batch = writeBatch(db);

@@ -6,7 +6,7 @@ import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
 import {
   addDays,
   emptyWeek,
-  inventory,
+  usableInventory,
   parseDate,
   sameStyle,
   tempoNow,
@@ -21,6 +21,8 @@ import {
 } from "../../SERVICES/planning/planningEngine";
 import { actualDate, actualUnits, matchesActual, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
+import { GANTT_FUTURE_WEEKS, simulationWeeksForPage } from "../../SERVICES/planning/planningHorizon";
+import { simulatedGanttBrews } from "../../SERVICES/planning/ganttBrewProjection";
 import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { pendingPackagingDecisions } from "../../SERVICES/planning/packagingActuals";
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
@@ -133,10 +135,10 @@ export default function PlanningGantt(props: Props) {
   };
   const currentWeek = weekStart(today);
   const nextPlanningWeek = addDays(currentWeek, 7);
-  const planningHorizonWeeks = canEdit ? 13 : 4;
+  const planningHorizonWeeks = canEdit ? GANTT_FUTURE_WEEKS : 4;
   const allWeekIds = useMemo(
     () => Array.from({ length: planningHorizonWeeks + 1 }, (_, index) => addDays(currentWeek, (index - 1) * 7)),
-    [currentWeek],
+    [currentWeek, planningHorizonWeeks],
   );
   const maxWeekPage = Math.max(0, Math.ceil((allWeekIds.length - 5) / 4));
   const weekIds = useMemo(() => {
@@ -198,7 +200,11 @@ export default function PlanningGantt(props: Props) {
       shipments,
     });
 
-    for (const week of weekIds) {
+    // Forecast the full chronological prefix on EVERY page. Recommendations
+    // from weeks outside the visible page still affect later inventory and
+    // tank availability, even though only the visible five weeks are rendered.
+    const simulationWeeks = simulationWeeksForPage(allWeekIds, weekIds);
+    for (const week of simulationWeeks) {
       if (cancelled || generation !== simulationGeneration.current) return;
       await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
       const saved = planByWeek.get(week);
@@ -281,13 +287,10 @@ export default function PlanningGantt(props: Props) {
           if (brewRecommendation.length) {
             workingPlan = {
               ...workingPlan,
-              brews: brewRecommendation.map((item, index) => ({
-                id: `gantt-rec-brew:${week}:${index}`,
-                style: item.style,
-                liters: item.liters,
-                tankId: "",
-                date: addDays(week, 1),
-              })),
+              // Hypothetical tank assignments are part of the *simulation*
+              // only. They are never saved to planningWeeks by paging the
+              // Gantt, but later forecast weeks now see those tanks occupied.
+              brews: simulatedGanttBrews(week, brewRecommendation),
             };
             upsertPlan(workingPlan);
             model = buildModel(week);
@@ -306,14 +309,14 @@ export default function PlanningGantt(props: Props) {
       });
       if (cancelled || generation !== simulationGeneration.current) return;
       const completed = result.get(week);
-      if (completed) {
+      if (completed && weekIds.includes(week)) {
         setSimulations((previous) => {
           const next = new Map(previous);
           next.set(week, completed);
           return next;
         });
       }
-      setPendingSimulationWeeks((previous) => {
+      if (weekIds.includes(week)) setPendingSimulationWeeks((previous) => {
         const next = new Set(previous);
         next.delete(week);
         return next;
@@ -330,7 +333,7 @@ export default function PlanningGantt(props: Props) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [settings, pallets, tanks, historyPlans, planByWeek, actuals, sources, today, weekIds, holidays, shipments, currentWeek]);
+  }, [settings, pallets, tanks, historyPlans, planByWeek, actuals, sources, today, weekIds, allWeekIds, holidays, shipments, currentWeek]);
 
   const productFor = (id: string) => settings.products.find((product) => product.id === id);
   const decisionPlanFor = (weekId: string) => planByWeek.get(weekId);
@@ -543,7 +546,10 @@ export default function PlanningGantt(props: Props) {
     const grouped = new Map<string, string[]>();
     if (weekId === currentWeek) {
       for (const product of settings.products.filter((item) => item.monthly > 0)) {
-        const inv = inventory(product, pallets);
+        // Use the same sellable, in-date inventory as the Stock overview and
+        // forward shipment forecasts. Physical expired stock is displayed in
+        // Stock details, but cannot extend coverage here.
+        const inv = usableInventory(product, pallets, today);
         const brewery = inv.brewery + inv.dock;
         const tempo = tempoNow(product, today);
         const demand = weeklyDemand(product);

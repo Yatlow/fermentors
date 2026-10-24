@@ -84,8 +84,14 @@ export function pendingPackagingDecisions(
   products: Product[],
   actuals: Actual[],
   sources: PackagingSource[],
+  allPlans: WeekPlan[] = [week],
 ): Plan[] {
-  const remaining = new Map(openRuns([week], products, actuals).map((run) => [run.key, run.remaining]));
+  // Keep one global physical-report pool across planned weeks. Running one
+  // openRuns([week]) per card silently assigned the same packaging report to
+  // several weeks after a reschedule.
+  const remaining = new Map(openRuns(allPlans, products, actuals)
+    .filter((run) => run.week === week.id)
+    .map((run) => [run.key, run.remaining]));
   return week.packaging.flatMap((run, index) => {
     const qty = remaining.get(openRunKey(week, run, index)) ?? run.quantity;
     if (qty <= 0) return [];
@@ -99,9 +105,12 @@ function completionMap(
   week: WeekPlan,
   products: Product[],
   actuals: Actual[],
+  allPlans: WeekPlan[] = [week],
 ) {
   return new Map(
-    openRuns([week], products, actuals).map((run) => [run.key, run] as const),
+    openRuns(allPlans, products, actuals)
+      .filter((run) => run.week === week.id)
+      .map((run) => [run.key, run] as const),
   );
 }
 
@@ -129,7 +138,7 @@ export function plansAfterActualPackagingCompletion(
   sources: PackagingSource[],
 ): WeekPlan[] {
   return plans.map((week) => {
-    const completed = completionMap(week, products, actuals);
+    const completed = completionMap(week, products, actuals, plans);
     return {
       ...week,
       packaging: week.packaging.map((run, index) => {
@@ -157,8 +166,9 @@ export function mergeCompletedPackagingBack(
   products: Product[],
   actuals: Actual[],
   sources: PackagingSource[],
+  allPlans: WeekPlan[] = [original],
 ): WeekPlan {
-  const open = completionMap(original, products, actuals);
+  const open = completionMap(original, products, actuals, allPlans);
   const preserved: Plan[] = [];
   const pending = edited.packaging.map((run) => ({ ...run }));
   const consumed = new Set<number>();

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
 import { palletSelectionOptions } from "../src/SERVICES/planning/shipmentPicking";
+import { shipmentDecisionPickOptions } from "../src/SERVICES/planning/shipmentDecisionPicking";
 
 function pallet(
   id: string,
@@ -129,4 +130,31 @@ test("subset search may skip an early pallet only inside the same expiry when op
 
   assert.ok(choice);
   assert.deepEqual(choice.selected.map((p) => p.id), ["second-50", "third-34"]);
+});
+
+test("auto shipment reserves two physical half pallets for 84 real crates, manual may keep one nominal slot", () => {
+  const candidates = [
+    pallet("half-a", 42, "30/12/2026", 5, 0, 1),
+    pallet("half-b", 42, "30/12/2026", 4, 0, 2),
+  ];
+  const manual = shipmentDecisionPickOptions(candidates, 84, 84)[0];
+  assert.ok(manual);
+  assert.equal(manual.selected.length, 1);
+  assert.equal(manual.partialEquivalentGap, 42);
+  const automatic = shipmentDecisionPickOptions(candidates, 84, 84, true)[0];
+  assert.ok(automatic);
+  assert.deepEqual(new Set(automatic.selected.map((p) => p.id)),
+    new Set(["half-a", "half-b"]));
+  assert.equal(automatic.actualTotal, 84);
+  assert.equal(automatic.missingNominal, 0);
+  assert.equal(automatic.slots, 2);
+});
+
+test("auto shipment still reports a physical 42-crate deficit when only one half pallet exists", () => {
+  const selected = shipmentDecisionPickOptions([
+    pallet("only-half", 42, "30/12/2026", 1),
+  ], 84, 84, true)[0];
+  assert.ok(selected);
+  assert.equal(selected.actualTotal, 42);
+  assert.equal(selected.missingNominal, 42);
 });

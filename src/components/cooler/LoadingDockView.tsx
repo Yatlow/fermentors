@@ -11,6 +11,8 @@ import {
 } from "../../SERVICES/cooler/Palletservice";
 import BeerLoader from "../general/Loading";
 import { getCatalogEntry } from "../../SERVICES/cooler/PalletCatalog";
+import { loadPlannedDispatchTrips, type PlannedDispatchTrip } from
+    "../../SERVICES/planning/shipmentDispatchIdentity";
 
 function useTotals(pallets: Pallet[]) {
     return useMemo(() => {
@@ -63,6 +65,10 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
     const [customerId, setCustomerId] = useState<string | null>(null);
     const [customerOptions, setCustomerOptions] = useState<ShipmentCustomerOption[]>([{ name: "טמפו", customerId: "tempo" }]);
     const [lastCustomerName, setLastCustomerName] = useState<string | null>(null);
+    const [plannedTrips, setPlannedTrips] = useState<PlannedDispatchTrip[]>([]);
+    const [plannedTripChoice, setPlannedTripChoice] = useState("");
+    const [plannedTripsLoading, setPlannedTripsLoading] = useState(false);
+    const [plannedTripsError, setPlannedTripsError] = useState("");
 
     useEffect(() => {
         if (!showCustomerModal) return;
@@ -74,6 +80,36 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
     }, [showCustomerModal]);
 
     const selectedPallets = useMemo(() => pallets.filter((p) => selected.has(p.id)), [pallets, selected]);
+    const taggedAutoTrip = useMemo(() => {
+        const ids = new Set(selectedPallets.map((p) =>
+            p.markedForShipment && p.autoReservationTruckId ? p.autoReservationTruckId : ""));
+        return ids.size === 1 && !ids.has("") ? [...ids][0] : null;
+    }, [selectedPallets]);
+    useEffect(() => {
+        if (!showCustomerModal || customerId !== "tempo") {
+            setPlannedTrips([]);
+            setPlannedTripChoice("");
+            setPlannedTripsError("");
+            setPlannedTripsLoading(false);
+            return;
+        }
+        let cancelled = false;
+        setPlannedTripsLoading(true);
+        setPlannedTripsError("");
+        loadPlannedDispatchTrips().then((trips) => {
+            if (cancelled) return;
+            setPlannedTrips(trips);
+            // A fully auto-marked trip can be preselected safely; manual loads
+            // require a deliberate choice of the planned departure.
+            setPlannedTripChoice(trips.some((trip) => trip.id === taggedAutoTrip)
+                ? taggedAutoTrip! : trips.length ? "" : "__unlinked__");
+        }).catch(() => {
+            if (!cancelled) setPlannedTripsError("לא ניתן לבדוק את נסיעות טמפו המתוכננות. יש לבדוק חיבור ולפתוח מחדש.");
+        }).finally(() => {
+            if (!cancelled) setPlannedTripsLoading(false);
+        });
+        return () => { cancelled = true; };
+    }, [showCustomerModal, customerId, taggedAutoTrip]);
     const totalTruckSlots = useMemo(() => calcTruckSlots(pallets), [pallets]);
     const selectedTruckSlots = useMemo(() => calcTruckSlots(selectedPallets), [selectedPallets]);
     const totalTruckOverCapacity = totalTruckSlots > MAX_TRUCK_SLOTS;
@@ -117,14 +153,35 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
 
     async function handleShip() {
         if (selected.size === 0) return;
+        if (selectedTruckOverCapacity) {
+            setError("המשאית חורגת מ-12 מקומות; יש לצמצם את המשטחים לפני שילוח.");
+            return;
+        }
         const trimmedName = customerName.trim();
         if (!trimmedName) return;
+        if (customerId === "tempo") {
+            if (plannedTripsLoading || plannedTripsError) {
+                setError(plannedTripsError || "יש להמתין לטעינת הנסיעות המתוכננות");
+                return;
+            }
+            if (plannedTrips.length && !plannedTripChoice) {
+                setError("בחר נסיעה מתוכננת או אשר במפורש שהמשלוח אינו משויך לתכנון.");
+                return;
+            }
+            if (plannedTrips.length && plannedTripChoice === "__unlinked__" &&
+                !window.confirm("משלוח טמפו זה לא ישויך לנסיעה מתוכננת. ההקצאות של נסיעות לא מזוהות ייעצרו לבדיקה ידנית. להמשיך?")) return;
+        }
         setBusy(true);
         setBusyAction("ship");
         setError(null);
         try {
             const palletsForShipment = pallets.filter((p) => selected.has(p.id));
-            const shipmentId = await createShipment(palletsForShipment.map((p) => p.id), trimmedName, customerId);
+            const shipmentId = await createShipment(
+                palletsForShipment.map((p) => p.id), trimmedName, customerId,
+                customerId === "tempo" && plannedTripChoice === "__unlinked__"
+                    ? false : customerId === "tempo" && plannedTripChoice
+                        ? plannedTripChoice : null,
+            );
             setLastShipmentId(shipmentId);
             setLastCustomerName(trimmedName);
             setShipmentPallets(palletsForShipment);
@@ -180,7 +237,7 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
             {error && <div className="edit-specs-message error">{error}</div>}
             {lastShipmentId && <div className="edit-specs-message success">תעודת משלוח נוצרה ({lastShipmentId})</div>}
 
-            <button type="button" className={`shipment-btn ${selectedTruckOverCapacity ? "shipment-btn-over-capacity" : ""}`} disabled={busy || selected.size === 0} onClick={() => setShowCustomerModal(true)}>
+            <button type="button" className={`shipment-btn ${selectedTruckOverCapacity ? "shipment-btn-over-capacity" : ""}`} disabled={busy || selected.size === 0 || selectedTruckOverCapacity} onClick={() => setShowCustomerModal(true)}>
                 {busyAction === "ship" ? <BeerLoader message="יוצר תעודה" overlay={false} size="spinner" /> : `שלח${selected.size ? ` (${selected.size})` : ""}`}
             </button>
 
@@ -188,13 +245,35 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
                 <div className="customer-name-modal" dir="rtl" onClick={(e) => e.stopPropagation()}>
                     <h3>לכבוד</h3>
                     <p>בחר לקוח קיים או הקלד שם חדש.</p>
-                    <input type="text" list="shipment-customer-options" value={customerName} autoFocus placeholder="שם הלקוח" disabled={busy} onChange={(e) => selectCustomer(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && customerName.trim() && !looksLikeTempoTypo(customerName)) handleShip(); }} />
+                    <input type="text" list="shipment-customer-options" value={customerName} autoFocus placeholder="שם הלקוח" disabled={busy} onChange={(e) => selectCustomer(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && customerName.trim() && !looksLikeTempoTypo(customerName)) void handleShip(); }} />
                     <datalist id="shipment-customer-options">{customerOptions.map((option) => <option key={`${option.customerId ?? "name"}:${option.name}`} value={option.name} />)}</datalist>
-                    {customerId === "tempo" && <small className="edit-specs-message success">✓ טמפו זוהה כלקוח טמפו לצורך התכנון.</small>}
+                    {customerId === "tempo" && <>
+                        <small className="edit-specs-message success">✓ טמפו זוהה כלקוח טמפו לצורך התכנון.</small>
+                        {plannedTripsLoading && <small>בודק נסיעות טמפו פתוחות להיום…</small>}
+                        {plannedTripsError && <div className="edit-specs-message error">{plannedTripsError}</div>}
+                        {!plannedTripsLoading && !plannedTripsError && plannedTrips.length > 0 &&
+                            <label className="spec-field">
+                                <span className="spec-field-label">שיוך לתכנון — איזו משאית יוצאת בפועל?</span>
+                                <select className="spec-input" value={plannedTripChoice}
+                                    onChange={(event) => setPlannedTripChoice(event.target.value)}>
+                                    <option value="">בחר נסיעה</option>
+                                    {plannedTrips.map((trip, index) => <option key={trip.id} value={trip.id}>
+                                        {index + 1}. {trip.date} · {trip.manifest.map((line) =>
+                                            `${line.productId}: ${line.quantity}`).join(", ")}
+                                    </option>)}
+                                    <option value="__unlinked__">משלוח לא משויך לתכנון — דורש בדיקה</option>
+                                </select>
+                            </label>}
+                        {!plannedTripsLoading && !plannedTripsError && plannedTrips.length === 0 &&
+                            <small>אין נסיעה מתוכננת להיום בתור טמפו; המשלוח יירשם כמשלוח בפועל ללא שיוך.</small>}
+                    </>}
                     {customerId !== "tempo" && looksLikeTempoTypo(customerName) && <div className="edit-specs-message error">נראה שהתכוונת לטמפו. בחר “טמפו” מהרשימה כדי שהמשלוח ייספר בתכנון טמפו.</div>}
                     <div className="customer-name-modal-actions">
                         <button type="button" onClick={() => setShowCustomerModal(false)} disabled={busy}>ביטול</button>
-                        <button type="button" className="shipment-btn" onClick={handleShip} disabled={!customerName.trim() || busy || (customerId !== "tempo" && looksLikeTempoTypo(customerName))}>{busyAction === "ship" ? <BeerLoader message="יוצר תעודה" overlay={false} size="spinner" /> : "אשר ושלח"}</button>
+                        <button type="button" className="shipment-btn" onClick={() => void handleShip()} disabled={!customerName.trim() || busy ||
+                            (customerId === "tempo" && (plannedTripsLoading || !!plannedTripsError ||
+                                (plannedTrips.length > 0 && !plannedTripChoice))) ||
+                            (customerId !== "tempo" && looksLikeTempoTypo(customerName))}>{busyAction === "ship" ? <BeerLoader message="יוצר תעודה" overlay={false} size="spinner" /> : "אשר ושלח"}</button>
                     </div>
                     {error && <div className="edit-specs-message error">{error}</div>}
                 </div>

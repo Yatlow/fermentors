@@ -117,3 +117,34 @@ test("shipment report sticks note number and shipping date while dropping status
     assert.match(css, /\.shipment-traceability-sticky-heading\s*\{[^}]*position:\s*sticky;/s);
     assert.match(css, /\.shipment-traceability-sticky-heading\s*\{[^}]*z-index:\s*40;/s);
 });
+
+test("immutable snapshot short by two kegs reconciles total with explicit unverified lot", () => {
+    const report = buildShipmentTraceability({
+        palletIds: ["a"], palletSnapshot: [
+            { palletId: "a", ...pallet("a", "1721", 18) },
+        ], totals: [{ beerStyle: "IPA", itemType: "kegs", totalQuantity: 20 }],
+    }, [], catalog);
+    assert.equal(report.rows.reduce((sum, row) => sum + row.quantity, 0), 20);
+    assert.equal(report.rows.find((row) => row.unverified)?.quantity, 2);
+    assert.equal(report.rows.find((row) => row.unverified)?.batchNumber, null);
+    assert.equal(report.hasUnverifiedData, true);
+    assert.ok(report.warnings.some((warning) => warning.includes("2 יחידות")));
+});
+
+test("saved snapshot missing an expected pallet is flagged even without totals", () => {
+    const report = buildShipmentTraceability({
+        palletIds: ["a", "b"], palletSnapshot: [{ palletId: "a", ...pallet("a", "1721", 20) }],
+        totals: [],
+    }, [], catalog);
+    assert.equal(report.missingPallets, 1);
+    assert.equal(report.hasUnverifiedData, true);
+});
+
+test("saved snapshot overstates manifest quantities and gets explicit warning", () => {
+    const report = buildShipmentTraceability({
+        palletIds: ["a"], palletSnapshot: [{ palletId: "a", ...pallet("a", "1721", 21) }],
+        totals: [{ beerStyle: "IPA", itemType: "kegs", totalQuantity: 20 }],
+    }, [], catalog);
+    assert.equal(report.hasUnverifiedData, true);
+    assert.ok(report.warnings.some((warning) => warning.includes("גדולה")));
+});

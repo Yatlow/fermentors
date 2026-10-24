@@ -3,7 +3,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
-import { auditShipmentAvailability, newlyWorsenedShipmentShortage } from "../../SERVICES/planning/shipmentAvailabilityAudit";
+import { validatePlanningDecisionChange } from "../../SERVICES/planning/planningDecisionSafety";
+import { truckPlanningGroupKey } from "../../SERVICES/planning/truckPlanner";
+import { planningReadRequirements } from "../../SERVICES/planning/planningReadCoverage";
+import { pendingStockExecutionPlans } from "../../SERVICES/planning/planningStockExecution";
+import { auditShipmentAvailability, classifyPlanningShortageIncreases, describePlanningShortageIncrease, newlyWorsenedShipmentShortages } from "../../SERVICES/planning/shipmentAvailabilityAudit";
 import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
@@ -55,9 +59,8 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   const productionTanks = useMemo(() => brews.filter((t) => Number(t.tankNumber) !== 1), [brews]);
   const stickyReadScope = useRef<PlanningReadScope>({ plans: true });
   const [inventoryInputOpen, setInventoryInputOpen] = useState(false);
-  const needsPallets = tab === "stock" || tab === "calendar" || tab === "fiveWeeks" || tab === "schedule";
-  const needsActuals = tab === "calendar" || tab === "fiveWeeks" || tab === "schedule" || tab === "tanks" || tab === "review";
-  const needsShipments = tab === "calendar" || tab === "fiveWeeks" || tab === "schedule";
+  const { pallets: needsPallets, actuals: needsActuals, shipments: needsShipments } =
+    planningReadRequirements(tab);
   if (needsPallets) stickyReadScope.current.pallets = true;
   if (needsActuals) stickyReadScope.current.actuals = true;
   if (needsShipments) stickyReadScope.current.shipments = true;
@@ -72,15 +75,24 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
 
   const data = usePlanning(today, productionTanks, readScope);
   const { settings, plans, pallets, actuals } = data;
-  const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
+  const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 90));
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
-  const identityAlignedPlans = useMemo(() => withStablePackagingIdentity(plans), [plans]);
+  const tankNumbersById = useMemo(() => Object.fromEntries(
+    productionTanks.filter((tank) => tank.tankNumber != null)
+      .map((tank) => [tank.id, String(tank.tankNumber)]),
+  ), [productionTanks]);
+  const identityAlignedPlans = useMemo(() =>
+    withStablePackagingIdentity(plans, tankNumbersById), [plans, tankNumbersById]);
   const [message, setMessage] = useState("");
   const availabilityIssues = useMemo(() => data.loading || !readScope.pallets || !readScope.actuals ? [] : auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments), [data.loading, readScope.pallets, readScope.actuals, settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments]);
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
   const executionPlans = useMemo(() => (tab === "calendar" ? plansAfterActualPackagingCompletion(identityAlignedPlans, settings.products, actuals, productionTanks) : identityAlignedPlans), [tab, identityAlignedPlans, settings.products, actuals, productionTanks]);
+  const stockPlans = useMemo(() => pendingStockExecutionPlans(
+    identityAlignedPlans, settings.products, actuals, data.actualShipments,
+    productionTanks,
+  ), [identityAlignedPlans, settings.products, actuals, data.actualShipments, productionTanks]);
   const weeklyPlans = useMemo(() => (tab === "calendar" ? pendingPlansAfterActualShipments(executionPlans, data.actualShipments, settings.products) : identityAlignedPlans), [tab, executionPlans, identityAlignedPlans, data.actualShipments, settings.products]);
-  const calendarSettings = useMemo(() => ((tab === "calendar" || tab === "fiveWeeks") ? settingsAfterActualShipments(settings, data.actualShipments, today) : settings), [tab, settings, data.actualShipments, today]);
+  const calendarSettings = useMemo(() => ((tab === "calendar" || tab === "fiveWeeks" || tab === "schedule") ? settingsAfterActualShipments(settings, data.actualShipments, today) : settings), [tab, settings, data.actualShipments, today]);
   const fiveWeekPlans = useMemo(() => (tab === "fiveWeeks" ? withTentativeFiveWeekTanks(identityAlignedPlans, tanks, calendarSettings) : identityAlignedPlans), [tab, identityAlignedPlans, tanks, calendarSettings]);
   const pendingDailyWork = useMemo(() => {
     const firstWeek = weekStart(today);
@@ -104,20 +116,51 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   async function saveWeeklyPlan(next: Parameters<typeof data.saveWeek>[0], options?: Parameters<typeof data.saveWeek>[1]) {
     const original = identityAlignedPlans.find((week) => week.id === next.id);
     let merged = original ? mergeCompletedDeliveriesBack(original, next, data.actualShipments, settings.products) : next;
-    if (original) merged = mergeCompletedPackagingBack(original, merged, settings.products, actuals, productionTanks);
+    if (original) merged = mergeCompletedPackagingBack(
+      original, merged, settings.products, actuals, productionTanks,
+      identityAlignedPlans,
+    );
     const allWithEditedWeek = identityAlignedPlans.map((week) => week.id === merged.id ? merged : week);
     if (!allWithEditedWeek.some((week) => week.id === merged.id)) allWithEditedWeek.push(merged);
-    const canonical = withStablePackagingIdentity(allWithEditedWeek).find((week) => week.id === merged.id) ?? merged;
+    const identified = withStablePackagingIdentity(allWithEditedWeek, tankNumbersById).find((week) => week.id === merged.id) ?? merged;
+    // An exception belongs to the exact physical truck + dispatch date.
+    // When a trip is removed/moved, never let its old approval silently
+    // authorize a later unrelated trip that happens to reuse the same ID.
+    const liveTruckKeys = new Set((identified.deliveries ?? []).map(truckPlanningGroupKey));
+    const canonical = identified.oversizeTruckApprovals?.length
+      ? { ...identified, oversizeTruckApprovals: identified.oversizeTruckApprovals
+          .filter((key) => liveTruckKeys.has(key)) }
+      : identified;
     // Warn only when this save introduces/changes a shipment decision.
     // A deliberate no-shipment week remains permitted.
     const shipmentDecisionChanged = JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? []);
     const packagingDecisionChanged = JSON.stringify(original?.packaging ?? []) !== JSON.stringify(canonical.packaging ?? []);
+    const nextPlans = identityAlignedPlans.filter((w) => w.id !== canonical.id).concat(canonical);
+    const integrityError = validatePlanningDecisionChange({
+      before: identityAlignedPlans, after: nextPlans, edited: canonical, previous: original,
+      settings, tanks, sources: productionTanks, actuals, today,
+    });
+    if (integrityError) throw new Error("התכנון אינו ניתן לביצוע: " + integrityError);
     if ((shipmentDecisionChanged || packagingDecisionChanged) && !data.loading && readScope.pallets && readScope.actuals) {
-      const nextPlans = identityAlignedPlans.filter((w) => w.id !== canonical.id).concat(canonical);
       const after = auditShipmentAvailability(settings, pallets, nextPlans, actuals, today, data.actualShipments);
-      const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today);
-      const newShortage = newlyWorsenedShipmentShortage(before, after);
-      if (newShortage) throw new Error("לא ניתן לשמור משלוח ללא מלאי זמין: " + newShortage.message);
+      const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments);
+      const increases = newlyWorsenedShipmentShortages(before, after);
+      const { blocking, confirmable: futureShortages } =
+        classifyPlanningShortageIncreases(increases, canonical.id);
+      if (blocking.length) {
+        throw new Error("לא ניתן לשמור חוסר חדש בשבוע הנערך או שיבוץ משטח/משאית בלתי תקינים: " +
+          blocking.map((increase) => describePlanningShortageIncrease(increase, settings.products)).join("; "));
+      }
+      if (futureShortages.length) {
+        const description = futureShortages.map((increase) =>
+          "• " + describePlanningShortageIncrease(increase, settings.products)).join("\n");
+        const accepted = window.confirm(
+          "⚠️ שינוי זה ייצור או יגדיל חוסר במשלוחים בשבועות מאוחרים:\n\n" +
+          description +
+          "\n\nאפשר לשמור את התכנון, אך המשלוחים המפורטים יישארו בלתי מכוסים עד שתעודכן תוכנית האריזה או המלאי.\n\nלאשר שמירה למרות החוסרים?"
+        );
+        if (!accepted) throw new Error("השמירה בוטלה בעקבות חוסרים עתידיים. לא בוצע שינוי.");
+      }
     }
     const priorWeekId = addDays(canonical.id, -7);
     const priorWeek = identityAlignedPlans.find((week) => week.id === priorWeekId);
@@ -127,7 +170,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       const accepted = window.confirm(
         `שים לב: מתוכנן משלוח בשבוע ${canonical.id}, אך בשבוע הקודם (${priorWeekId}) אין משלוח מתוכנן.\\nייתכן שהוחמץ שבוע בתכנון.\\n\\nהאם לשמור בכל זאת?`
       );
-      if (!accepted) return;
+      if (!accepted) throw new Error("השמירה בוטלה לבקשתך. לא בוצע שינוי.");
     }
     const changed: RecommendationKind[] = [];
     if (JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? [])) changed.push("shipment");
@@ -141,7 +184,10 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       ? { ...plan, deliveries: [], packaging: [], brews: [] }
       : plan);
     const recommendation = changed.length ? buildWeeklyPlanningModel({
-      settings, pallets, tanks, plans: recommendationPlans, actuals,
+      // The saved decision evidence must be based on the same reconciled Tempo
+      // stock shown to planners, not an older explicit stock snapshot.
+      settings: settingsAfterActualShipments(settings, data.actualShipments, today),
+      pallets, tanks, plans: recommendationPlans, actuals,
       sources: productionTanks, today, week: canonical.id, holidays,
       shipments: data.actualShipments,
     }) : null;
@@ -176,18 +222,18 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   return (
     <section className="brew-planning" dir="rtl">
       {availabilityIssues.length > 0 && <div role="alert" className="bp-alert" style={{ padding: 12, marginBottom: 12 }}>
-        <strong>⚠️ נמצאו {availabilityIssues.length} חוסרים בזמינות משלוחים בתכנון</strong>
-        <ul>{availabilityIssues.map((issue) => <li key={`${issue.week}:${issue.date}:${issue.productId}`}>שבוע {issue.week} · {issue.message}</li>)}</ul>
+        <strong>⚠️ בדיקת משלוחים: {availabilityIssues.filter((issue) => !issue.severity || issue.severity === "blocking").length} חסימות, {availabilityIssues.filter((issue) => issue.severity === "partial").length} פערי כמות, {availabilityIssues.filter((issue) => issue.severity === "advisory").length} חריגות קיבולת שאושרו בתכנון</strong>
+        <ul>{availabilityIssues.map((issue) => <li key={`${issue.week}:${issue.date}:${issue.productId}:${issue.severity ?? "blocking"}`}>שבוע {issue.week} · {issue.message}</li>)}</ul>
       </div>}
       {data.loading && !data.error && <div role="status"><BeerLoader message="טוען את לוח העבודה…" /></div>}
       {data.error && <p role="alert" className="bp-alert">טעינת הנתונים נכשלה: {data.error}</p>}
       {data.offline && !data.loading && <p role="status">ממתין לחיבור לשרת.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
       {!data.loading && !data.error && <>
-        {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} plans={identityAlignedPlans}/>}
+        {tab === "stock" && <PlanningStock settings={settingsAfterActualShipments(settings, data.actualShipments, today)} pallets={pallets} today={today} plans={stockPlans}/>} 
         {tab === "calendar" && <><>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}</><PlanningWeeklyReservations settings={calendarSettings} plans={weeklyPlans} historyPlans={identityAlignedPlans} tanks={tanks} sources={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} holidays={holidays} today={today} disabled={disabled} saveWeek={saveWeeklyPlan} onOpenCoolerMap={onOpenCoolerMap}/><PlanningShipmentStatusPortal plans={identityAlignedPlans} shipments={data.actualShipments} products={settings.products}/></>}
         {tab === "fiveWeeks" && <><>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}</><PlanningGantt onOpenInventoryInput={() => setInventoryInputOpen(true)} settings={calendarSettings} plans={fiveWeekPlans} editorPlans={identityAlignedPlans} historyPlans={identityAlignedPlans} tanks={tanks} sources={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} holidays={holidays} today={today} disabled={disabled} canEdit={canEdit} saveWeek={saveWeeklyPlan} moveCalendarEvent={data.moveCalendarEvent} onOpenCoolerMap={onOpenCoolerMap}/></>}
-        {tab === "schedule" && <><>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}</><PlanningBoard settings={settings} plans={identityAlignedPlans} tanks={tanks} brews={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} today={today} holidays={holidays} disabled={disabled} saveWeek={saveWeeklyPlan}/></>}
+        {tab === "schedule" && <><>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}</><PlanningBoard settings={calendarSettings} plans={identityAlignedPlans} tanks={tanks} brews={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} today={today} holidays={holidays} disabled={disabled} saveWeek={saveWeeklyPlan}/></>}
         {(tab === "data" || tab === "settings") && <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>} 
         {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={identityAlignedPlans} settings={settings} actuals={actuals} today={today}/>} 
         {tab === "review" && <PlanningReview settings={settings} plans={identityAlignedPlans} actuals={actuals} shipments={data.actualShipments} snapshots={data.snapshots} error={data.snapshotError} today={today}/>} 

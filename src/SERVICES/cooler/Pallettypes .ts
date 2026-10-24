@@ -79,6 +79,8 @@ export type Shipment = {
     shipmentNumber: number;
     palletIds: string[];
     palletSnapshot?: ShipmentPalletSnapshot[];
+    /** Set only when all shipped pallets were auto-reserved to one planned trip. */
+    plannedTruckId?: string;
     totals: ShipmentTotal[];
     createdAt?: Timestamp | null;
     customerName?: string | null;

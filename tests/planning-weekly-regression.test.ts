@@ -121,7 +121,7 @@ test("shipment picking treats a partial as a nominal pallet only when needed", (
   assert.equal(hoppy.actualTotal, 40);
 });
 
-test("future-week opening stock carries prior packaging and shipment decisions but not selected-week sales", () => {
+test("future-week firm opening stock excludes undated packaging and subtracts committed shipments", () => {
   const week38 = {
     ...emptyWeek("2026-09-13"),
     packaging: [{
@@ -149,9 +149,9 @@ test("future-week opening stock carries prior packaging and shipment decisions b
   }).get(product.id)!;
 
   assert.equal(projected.tempoUnits, 944);
-  assert.equal(projected.packagingBeforeWeek, 84);
+  assert.equal(projected.packagingBeforeWeek, 0, "an undated draft is not firm stock");
   assert.equal(projected.shipmentsBeforeWeek, 84);
-  assert.equal(projected.breweryUnits, 168);
+  assert.equal(projected.breweryUnits, 84);
 });
 
 test("selected week sales are not deducted from the opening coverage", () => {
