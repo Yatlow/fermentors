@@ -159,6 +159,25 @@ service cloud.firestore {
       allow write: if isApprovedUser();
     }
 
+    // The first physical shipment tied to a planned truck atomically creates
+    // a permanent small claim. A second device can never issue another document
+    // carrying the same planned truck identity while the planning queue is stale.
+    match /shipmentTripClaims/{tripKey} {
+      allow get: if isApprovedUser();
+      allow list: if false;
+      allow create: if isApprovedUser()
+        && request.resource.data.keys().hasOnly([
+          'plannedTruckId', 'dispatchDate', 'shipmentNumber', 'createdAt', 'createdBy'
+        ])
+        && request.resource.data.plannedTruckId is string
+        && request.resource.data.plannedTruckId.size() > 0
+        && request.resource.data.dispatchDate is string
+        && request.resource.data.shipmentNumber is int
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     match /shipments/{document} {
       allow read: if isApprovedUser();
       allow write: if isApprovedUser();
