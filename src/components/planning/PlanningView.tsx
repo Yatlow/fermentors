@@ -4,6 +4,7 @@ import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { validatePlanningDecisionChange } from "../../SERVICES/planning/planningDecisionSafety";
+import { truckPlanningGroupKey } from "../../SERVICES/planning/truckPlanner";
 import { planningReadRequirements } from "../../SERVICES/planning/planningReadCoverage";
 import { pendingStockExecutionPlans } from "../../SERVICES/planning/planningStockExecution";
 import { auditShipmentAvailability, classifyPlanningShortageIncreases, describePlanningShortageIncrease, newlyWorsenedShipmentShortages } from "../../SERVICES/planning/shipmentAvailabilityAudit";
@@ -121,7 +122,15 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     );
     const allWithEditedWeek = identityAlignedPlans.map((week) => week.id === merged.id ? merged : week);
     if (!allWithEditedWeek.some((week) => week.id === merged.id)) allWithEditedWeek.push(merged);
-    const canonical = withStablePackagingIdentity(allWithEditedWeek, tankNumbersById).find((week) => week.id === merged.id) ?? merged;
+    const identified = withStablePackagingIdentity(allWithEditedWeek, tankNumbersById).find((week) => week.id === merged.id) ?? merged;
+    // An exception belongs to the exact physical truck + dispatch date.
+    // When a trip is removed/moved, never let its old approval silently
+    // authorize a later unrelated trip that happens to reuse the same ID.
+    const liveTruckKeys = new Set((identified.deliveries ?? []).map(truckPlanningGroupKey));
+    const canonical = identified.oversizeTruckApprovals?.length
+      ? { ...identified, oversizeTruckApprovals: identified.oversizeTruckApprovals
+          .filter((key) => liveTruckKeys.has(key)) }
+      : identified;
     // Warn only when this save introduces/changes a shipment decision.
     // A deliberate no-shipment week remains permitted.
     const shipmentDecisionChanged = JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? []);
