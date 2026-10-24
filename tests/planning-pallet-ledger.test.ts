@@ -6,7 +6,7 @@ import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProj
 import { auditShipmentAvailability } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
 import { dailyForecast } from "../src/SERVICES/planning/dailyPlanner";
 import { defaultSettings, emptyWeek, type Product } from "../src/SERVICES/planning/planningEngine";
-import { calcTruckSlots, MAX_PALLETS_PER_TRUCK_SLOT, MAX_TRUCK_SLOTS } from "../src/SERVICES/cooler/truckCapacity";
+import { calcTruckSlots, MAX_TRUCK_SLOTS } from "../src/SERVICES/cooler/truckCapacity";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
 
 const today = "2026-10-18";
@@ -27,23 +27,23 @@ function shipment(quantity: number) {
   }] };
 }
 
-test("physical truck slots never stack more than two low pallets", () => {
-  assert.equal(MAX_PALLETS_PER_TRUCK_SLOT, 2);
+test("physical truck allows multiple low pallets within the 190cm height envelope", () => {
   assert.equal(calcTruckSlots([pallet("low-1", 12), pallet("low-2", 12)]), 1);
   assert.equal(calcTruckSlots([
     pallet("low-1", 12), pallet("low-2", 12), pallet("low-3", 12),
-  ]), 2, "three 39cm pallets fit by height, but MUST occupy two floor places");
-  assert.equal(calcTruckSlots(Array.from({ length: 24 }, (_, i) => pallet(`low-${i}`, 12))), 12);
-  assert.equal(calcTruckSlots(Array.from({ length: 25 }, (_, i) => pallet(`low-${i}`, 12))), 13);
+  ]), 1, "three 39cm pallets fit safely by height and occupy one floor place");
+  assert.equal(calcTruckSlots(Array.from({ length: 24 }, (_, i) => pallet(`low-${i}`, 12))), 6);
+  assert.equal(calcTruckSlots(Array.from({ length: 48 }, (_, i) => pallet(`low-${i}`, 12))), 12);
+  assert.equal(calcTruckSlots(Array.from({ length: 49 }, (_, i) => pallet(`low-${i}`, 12))), 13);
 });
 
-test("shipment availability blocks 25 low pallets even though they fit by height", () => {
-  const physical = Array.from({ length: 25 }, (_, i) => pallet(`low-${i}`, 12));
-  const plan = shipment(300);
+test("shipment availability detects real overflow at 49 short pallets, not at 25", () => {
+  const physical = Array.from({ length: 49 }, (_, i) => pallet(`low-${i}`, 12));
+  const plan = shipment(588);
   const issues = auditShipmentAvailability(settings, physical, [plan], [], today);
   assert.ok(issues.some((issue) => issue.productId === "truck:truck-1" &&
     issue.severity === "blocking" && issue.missing === 1),
-  "truck needs 13 places at two-high despite 300 crates requiring only 4 nominal slots");
+  "truck needs 13 physical floor places even when all pallets are only 39cm tall");
   assert.equal(calcTruckSlots(physical), MAX_TRUCK_SLOTS + 1);
 });
 
