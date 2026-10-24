@@ -51,6 +51,15 @@ export function planningRequiresCrossWeekFence(
     "packaging", "brews", "deliveries", "deliveryDates", "maxRuns",
     "allowExceptions", "calendarEvents", "calendarNotes",
   ] as const;
+  // Calendar metadata is persisted by the UI's extended WeekPlan shape.
+  // Keep the pure helper compatible with the core WeekPlan type while still
+  // treating those optional scheduling fields as operational changes.
+  type ExtendedWeek = WeekPlan & {
+    calendarEvents?: unknown;
+    calendarNotes?: unknown;
+  };
+  const before = previous as ExtendedWeek;
+  const after = edited as ExtendedWeek;
   return operationalFields.some((key) =>
-    JSON.stringify(previous[key]) !== JSON.stringify(edited[key]));
+    JSON.stringify(before[key]) !== JSON.stringify(after[key]));
 }
