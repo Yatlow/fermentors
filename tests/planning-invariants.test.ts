@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tempoInventoryAt } from "../src/SERVICES/planning/tempoInventoryTimeline";
 import { openRuns } from "../src/SERVICES/planning/dailyPlanner";
+import { tankReleases } from "../src/SERVICES/planning/productionCycle";
 import { pendingStockExecutionPlans } from "../src/SERVICES/planning/planningStockExecution";
 import { matchActualShipments, settingsAfterActualShipments } from "../src/SERVICES/planning/shipmentActuals";
 import { validatePhysicalShipmentLoad } from "../src/SERVICES/cooler/shipmentDispatchSafety";
@@ -149,4 +150,34 @@ test("Stock tasks cannot count one cross-week physical packaging report twice", 
   assert.deepEqual(remaining.map((week) =>
     [week.id, week.packaging.map((run) => run.quantity)]),
     [["2026-11-01", [30]], ["2026-10-25", []]]);
+});
+
+test("tank release follows a fully completed cross-week final packaging day", () => {
+  const keg: Product = { ...stock, id: "ipa-kegs", sku: "ipa-kegs", type: "kegs" };
+  const settings = { ...defaultSettings(), products: [keg] };
+  const source = [{
+    id: "tank4", tankNumber: "4", batchNumber: "1640",
+    beerStyle: "IPA", brewDate: "01/10/2026", action: 1, tankStatus: false,
+  }];
+  const physicalTank = [{
+    id: "tank4", number: "4", batch: "1640", style: "IPA",
+    brewed: "2026-10-01", ready: "2026-10-20", liters: 1100, cold: true,
+  }];
+  const planned = { ...emptyWeek("2026-11-01"), packaging: [{
+    id: "last-kegs", productId: keg.id, tankId: "tank4",
+    tankNumber: "4", batchNumber: "1640",
+    date: "2026-11-02", quantity: 55, emptyTank: true,
+  }] };
+  const actual = [{
+    id: "early", date: "2026-10-29", beerStyle: "IPA",
+    packagingType: "kegs", unit: "חביות", quantity: 55,
+    tankNumber: "4", batchNumber: "1640",
+  }];
+  const complete = tankReleases(source, physicalTank, [planned], settings, actual, "2026-10-30")[0];
+  assert.equal(complete.emptyDate, "2026-10-29");
+  assert.equal(complete.date, "2026-11-02");
+  const incomplete = tankReleases(source, physicalTank, [planned], settings,
+    [{ ...actual[0], quantity: 50 }], "2026-10-30")[0];
+  assert.notEqual(incomplete.emptyDate, "2026-10-29",
+    "a partial early report must not falsely release the physical tank");
 });
