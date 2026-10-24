@@ -34,14 +34,16 @@ function orderedCandidates(candidates: Pallet[]) {
  * pallet slot. This keeps the planning UI on whole pallets while the cooler map
  * still marks the real physical pallet and quantity.
  *
- * We never use more physical pallets than the number of pallet slots requested.
- * If fewer pallet objects exist than requested, the remaining pallet slots stay
- * missing and are reported to the planner.
+ * In the default MANUAL decision mode we limit selection to nominal
+ * positions and expose any real-unit deficit as a separate advisory.
+ * Automatic reservations opt into fillPhysicalUnits to select all necessary
+ * whole pallets, with a separate cross-SKU stack-aware truck cap.
  */
 export function shipmentDecisionPickOptions(
   candidates: Pallet[],
   requestedUnits: number,
   palletSize: number,
+  fillPhysicalUnits = false,
 ): ShipmentDecisionPick[] {
   if (!Number.isFinite(requestedUnits) || requestedUnits <= 0 || palletSize <= 0) {
     return [{
@@ -59,9 +61,11 @@ export function shipmentDecisionPickOptions(
   const results: ShipmentDecisionPick[] = sourceOptions.map((option) => {
     let selected = option.selected;
 
-    // A one-pallet decision should not turn into several tiny physical pallets.
-    // Keep the best FEFO/access pallets up to the number of requested pallet slots.
-    if (selected.length > targetPallets) {
+    // Explicit planner decisions continue to allow one PARTIAL physical pallet
+    // to occupy one nominal position. Operational AUTO reservations, however,
+    // must attempt to fulfill real units, potentially using two half-pallets
+    // for a one-pallet nominal demand when truck space allows.
+    if (!fillPhysicalUnits && selected.length > targetPallets) {
       const selectedIds = new Set(selected.map((p) => p.id));
       selected = orderedCandidates(candidates)
         .filter((p) => selectedIds.has(p.id))
@@ -70,7 +74,7 @@ export function shipmentDecisionPickOptions(
 
     // When the quantity search did not use enough pallet objects to represent the
     // requested slots, fill remaining slots with the next FEFO/access partials.
-    if (selected.length < targetPallets) {
+    if (!fillPhysicalUnits && selected.length < targetPallets) {
       const selectedIds = new Set(selected.map((p) => p.id));
       const additions = orderedCandidates(candidates)
         .filter((p) => !selectedIds.has(p.id))
@@ -80,7 +84,8 @@ export function shipmentDecisionPickOptions(
 
     const actualTotal = selected.reduce((sum, p) => sum + palletQuantity(p), 0);
     const nominalCovered = Math.min(requestedUnits, selected.length * palletSize);
-    const missingNominal = Math.max(0, requestedUnits - nominalCovered);
+    const missingNominal = Math.max(0, requestedUnits -
+      (fillPhysicalUnits ? actualTotal : nominalCovered));
     const partialEquivalentGap = Math.max(0, nominalCovered - actualTotal);
     let slots = 0;
     try {
