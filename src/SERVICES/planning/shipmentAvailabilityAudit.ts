@@ -4,6 +4,7 @@ import { addDays, productPallets, parseDate, sameStyle, weekStart, type Actual, 
 import { openRuns, type ShipmentEvent } from "./dailyPlanner";
 import { addForecastPackaging, dispatchForecastPallets, reservedPhysicalPalletIds, type ForecastPalletLot } from "./shipmentPalletLedger";
 import { forecastablePlansAfterActualShipments } from "./shipmentActuals";
+import { truckPlanningGroupKey } from "./truckPlanner";
 
 export type PlanningAvailabilityIssue = {
   week: string;
@@ -13,7 +14,7 @@ export type PlanningAvailabilityIssue = {
   missing: number;
   /** Partial pallets can cover planned pallet positions without fulfilling the quantity. */
   missingUnits?: number;
-  severity?: "blocking" | "partial";
+  severity?: "blocking" | "partial" | "advisory";
   message: string;
 };
 
@@ -43,6 +44,7 @@ export function auditShipmentAvailability(
   // A nominal 12-pallet manifest can require 24 floor positions when its
   // actual stock consists of 24 half-height, non-stackable physical pallets.
   const physicallySelectedTrucks = new Map<string, Pallet[]>();
+  const approvedOversizeTrucks = new Set<string>();
   const horizon = addDays(weekStart(today), 91);
 
   // A planner may explicitly pin physical pallets to a future truck. The FEFO
@@ -94,7 +96,7 @@ export function auditShipmentAvailability(
     });
     const events: Array<{
       date: string; kind: "pack" | "ship"; qty: number; week: string;
-      truckId?: string; pallets?: Pallet[];
+      truckId?: string; pallets?: Pallet[]; oversizeApproved?: boolean;
     }> = [];
     for (const run of open) {
       if (run.productId !== product.id || run.remaining <= 0 ||
@@ -107,7 +109,8 @@ export function auditShipmentAvailability(
             delivery.dispatchDate < today || delivery.dispatchDate > horizon) continue;
         events.push({ date: delivery.dispatchDate, kind: "ship", qty: delivery.quantity,
           week: week.id, truckId: String(delivery.truckId || `date:${delivery.dispatchDate}`),
-          pallets: delivery.pallets });
+          pallets: delivery.pallets,
+          oversizeApproved: (week.oversizeTruckApprovals ?? []).includes(truckPlanningGroupKey(delivery)) });
       }
     }
     events.sort((a, b) =>
@@ -132,6 +135,7 @@ export function auditShipmentAvailability(
         dispatchForecastPallets(lots, event.qty, unitPerPallet, event.date,
           event.pallets, reservedIds);
       const truckKey = `${event.week}:${event.date}:${event.truckId ?? `date:${event.date}`}`;
+      if (event.oversizeApproved) approvedOversizeTrucks.add(truckKey);
       const picked = physicallySelectedTrucks.get(truckKey) ?? [];
       picked.push(...selectedLots.map((lot) => {
         // Keep the real physical pallet record for height and future capacity
@@ -180,8 +184,11 @@ export function auditShipmentAvailability(
       if (slots > MAX_TRUCK_SLOTS) {
         issues.push({
           week, date, productId: `truck:${truckId}`,
-          missing: slots - MAX_TRUCK_SLOTS, missingUnits: 0, severity: "blocking",
-          message: `משאית ${truckId} ב־${date}: המשטחים הפיזיים דורשים ${slots} מקומות העמסה (מותר ${MAX_TRUCK_SLOTS}). יש לחלק את המשלוח או לשנות את המשטחים.`,
+          missing: slots - MAX_TRUCK_SLOTS, missingUnits: 0,
+          severity: approvedOversizeTrucks.has(truckKey) ? "advisory" : "blocking",
+          message: approvedOversizeTrucks.has(truckKey)
+            ? `משאית ${truckId} ב־${date}: אושרה חריגה תכנונית של ${slots - MAX_TRUCK_SLOTS} מקומות (${slots} במקום ${MAX_TRUCK_SLOTS}). יש לתאם רכב מתאים או לפצל את המשלוח; שילוח פיזי במשאית רגילה עדיין מוגבל ל־${MAX_TRUCK_SLOTS}.`
+            : `משאית ${truckId} ב־${date}: המשטחים הפיזיים דורשים ${slots} מקומות העמסה (מותר ${MAX_TRUCK_SLOTS}). ניתן לבקש אישור חריג תכנוני למשאית זו.`,
         });
       }
     } catch {
@@ -196,6 +203,73 @@ export function auditShipmentAvailability(
     a.productId.localeCompare(b.productId));
 }
 
+/** Per-SKU/date difference between a prior plan and its edited successor. */
+export type PlanningShortageIncrease = {
+  issue: PlanningAvailabilityIssue;
+  addedSlots: number;
+  addedUnits: number;
+  totalSlots: number;
+  totalUnits: number;
+};
+
+/**
+ * Full change set, not just the first issue. Two trucks on the same date
+ * with the same SKU must sum their deficits before comparing revisions.
+ * Planner-approved truck overages and advisory-only partial stock are not
+ * turned into hard blockers by this helper.
+ */
+export function newlyWorsenedShipmentShortages(
+  before: PlanningAvailabilityIssue[],
+  after: PlanningAvailabilityIssue[],
+): PlanningShortageIncrease[] {
+  const key = (issue: PlanningAvailabilityIssue) =>
+    `${issue.week}:${issue.date}:${issue.productId}`;
+  const totals = (issues: PlanningAvailabilityIssue[]) => {
+    const byKey = new Map<string, { slots: number; units: number }>();
+    for (const issue of issues.filter((entry) => !entry.severity || entry.severity === "blocking")) {
+      const k = key(issue);
+      const previous = byKey.get(k) ?? { slots: 0, units: 0 };
+      byKey.set(k, {
+        slots: previous.slots + Math.max(0, issue.missing),
+        units: previous.units + Math.max(0, issue.missingUnits ?? 0),
+      });
+    }
+    return byKey;
+  };
+  const previous = totals(before);
+  const next = totals(after);
+  const displayed = new Set<string>();
+  return after.flatMap((issue) => {
+    if (issue.severity === "partial" || issue.severity === "advisory") return [];
+    const k = key(issue);
+    if (displayed.has(k)) return [];
+    displayed.add(k);
+    const old = previous.get(k) ?? { slots: 0, units: 0 };
+    const current = next.get(k) ?? { slots: 0, units: 0 };
+    const addedSlots = Math.max(0, current.slots - old.slots);
+    const addedUnits = Math.max(0, current.units - old.units);
+    return addedSlots || addedUnits
+      ? [{ issue, addedSlots, addedUnits, totalSlots: current.slots, totalUnits: current.units }]
+      : [];
+  });
+}
+
+/** Human-readable specificity used in the planner's pre-save confirmation. */
+export function describePlanningShortageIncrease(
+  increase: PlanningShortageIncrease,
+  products: readonly Product[],
+): string {
+  const { issue, addedSlots, addedUnits, totalSlots, totalUnits } = increase;
+  const product = products.find((entry) => entry.id === issue.productId);
+  const subject = product
+    ? `${product.style} (${product.type === "crates" ? "ארגזים" : "חביות"})`
+    : issue.productId;
+  const parts = [`שבוע ${issue.week} | תאריך משלוח ${issue.date} | ${subject}`];
+  if (addedSlots > 0) parts.push(`נוספו ${addedSlots} מקומות משטח חסרים (סה״כ ${totalSlots})`);
+  if (addedUnits > 0) parts.push(`נוספו ${Math.ceil(addedUnits)} יחידות חסרות (סה״כ ${Math.ceil(totalUnits)})`);
+  return parts.join(" — ");
+}
+
 /** A partial pallet is operationally permitted but must never be invisible.
  * Blocking shortages are those lacking physical pallet positions entirely.
  */
@@ -203,20 +277,5 @@ export function newlyWorsenedShipmentShortage(
   before: PlanningAvailabilityIssue[],
   after: PlanningAvailabilityIssue[],
 ): PlanningAvailabilityIssue | undefined {
-  const key = (issue: PlanningAvailabilityIssue) =>
-    `${issue.week}:${issue.date}:${issue.productId}`;
-  const totals = (issues: PlanningAvailabilityIssue[]) => {
-    const byKey = new Map<string, number>();
-    for (const issue of issues.filter((entry) => entry.severity !== "partial")) {
-      const id = key(issue);
-      byKey.set(id, (byKey.get(id) ?? 0) + issue.missing);
-    }
-    return byKey;
-  };
-  // More than one truck may depart on the same day with the same SKU. The
-  // old map overwrote one deficit with another and could miss a NEW shortage.
-  const oldTotals = totals(before);
-  const newTotals = totals(after);
-  return after.find((issue) => issue.severity !== "partial" &&
-    (newTotals.get(key(issue)) ?? 0) > (oldTotals.get(key(issue)) ?? 0));
+  return newlyWorsenedShipmentShortages(before, after)[0]?.issue;
 }
