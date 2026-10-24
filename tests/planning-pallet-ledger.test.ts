@@ -213,6 +213,35 @@ test("a pinned pallet edited from 84 to 42 crates fails even with unrelated vali
   "indivisible physical picks require exact quantities");
 });
 
+test("FEFO whole-pallet picker agrees with independent exhaustive oracle over 80 stock patterns", () => {
+  for (let seed = 1; seed <= 80; seed++) {
+    const quantities = Array.from({ length: 8 }, (_, index) =>
+      1 + ((seed * 13 + index * 11 + index * index * 7) % 19));
+    const target = 1 + ((seed * 29) % 90);
+    const lots: ForecastPalletLot[] = quantities.map((quantity, index) => ({
+      id: `oracle-${seed}-${index}`, expiry: "2026-12-31", quantity,
+    }));
+    const initialUnits = quantities.reduce((sum, quantity) => sum + quantity, 0);
+    const result = dispatchForecastPallets(lots, target, 84, "2026-10-19");
+    let maximum = 0;
+    for (let mask = 0; mask < (1 << quantities.length); mask++) {
+      const units = quantities.reduce((sum, quantity, index) =>
+        sum + (mask & (1 << index) ? quantity : 0), 0);
+      if (units <= target && units > maximum) maximum = units;
+    }
+    assert.equal(result.shippedPhysical, maximum,
+      `seed ${seed}: must select the most stock without overdispatching`);
+    assert.equal(result.missingUnits, target - maximum);
+    assert.equal(result.selectedLots.reduce((sum, lot) => sum + lot.quantity, 0),
+      result.shippedPhysical);
+    assert.equal(lots.reduce((sum, lot) => sum + lot.quantity, 0) +
+      result.shippedPhysical, initialUnits, `seed ${seed}: stock must be conserved`);
+    assert.equal(new Set([
+      ...lots.map((lot) => lot.id), ...result.selectedLots.map((lot) => lot.id),
+    ]).size, quantities.length, `seed ${seed}: never clone/reuse a pallet`);
+  }
+});
+
 test("bounded FEFO DP conserves physical stock even for hundreds of fractional legacy pallets", () => {
   assert.equal(MAX_FEFO_SUBSET_STATES, 4096);
   const lots: ForecastPalletLot[] = Array.from({ length: 450 }, (_, index) => ({
