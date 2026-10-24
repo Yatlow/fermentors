@@ -237,7 +237,11 @@ export function newlyWorsenedShipmentShortages(
     for (const issue of issues) {
       if (issue.severity === "advisory") continue;
       const k = key(issue);
-      const prior = byKey.get(k) ?? { slots: 0, hardUnits: 0, partialUnits: 0 };
+      const prior = byKey.get(k) ?? {
+        slots: 0, hardUnits: 0, partialUnits: 0,
+        hardIssue: undefined as PlanningAvailabilityIssue | undefined,
+        partialIssue: undefined as PlanningAvailabilityIssue | undefined,
+      };
       if (issue.severity === "partial") {
         prior.partialUnits += Math.max(0, issue.missingUnits ?? 0);
         prior.partialIssue ??= issue;
