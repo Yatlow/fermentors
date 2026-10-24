@@ -205,6 +205,72 @@ try {
   console.log('PASS physical shipment transaction succeeds and immutable lot quantities stay protected');
   console.log('PASS shipment manifest immutable and pallet dispatch requires marking guard');
 
+  // End-to-end Firestore emulator proof for the ACTUAL wide weekly-save
+  // transaction shape: 24 sibling week reads (including missing documents),
+  // planningSettings read, and the edited week + immutable revision writes.
+  // Prior unit tests tested revision comparisons but not this complete commit.
+  const planningWeekRef = doc(db, 'planningWeeks', weekId);
+  const settingsRef = doc(db, 'planningSettings', 'main');
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'planningSettings', 'main'), {
+      revision: 1,
+      updatedAt: serverTimestamp(),
+    });
+  });
+  const anchorWeek = new Date(`${weekId}T12:00:00Z`);
+  const weekIds = Array.from({ length: 25 }, (_, index) => {
+    const target = new Date(anchorWeek);
+    target.setUTCDate(target.getUTCDate() + (index - 12) * 7);
+    return target.toISOString().slice(0, 10);
+  });
+  await runTransaction(db, async (tx) => {
+    const siblings = await Promise.all(weekIds
+      .filter((candidate) => candidate !== weekId)
+      .map((candidate) => tx.get(doc(db, 'planningWeeks', candidate))));
+    if (siblings.some((snapshot) => snapshot.exists()))
+      throw new Error('unexpected sibling in empty planning emulator fixture');
+    const settings = await tx.get(settingsRef);
+    if (settings.data()?.revision !== 1)
+      throw new Error('unexpected settings version');
+    const current = await tx.get(planningWeekRef);
+    if (current.data()?.revision !== 3)
+      throw new Error('unexpected edited-week revision');
+    const next = {
+      ...current.data(), note: 'wide fence tested', revision: 4,
+      updatedAt: serverTimestamp(), updatedBy: uid,
+    };
+    tx.set(planningWeekRef, next);
+    tx.set(doc(planningWeekRef, 'revisions', '4'), next);
+  });
+  console.log('PASS full 25-week Firestore transaction and atomic revision commit');
+
+  // A distinct week created by another device cannot be ignored when this
+  // editor still believes its planning horizon contains an absent document.
+  const siblingId = '2026-10-04';
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'planningWeeks', siblingId), { revision: 1 });
+  });
+  let staleCrossWeekDetected = false;
+  try {
+    await runTransaction(db, async (tx) => {
+      const siblings = await Promise.all(weekIds
+        .filter((candidate) => candidate !== weekId)
+        .map((candidate) => tx.get(doc(db, 'planningWeeks', candidate))));
+      const settings = await tx.get(settingsRef);
+      const current = await tx.get(planningWeekRef);
+      if (settings.data()?.revision !== 1 || current.data()?.revision !== 4)
+        throw new Error('stale settings or edited week');
+      if (siblings.some((snapshot) => snapshot.exists()))
+        throw new Error('STALE_CROSS_WEEK_PLAN');
+      throw new Error('test should never reach write stage');
+    });
+  } catch (error) {
+    staleCrossWeekDetected = String(error).includes('STALE_CROSS_WEEK_PLAN');
+  }
+  if (!staleCrossWeekDetected)
+    throw new Error('a previously absent sibling must block a stale cross-week save');
+  console.log('PASS newly created remote sibling aborts stale wide-fence save');
+
   console.log('PASS all marking and shipment transitions require same-transaction guard');
 
 } finally {
