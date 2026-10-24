@@ -12,7 +12,7 @@ import {
   type WeekPlan,
 } from "./planningEngine";
 import { openRuns, type ShipmentEvent } from "./dailyPlanner";
-import { pendingPlansAfterActualShipments } from "./shipmentActuals";
+import { forecastablePlansAfterActualShipments } from "./shipmentActuals";
 import { addForecastPackaging, dispatchForecastPallets, type ForecastPalletLot } from "./shipmentPalletLedger";
 
 export type WeekStartProjection = {
@@ -36,7 +36,7 @@ export function buildWeekStartProjection(args: {
   actualShipments?: ShipmentEvent[];
 }): Map<string, WeekStartProjection> {
   const { settings, pallets, plans, actuals, today, week } = args;
-  const pendingPlans = pendingPlansAfterActualShipments(plans, args.actualShipments ?? [], settings.products);
+  const pendingPlans = forecastablePlansAfterActualShipments(plans, args.actualShipments ?? [], settings.products, today);
   const currentWeek = weekStart(today);
   const open = openRuns(plans, settings.products, actuals);
   const result = new Map<string, WeekStartProjection>();
