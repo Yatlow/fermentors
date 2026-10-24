@@ -1,4 +1,4 @@
-import { daysBetween, num, weeklyDemand, type Product } from "./planningEngine";
+import { daysBetween, num, parseDate, weeklyDemand, type Product } from "./planningEngine";
 
 export type TempoReceipt = {
   date: string;
@@ -23,9 +23,9 @@ export function tempoInventoryAt(
   targetDate: string,
   receipts: TempoReceipt[],
 ): number | null {
-  const start = product.tempoDate;
-  if (product.tempo === null || !/^\d{4}-\d{2}-\d{2}$/.test(start) ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(targetDate) || start > targetDate) return null;
+  const start = parseDate(product.tempoDate);
+  if (product.tempo === null || !start ||
+      !parseDate(targetDate) || start > targetDate) return null;
   const baselineInstant = product.tempoSnapshotAt
     ? Date.parse(product.tempoSnapshotAt) : NaN;
   const daily = weeklyDemand(product as Product) / 7;
