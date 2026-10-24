@@ -1,6 +1,6 @@
 import type { Pallet } from "../cooler/Pallettypes ";
 import { calcTruckSlots, MAX_TRUCK_SLOTS } from "../cooler/truckCapacity";
-import { addDays, productPallets, parseDate, weekStart, type Actual, type Product, type Settings, type WeekPlan } from "./planningEngine";
+import { addDays, productPallets, parseDate, sameStyle, weekStart, type Actual, type Product, type Settings, type WeekPlan } from "./planningEngine";
 import { openRuns, type ShipmentEvent } from "./dailyPlanner";
 import { addForecastPackaging, dispatchForecastPallets, type ForecastPalletLot } from "./shipmentPalletLedger";
 import { forecastablePlansAfterActualShipments } from "./shipmentActuals";
@@ -61,9 +61,10 @@ export function auditShipmentAvailability(
         const live = liveById.get(assigned.id);
         const valid = !!live && !!product &&
           live.itemType === product.type &&
-          live.beerStyle === assigned.beerStyle &&
+          sameStyle(live.beerStyle, product.style) &&
+          sameStyle(live.beerStyle, assigned.beerStyle) &&
           live.itemType === assigned.itemType &&
-          Number(live.quantity) >= Number(assigned.quantity) &&
+          Number(live.quantity) === Number(assigned.quantity) &&
           !!parseDate(live.expiryDateStr) &&
           parseDate(live.expiryDateStr)! >= delivery.dispatchDate &&
           (!live.autoReservationTruckId ||
