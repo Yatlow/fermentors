@@ -42,12 +42,12 @@ export function dispatchForecastPallets(
   quantity: number,
   unitsPerPallet: number,
   date: string,
-): { missingSlots: number; missingUnits: number; shippedPhysical: number; provisionalPallets: number } {
+): { missingSlots: number; missingUnits: number; shippedPhysical: number; provisionalPallets: number; selectedLots: ForecastPalletLot[] } {
   for (let i = lots.length - 1; i >= 0; i--) {
     if (lots[i].expiry < date) lots.splice(i, 1);
   }
   if (!Number.isFinite(quantity) || quantity <= 0 || unitsPerPallet <= 0) {
-    return { missingSlots: 0, missingUnits: 0, shippedPhysical: 0, provisionalPallets: 0 };
+    return { missingSlots: 0, missingUnits: 0, shippedPhysical: 0, provisionalPallets: 0, selectedLots: [] };
   }
   const nominalSlots = Math.ceil(quantity / unitsPerPallet);
   lots.sort((a, b) =>
@@ -70,5 +70,6 @@ export function dispatchForecastPallets(
     missingUnits: Math.max(0, quantity - shippedPhysical),
     shippedPhysical,
     provisionalPallets: selected.filter((lot) => lot.provisional).length,
+    selectedLots: selected,
   };
 }
