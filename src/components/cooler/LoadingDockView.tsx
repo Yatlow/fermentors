@@ -178,8 +178,9 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
             const palletsForShipment = pallets.filter((p) => selected.has(p.id));
             const shipmentId = await createShipment(
                 palletsForShipment.map((p) => p.id), trimmedName, customerId,
-                customerId === "tempo" && plannedTripChoice &&
-                    plannedTripChoice !== "__unlinked__" ? plannedTripChoice : null,
+                customerId === "tempo" && plannedTripChoice === "__unlinked__"
+                    ? false : customerId === "tempo" && plannedTripChoice
+                        ? plannedTripChoice : null,
             );
             setLastShipmentId(shipmentId);
             setLastCustomerName(trimmedName);
