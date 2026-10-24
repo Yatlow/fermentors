@@ -1,8 +1,6 @@
 import type { Pallet } from "../cooler/Pallettypes ";
 import {
-  daysBetween,
   productPallets,
-  num,
   parseDate,
   weeklyDemand,
   weekStart,
@@ -12,7 +10,8 @@ import {
   type WeekPlan,
 } from "./planningEngine";
 import { openRuns, type ShipmentEvent } from "./dailyPlanner";
-import { forecastablePlansAfterActualShipments } from "./shipmentActuals";
+import { forecastablePlansAfterActualShipments, settingsAfterActualShipments } from "./shipmentActuals";
+import { tempoInventoryAt, type TempoReceipt } from "./tempoInventoryTimeline";
 import { addForecastPackaging, dispatchForecastPallets, type ForecastPalletLot } from "./shipmentPalletLedger";
 
 export type WeekStartProjection = {
@@ -39,30 +38,19 @@ export function buildWeekStartProjection(args: {
   const pendingPlans = forecastablePlansAfterActualShipments(plans, args.actualShipments ?? [], settings.products, today);
   const currentWeek = weekStart(today);
   const open = openRuns(plans, settings.products, actuals);
+  const currentTempo = settingsAfterActualShipments(
+    settings, args.actualShipments ?? [], today,
+  );
   const result = new Map<string, WeekStartProjection>();
 
   for (const product of settings.products) {
     const demand = weeklyDemand(product);
     const daily = demand / 7;
-    const parsedTempoDate = parseDate(product.tempoDate);
-
-    let tempoUnits: number | null = product.tempo === null || parsedTempoDate === null
-      ? null
-      : num(product.tempo);
-
-    if (tempoUnits !== null && parsedTempoDate !== null && parsedTempoDate < week) {
-      // Project to Sunday morning of the selected week. The selected week's own
-      // demand starts only after this opening value, so it is not subtracted here.
-      const tempoDate = parsedTempoDate;
-      const salesDays = Math.max(0, daysBetween(tempoDate, week));
-      tempoUnits = Math.max(0, tempoUnits - salesDays * daily);
-
-      // Actual future receipts are added only AFTER running the physical FEFO
-      // dispatch ledger below. A manifest of 84 with only 30 crates on the
-      // selected physical pallet must NEVER credit 84 to Tempo.
-      // The stock baseline passed here already incorporates actual shipments
-      // since the most recent Tempo snapshot; count only future pending trips.
-    }
+    // Every engine starts from the same current physical balance, including
+    // sales between the stock count and the shipments that actually arrived.
+    const openingProduct = currentTempo.products.find((p) => p.id === product.id)
+      ?? product;
+    const forecastReceipts: TempoReceipt[] = [];
 
     // Project physical lots chronologically instead of netting them first:
     // inventory which expires between two dispatches can be used for the
@@ -95,7 +83,10 @@ export function buildWeekStartProjection(args: {
       (a.kind === b.kind ? 0 : a.kind === "pack" ? -1 : 1));
 
     const unitsPerPallet = product.type === "crates" ? 84 : 20;
-    let arrivedPhysicalBeforeWeek = 0;
+    // The arrival ledger is independent from the warehouse dispatch ledger.
+    // This prevents early or late arrival from changing the stock deducted
+    // at the brewery, and sales are replayed BETWEEN arrivals rather than
+    // subtracting the entire period's demand up front.
     events.forEach((event, index) => {
       if (event.kind === "pack") {
         addForecastPackaging(physicalLots, event.qty, unitsPerPallet,
@@ -106,13 +97,18 @@ export function buildWeekStartProjection(args: {
         // not by the optimistic planned manifest. Respect arrival/transit.
         const consumed = dispatchForecastPallets(
           physicalLots, event.qty, unitsPerPallet, event.date);
-        if (event.arrivalDate < week &&
-            (!parsedTempoDate || event.arrivalDate > parsedTempoDate)) {
-          arrivedPhysicalBeforeWeek += Math.min(event.qty, consumed.shippedPhysical);
+        if (event.arrivalDate < week) {
+          forecastReceipts.push({
+            date: event.arrivalDate,
+            quantity: Math.min(event.qty, consumed.shippedPhysical),
+            forecast: true,
+          });
         }
       }
     });
-    if (tempoUnits !== null) tempoUnits += arrivedPhysicalBeforeWeek;
+    const tempoUnits = tempoInventoryAt(
+      openingProduct, week, forecastReceipts,
+    );
     const breweryUnits = physicalLots.filter((lot) => lot.expiry >= week)
       .reduce((sum, lot) => sum + lot.quantity, 0);
     result.set(product.id, {
