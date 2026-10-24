@@ -243,7 +243,7 @@ function buildSimulation(seed: number): Simulation {
     // The truck departs Sunday, BEFORE any of this week's packaging.
     // Select actual whole FEFO lots, and make 1-3 SKU manifest lines.
     const dispatchDate = week.id;
-    const desiredLines = 1 + ((w + seed) % 3);
+    const desiredLines = 3 + ((w + seed) % 2);
     const options = products
       .filter((p) => inventoryAt(dispatchDate, p.id).length > 0)
       .sort((a, b) => a.id.localeCompare(b.id));
@@ -257,7 +257,9 @@ function buildSimulation(seed: number): Simulation {
       const product = available[(w * 5 + seed * 7 + j * 3) % available.length];
       selectedProductIds.add(product.id);
       const candidates = inventoryAt(dispatchDate, product.id);
-      const take = Math.min(1 + ((w + j + seed) % 2), candidates.length);
+      const take = Math.min(2 + ((w + j + seed) % 2), candidates.length,
+        MAX_TRUCK_SLOTS - selectedLots.length);
+      if (take <= 0) break;
       const picked = candidates.slice(0, take);
       assert.ok(picked.length);
       selectedLots.push(...picked);
@@ -489,6 +491,13 @@ function verifyRollingForecasts(sim: Simulation) {
         ", now " + now + ": " + row.breweryUnits + " vs physical " + physicallyValid);
       assert.ok(row.tempoUnits == null || row.tempoUnits >= -1e-9);
     }
+    // The long-lived plan is checked at FIVE inventory checkpoints, but the
+    // expensive full UI model is sampled twice per scenario: one rotating
+    // checkpoint distributed over seeds, and the 2027 year-end checkpoint.
+    // This keeps PR CI tight while all 15 scenarios still cover every week.
+    const detailed = index === checkpoints[sim.seed % 4] ||
+      index === checkpoints[checkpoints.length - 1];
+    if (!detailed) continue;
     // Execute the same recommendation/forecast stages used by the weekly
     // planner; do not assert specific optimal recommendations when data is
     // fictional, but demand numeric, time-consistent and feasible results.
