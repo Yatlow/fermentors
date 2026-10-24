@@ -46,7 +46,6 @@ export function buildWeekStartProjection(args: {
 
   for (const product of settings.products) {
     const demand = weeklyDemand(product);
-    const daily = demand / 7;
     // Every engine starts from the same current physical balance, including
     // sales between the stock count and the shipments that actually arrived.
     const openingProduct = currentTempo.products.find((p) => p.id === product.id)
