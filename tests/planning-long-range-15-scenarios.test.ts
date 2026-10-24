@@ -123,7 +123,8 @@ function buildSimulation(seed: number): Simulation {
     startOfWeeks.push(date);
   assert.ok(startOfWeeks.length >= 65 && startOfWeeks.length <= 70);
   assert.equal(startOfWeeks.at(-1), LAST_WEEK);
-  const weeks = startOfWeeks.map((id) => ({ ...emptyWeek(id), maxRuns: 5 }));
+  const weeks = startOfWeeks.map((id) => ({ ...emptyWeek(id), maxRuns: 5,
+    deliveries: [] as NonNullable<WeekPlan["deliveries"]> }));
   const busyUntil = new Map<number, number>();
   const cycles: SimCycle[] = [];
   const sources: TankSource[] = [];
