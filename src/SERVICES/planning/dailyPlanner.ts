@@ -2,6 +2,7 @@ import { estimatedBrewVolume } from "./productionCycle";
 import { packagingLimit, weekday as dayOfWeek } from "./productionCycle";
 import { brewById, resolvePackagingBrewId } from "./planIdentity";
 import { forecastablePlansAfterActualShipments } from "./shipmentActuals";
+import { dispatchForecastPallets } from "./shipmentPalletLedger";
 import {
   projectedPallets,
   selectTruck,
@@ -320,25 +321,23 @@ export function dailyForecast(
   }
   const stock = (id: string) =>
     lots.get(id)!.reduce((s, l) => s + l.quantity, 0);
-  function take(id: string, quantity: number) {
+  function take(id: string, quantity: number, dispatchDate: string) {
     if (quantity <= 0) return 0;
     const ls = lots.get(id)!;
-    // Same physical FEFO rule as the week-opening and availability ledgers:
-    // a truck may need two half-full pallets for one nominal pallet's UNITS.
-    // Consume whole pallets until requested units are met (or stock runs out).
-    ls.sort((a, b) => a.expiry.localeCompare(b.expiry) ||
-      b.quantity - a.quantity || a.pallet.id.localeCompare(b.pallet.id));
-    let physical = 0;
-    for (const lot of ls) {
-      if (physical + 0.00001 >= quantity) break;
-      if (lot.quantity <= 0) continue;
-      physical += lot.quantity;
-      lot.quantity = 0;
-    }
-    // The planning manifest is the upper bound on forecast Tempo receipts.
-    // A physically larger selected pallet reduces brewery stock entirely,
-    // but unconfirmed over-delivery must not inflate customer's stock.
-    return Math.min(quantity, physical);
+    const product = products.find((candidate) => candidate.id === id);
+    const perPallet = product?.type === "crates" ? 84 : 20;
+    // The daily, shipment-availability and week-opening views must consume
+    // the SAME indivisible FEFO subset: no invented fractional reusable pallet,
+    // no 90-crate physical dispatch silently recorded as an 84-crate shipment.
+    const available = ls.filter((lot) => lot.quantity > 0).map((lot) => ({
+      id: lot.pallet.id, expiry: lot.expiry, quantity: lot.quantity,
+    }));
+    const { selectedLots, shippedPhysical } = dispatchForecastPallets(
+      available, quantity, perPallet, dispatchDate,
+    );
+    const shippedIds = new Set(selectedLots.map((lot) => lot.id));
+    for (const lot of ls) if (shippedIds.has(lot.pallet.id)) lot.quantity = 0;
+    return shippedPhysical;
   }
   const incoming = new Map<string, Map<string, number>>();
   const addIncoming = (day: string, id: string, qty: number) => {
@@ -553,7 +552,7 @@ export function dailyForecast(
       if (d.pallets?.length) {
         for (const selected of d.pallets) {
           if (selected.id.startsWith("planning:")) {
-            sent += take(d.productId, selected.quantity);
+            sent += take(d.productId, selected.quantity, day);
             continue;
           }
           const lot = lots
@@ -563,7 +562,7 @@ export function dailyForecast(
           if (lot) lot.quantity = 0;
           sent += qty;
         }
-      } else sent = take(d.productId, d.quantity);
+      } else sent = take(d.productId, d.quantity, day);
       addIncoming(d.arrivalDate, d.productId, sent);
       if (sent + 0.01 < d.quantity)
         warnings.add(
