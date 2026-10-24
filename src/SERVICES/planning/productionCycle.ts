@@ -127,24 +127,40 @@ export function tankReleases(
   // remaining balance. It can nevertheless prove the physical cycle emptied.
   // Require both the explicit empty marker and actual packaging for the same
   // tank, batch, type and day; a plan alone never proves past execution.
+  const allCompletedBalances = new Map(openRuns(plans, settings.products, actuals)
+    .map((run) => [`${run.week}:${run.key}`, run.remaining]));
   const completedEmptyRuns = plans.flatMap((week) => (week.packaging ?? [])
-    .filter((run) => !!run.emptyTank && !!run.date && run.date <= today &&
-      !resolvePackagingBrewId(run, plans))
-    .filter((run) => {
+    .flatMap((run, index) => {
+      if (!run.emptyTank || !run.date || !run.quantity ||
+          resolvePackagingBrewId(run, plans)) return [];
       const product = settings.products.find((p) => p.id === run.productId);
       const style = run.nonInventoryStyle ?? product?.style;
       const type = run.nonInventoryType ?? product?.type;
-      return !!run.batchNumber && !!run.tankNumber && !!style && !!type &&
-        actuals.some((actual) =>
+      if (!run.batchNumber || !run.tankNumber || !style || !type) return [];
+      const key = run.id ?? `${week.id}:${run.productId}:${index}`;
+      // A merely reported PART of the planned final run never proves emptying.
+      // The real physical batch must satisfy this final packaging decision.
+      if ((allCompletedBalances.get(`${week.id}:${key}`) ?? run.quantity) > 0) return [];
+      const actualDates = actuals.flatMap((actual) => {
+        const date = actualDate(actual);
+        return date && date <= today &&
           String(actual.tankNumber) === String(run.tankNumber) &&
           normalizedBatch(actual.batchNumber) === normalizedBatch(run.batchNumber) &&
           sameStyle(actual.beerStyle ?? "", style) &&
           actual.packagingType === (type === "crates" ? "bottles" : "kegs") &&
-          actualDate(actual) === run.date &&
-          num(actual.quantity) > 0);
-    })
-    .map((run) => ({ ...run, remaining: 0, week: week.id,
-      key: run.id ?? `${week.id}:completed-empty` })));
+          num(actual.quantity) > 0 ? [date] : [];
+      });
+      if (!actualDates.length) return [];
+      // When an entire batch was packaged BEFORE its planned day (including a
+      // different week), release timing follows reality, not the stale plan.
+      return [{
+        ...run,
+        date: actualDates.sort().at(-1)!,
+        remaining: 0,
+        week: week.id,
+        key,
+      }];
+    }));
   // Legacy decisions sometimes store a physical tank number instead of its
   // Firestore document id. Only accept an unambiguous number match.
   const physicalRunTank = (run: PackagingPlan): string | undefined => {
