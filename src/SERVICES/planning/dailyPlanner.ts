@@ -321,7 +321,10 @@ export function dailyForecast(
   }
   const stock = (id: string) =>
     lots.get(id)!.reduce((s, l) => s + l.quantity, 0);
-  function take(id: string, quantity: number, dispatchDate: string) {
+  function take(
+    id: string, quantity: number, dispatchDate: string,
+    assignedPallets?: ReadonlyArray<{ id: string; quantity: number }>,
+  ) {
     if (quantity <= 0) return 0;
     const ls = lots.get(id)!;
     const product = products.find((candidate) => candidate.id === id);
@@ -333,7 +336,7 @@ export function dailyForecast(
       id: lot.pallet.id, expiry: lot.expiry, quantity: lot.quantity,
     }));
     const { selectedLots, shippedPhysical } = dispatchForecastPallets(
-      available, quantity, perPallet, dispatchDate,
+      available, quantity, perPallet, dispatchDate, assignedPallets,
     );
     const shippedIds = new Set(selectedLots.map((lot) => lot.id));
     for (const lot of ls) if (shippedIds.has(lot.pallet.id)) lot.quantity = 0;
@@ -548,21 +551,7 @@ export function dailyForecast(
     }
     for (const d of deliveries.filter((d) => d.dispatchDate === day)) {
       if (!lots.has(d.productId) || d.arrivalDate < day) continue;
-      let sent = 0;
-      if (d.pallets?.length) {
-        for (const selected of d.pallets) {
-          if (selected.id.startsWith("planning:")) {
-            sent += take(d.productId, selected.quantity, day);
-            continue;
-          }
-          const lot = lots
-            .get(d.productId)!
-            .find((x) => x.pallet.id === selected.id);
-          const qty = Math.min(lot?.quantity ?? 0, selected.quantity);
-          if (lot) lot.quantity = 0;
-          sent += qty;
-        }
-      } else sent = take(d.productId, d.quantity, day);
+      const sent = take(d.productId, d.quantity, day, d.pallets);
       addIncoming(d.arrivalDate, d.productId, sent);
       if (sent + 0.01 < d.quantity)
         warnings.add(
