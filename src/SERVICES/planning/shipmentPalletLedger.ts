@@ -21,6 +21,18 @@ export type ForecastDispatchResult = {
 
 export const MAX_FEFO_SUBSET_STATES = 4096;
 
+/** Physical allocations pinned to any pending trip must not be borrowed by
+ * another unassigned/virtual trip in the forecast. They stay selectable by
+ * their own exact-ID shipment, even when a different pallet expires sooner.
+ */
+export function reservedPhysicalPalletIds(
+  deliveries: ReadonlyArray<{ pallets?: ReadonlyArray<{ id: string }> }>,
+): ReadonlySet<string> {
+  return new Set(deliveries.flatMap((delivery) =>
+    (delivery.pallets ?? []).filter((p) => !p.id.startsWith("planning:"))
+      .map((p) => p.id)));
+}
+
 export function addForecastPackaging(
   lots: ForecastPalletLot[],
   quantity: number,
@@ -121,6 +133,7 @@ export function dispatchForecastPallets(
   unitsPerPallet: number,
   date: string,
   assignedPallets?: ReadonlyArray<{ id: string; quantity: number }>,
+  reservedIds: ReadonlySet<string> = new Set(),
 ): ForecastDispatchResult {
   for (let i = lots.length - 1; i >= 0; i--)
     if (lots[i].expiry < date) lots.splice(i, 1);
@@ -162,8 +175,10 @@ export function dispatchForecastPallets(
     const expiry = lots[start].expiry;
     let end = start + 1;
     while (end < lots.length && lots[end].expiry === expiry) end++;
-    const tier = lots.slice(start, end);
+    const tier = lots.slice(start, end).filter((lot) => !reservedIds.has(lot.id));
+    const held = lots.slice(start, end).filter((lot) => reservedIds.has(lot.id));
     start = end;
+    remainingLots.push(...held);
     const need = Math.max(0, limit - flexibleShipped);
     if (need < 1e-9) {
       remainingLots.push(...tier);
