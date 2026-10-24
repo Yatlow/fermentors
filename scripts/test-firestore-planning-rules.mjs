@@ -166,6 +166,43 @@ try {
     totals: [{ itemType: 'crates', beerStyle: 'IPA', totalQuantity: 84 }],
     createdAt: serverTimestamp(),
   }));
+  // Do not merely assert that unsafe client writes fail. A legitimate
+  // one-transaction physical shipment MUST pass the same rules and retain
+  // its immutable manifest, even when the selected pallet was already marked.
+  const realPallet = doc(db, 'pallets', 'real-physical-dispatch');
+  await setDoc(realPallet, {
+    zone: 'loadingDock', itemType: 'crates', beerStyle: 'IPA',
+    quantity: 84, expiryDateStr: '31/12/2026', markedForShipment: false,
+    autoReservationWeek: null, autoReservationTruckId: null,
+    updatedAt: serverTimestamp(),
+  });
+  const physicalInvoice = doc(db, 'shipments', '2506');
+  await runTransaction(db, async (tx) => {
+    const guardCurrent = await tx.get(guard);
+    const palletCurrent = await tx.get(realPallet);
+    if (!palletCurrent.exists()) throw new Error('missing physical pallet');
+    tx.set(physicalInvoice, {
+      shipmentNumber: 2506, sourceType: 'pallets',
+      palletIds: ['real-physical-dispatch'],
+      totals: [{ itemType: 'crates', beerStyle: 'IPA', totalQuantity: 84 }],
+      customerName: 'Tempo', customerId: 'tempo',
+      createdAt: serverTimestamp(),
+    });
+    tx.update(realPallet, {
+      zone: 'shipped', markedForShipment: false,
+      autoReservationWeek: null, autoReservationTruckId: null,
+      updatedAt: serverTimestamp(),
+    });
+    tx.update(guard, {
+      revision: guardCurrent.data().revision + 1,
+      updatedAt: serverTimestamp(), updatedBy: uid,
+    });
+  });
+  await assertFails(updateDoc(physicalInvoice, { palletIds: ['other'] }));
+  await assertFails(updateDoc(physicalInvoice, {
+    totals: [{ itemType: 'crates', beerStyle: 'IPA', totalQuantity: 1 }],
+  }));
+  console.log('PASS physical shipment transaction succeeds and immutable lot quantities stay protected');
   console.log('PASS shipment manifest immutable and pallet dispatch requires marking guard');
 
   console.log('PASS all marking and shipment transitions require same-transaction guard');
