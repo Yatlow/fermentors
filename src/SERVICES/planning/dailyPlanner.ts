@@ -197,7 +197,7 @@ export type DailyResult = {
   open: OpenRun[];
 };
 type Lot = StockPallet;
-export type ShipmentEvent = { id: string; date: string };
+export type ShipmentEvent = { id: string; date: string; occurredAt?: string };
 export function dailyForecast(
   settings: Settings,
   pallets: Pallet[],
