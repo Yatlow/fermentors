@@ -18,6 +18,9 @@ import { pendingStockExecutionPlans } from "../src/SERVICES/planning/planningSto
 import { plannedTripsForDispatchDay, isDispatchTripInQueue } from
   "../src/SERVICES/planning/shipmentDispatchIdentityCore";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
+import { dailyForecast } from "../src/SERVICES/planning/dailyPlanner";
+import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
+import { auditShipmentAvailability } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
 
 const ipa: Product = {
   id: "ipa-crates", sku: "ipa-crates", style: "IPA", type: "crates",
@@ -153,6 +156,45 @@ test("linked partial first truck and unrelated orphan receipt hold only risky di
     products, "2026-10-20")[0];
   assert.deepEqual(held.deliveries?.map((d) => d.truckId), ["truck-c"],
     "an extra genuinely unmatched dispatch quarantines only its same-day trips");
+});
+
+test("linked first + pending second SAME DAY agrees in daily, stock and weekly projection", () => {
+  const noSales = { ...defaultSettings(), products: [{
+    ...ipa, monthly: 0, tempo: 0, tempoDate: "2026-10-18",
+  }] };
+  const week = { ...emptyWeek("2026-10-18"), deliveries: [
+    delivery("a", "truck-a", ipa.id, 84),
+    delivery("b", "truck-b", ipa.id, 84),
+  ] };
+  const physical: Pallet = {
+    id: "second-truck-stock", beerStyle: "IPA", itemType: "crates",
+    quantity: 84, expiryDateStr: "31/12/2026", zone: "cooler", heightUnits: 1,
+  };
+  const completed = [{
+    id: "actual-a", date: "2026-10-19", plannedTruckId: "truck-a",
+    totals: [{ itemType: "crates" as const, beerStyle: "IPA", totalQuantity: 84 }],
+  }];
+  const remaining = forecastablePlansAfterActualShipments([week], completed,
+    noSales.products, "2026-10-19");
+  assert.deepEqual(remaining[0].deliveries?.map((d) => d.truckId), ["truck-b"]);
+  const issues = auditShipmentAvailability(noSales, [physical], [week], [],
+    "2026-10-19", completed);
+  assert.equal(issues.length, 0, "one remaining pallet covers pending truck B");
+  const opening = buildWeekStartProjection({
+    settings: noSales, pallets: [physical], plans: [week], actuals: [],
+    today: "2026-10-19", week: "2026-10-25", actualShipments: completed,
+  }).get(ipa.id);
+  assert.equal(opening?.shipmentsBeforeWeek, 84);
+  assert.equal(opening?.breweryUnits, 0);
+  assert.equal(opening?.tempoUnits, 168,
+    "actual truck A and future truck B each credit exactly 84 physical crates");
+  const daily = dailyForecast(settingsAfterActualShipments(noSales, completed,
+    "2026-10-19"), [physical], [], [week], [], "2026-10-19",
+  [], false, completed);
+  const point = daily.points.find((p) => p.date === "2026-10-19" &&
+    p.productId === ipa.id);
+  assert.equal(point?.brewery, 0);
+  assert.equal(point?.arrived, 84, "only still-pending truck B is simulated");
 });
 
 test("physical trip chooser validates the requested dispatch date and queue revision", () => {
