@@ -12,6 +12,8 @@ export type Product = {
   monthly: number;
   tempo: number | null;
   tempoDate: string;
+  /** ISO instant of the physical stock count, for same-day receipt ordering. */
+  tempoSnapshotAt?: string;
   leadDays: number;
 };
 export type Settings = {
