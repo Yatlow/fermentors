@@ -372,9 +372,15 @@ export function forecastablePlansAfterActualShipments(
   products: Product[],
   today: string,
 ): WeekPlan[] {
-  const pending = pendingPlansAfterActualShipments(plans, actualEvents, products);
-  return pending.map((week) => {
+  // Match against the ORIGINAL complete manifest, before completed trips are
+  // removed. Matching against the already-filtered pending trips makes a
+  // correctly linked first departure appear "unmatched" and quarantines a
+  // second genuinely pending truck on the SAME day.
+  return plans.map((week) => {
     const matches = matchActualShipments(week.deliveries ?? [], actualEvents, products);
+    const pendingGroupIds = new Set(matches
+      .filter((match) => match.status === "pending")
+      .map((match) => match.planned.id));
     const linkedActualIds = new Set(matches.flatMap((match) =>
       match.actual?.id ? [match.actual.id] : []));
     const unlinkedSameWeekDates = new Set(actualEvents
@@ -383,8 +389,9 @@ export function forecastablePlansAfterActualShipments(
         weekStart(actual.date) === week.id &&
         !linkedActualIds.has(actual.id))
       .map((actual) => actual.date));
-    if (!unlinkedSameWeekDates.size) return week;
-    const remaining = (week.deliveries ?? []).filter((delivery) =>
+    const pendingDeliveries = (week.deliveries ?? []).filter((delivery) =>
+      pendingGroupIds.has(delivery.truckId || `date:${delivery.dispatchDate}`));
+    const remaining = pendingDeliveries.filter((delivery) =>
       !unlinkedSameWeekDates.has(delivery.dispatchDate));
     if (remaining.length === (week.deliveries ?? []).length) return week;
     return {
