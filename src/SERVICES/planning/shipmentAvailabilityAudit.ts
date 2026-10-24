@@ -2,7 +2,7 @@ import type { Pallet } from "../cooler/Pallettypes ";
 import { calcTruckSlots, MAX_TRUCK_SLOTS } from "../cooler/truckCapacity";
 import { addDays, productPallets, parseDate, sameStyle, weekStart, type Actual, type Product, type Settings, type WeekPlan } from "./planningEngine";
 import { openRuns, type ShipmentEvent } from "./dailyPlanner";
-import { addForecastPackaging, dispatchForecastPallets, type ForecastPalletLot } from "./shipmentPalletLedger";
+import { addForecastPackaging, dispatchForecastPallets, reservedPhysicalPalletIds, type ForecastPalletLot } from "./shipmentPalletLedger";
 import { forecastablePlansAfterActualShipments } from "./shipmentActuals";
 
 export type PlanningAvailabilityIssue = {
@@ -83,6 +83,8 @@ export function auditShipmentAvailability(
   }
 
   for (const product of settings.products) {
+    const reservedIds = reservedPhysicalPalletIds(pending.flatMap((week) =>
+      (week.deliveries ?? []).filter((delivery) => delivery.productId === product.id)));
     const unitPerPallet = size(product);
     const lots: ForecastPalletLot[] = productPallets(product, pallets).flatMap((pallet) => {
       const expiry = parseDate(pallet.expiryDateStr);
@@ -91,7 +93,8 @@ export function auditShipmentAvailability(
       return [{ id: pallet.id, expiry, quantity: physical }];
     });
     const events: Array<{
-      date: string; kind: "pack" | "ship"; qty: number; week: string; truckId?: string;
+      date: string; kind: "pack" | "ship"; qty: number; week: string;
+      truckId?: string; pallets?: Pallet[];
     }> = [];
     for (const run of open) {
       if (run.productId !== product.id || run.remaining <= 0 ||
@@ -103,7 +106,8 @@ export function auditShipmentAvailability(
         if (delivery.productId !== product.id || delivery.quantity <= 0 ||
             delivery.dispatchDate < today || delivery.dispatchDate > horizon) continue;
         events.push({ date: delivery.dispatchDate, kind: "ship", qty: delivery.quantity,
-          week: week.id, truckId: String(delivery.truckId || `date:${delivery.dispatchDate}`) });
+          week: week.id, truckId: String(delivery.truckId || `date:${delivery.dispatchDate}`),
+          pallets: delivery.pallets });
       }
     }
     events.sort((a, b) =>
@@ -124,16 +128,32 @@ export function auditShipmentAvailability(
           `future:${event.week}:${event.date}:${product.id}`);
         continue;
       }
-      const { missingSlots: missing, missingUnits, selectedLots } = dispatchForecastPallets(
-        lots, event.qty, unitPerPallet, event.date,
-      );
+      const { missingSlots: missing, missingUnits, selectedLots, missingPinnedIds } =
+        dispatchForecastPallets(lots, event.qty, unitPerPallet, event.date,
+          event.pallets, reservedIds);
       const truckKey = `${event.week}:${event.date}:${event.truckId ?? `date:${event.date}`}`;
       const picked = physicallySelectedTrucks.get(truckKey) ?? [];
-      picked.push(...selectedLots.map((lot) => ({
-        id: lot.id, itemType: product.type, beerStyle: product.style,
-        quantity: lot.quantity, zone: "pending" as const, heightUnits: 1,
-      })));
+      picked.push(...selectedLots.map((lot) => {
+        // Keep the real physical pallet record for height and future capacity
+        // rules. Provisional packaging receives explicit synthetic metadata.
+        const original = liveById.get(lot.id);
+        return original
+          ? { ...original, quantity: lot.quantity }
+          : {
+              id: lot.id, itemType: product.type, beerStyle: product.style,
+              quantity: lot.quantity, zone: "pending" as const, heightUnits: 1,
+            };
+      }));
       physicallySelectedTrucks.set(truckKey, picked);
+      for (const id of missingPinnedIds) {
+        if (issues.some((issue) => issue.productId === `pallet:${id}` &&
+            issue.date === event.date && issue.week === event.week)) continue;
+        issues.push({
+          week: event.week, date: event.date, productId: `pallet:${id}`,
+          missing: 1, missingUnits, severity: "blocking",
+          message: `משלוח ${event.date}: המשטח ${id} כבר נצרך במשלוח קודם, אינו זמין בתוקף/בכמות המדויקת, או שאינו משויך עוד למלאי. לא בוצעה החלפה אוטומטית.`,
+        });
+      }
       if (missing > 0) {
         issues.push({
           week: event.week, date: event.date, productId: product.id,
