@@ -121,6 +121,20 @@ test("three partial pallets are never split between two consecutive trips", () =
   assert.equal(next.missingUnits, 84);
 });
 
+test("twelve nominal slots made from twenty-four half pallets MUST flag truck overload", () => {
+  const physical = Array.from({ length: 24 }, (_, index) =>
+    pallet(`half-${index}`, 42));
+  const plan = shipment(12 * 84);
+  const issues = auditShipmentAvailability(settings, physical, [plan], [], today);
+  assert.equal(issues.filter((issue) => issue.missingUnits && issue.missingUnits > 0).length, 0,
+    "all planned crate units physically exist");
+  const overload = issues.find((issue) => issue.productId.startsWith("truck:"));
+  assert.ok(overload, "physical pallet footprints must be validated beyond nominal capacity");
+  assert.equal(overload.severity, "blocking");
+  assert.equal(overload.missing, 12,
+    "42-crate pallets are 111cm tall; 24 cannot stack within 12 floor positions");
+});
+
 test("Tempo opening balance credits only 30 physically shippable crates, not 84 planned", () => {
   const noSales = { ...settings, products: [{ ...product, monthly: 0 }] };
   const physical = [pallet("partial", 30)];
