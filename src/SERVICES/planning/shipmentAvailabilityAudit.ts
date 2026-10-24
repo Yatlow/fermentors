@@ -210,13 +210,17 @@ export type PlanningShortageIncrease = {
   addedUnits: number;
   totalSlots: number;
   totalUnits: number;
+  /** Only blocking deficits are denied in the edited week. Partial units stay advisory. */
+  hardIncrease?: boolean;
 };
 
 /**
- * Full change set, not just the first issue. Two trucks on the same date
- * with the same SKU must sum their deficits before comparing revisions.
- * Planner-approved truck overages and advisory-only partial stock are not
- * turned into hard blockers by this helper.
+ * Compare the full deficit set rather than the first issue. Aggregate the
+ * same SKU/date across physical trucks, including partial-pallet unit deficits:
+ * these may have no missing pallet *positions* but are still shortages that
+ * a downstream planner deserves to see before saving an earlier week.
+ *
+ * Explicit planner-approved overcapacity is an advisory and is excluded.
  */
 export function newlyWorsenedShipmentShortages(
   before: PlanningAvailabilityIssue[],
@@ -224,52 +228,70 @@ export function newlyWorsenedShipmentShortages(
 ): PlanningShortageIncrease[] {
   const key = (issue: PlanningAvailabilityIssue) =>
     `${issue.week}:${issue.date}:${issue.productId}`;
-  const totals = (issues: PlanningAvailabilityIssue[]) => {
-    const byKey = new Map<string, { slots: number; units: number }>();
-    for (const issue of issues.filter((entry) => !entry.severity || entry.severity === "blocking")) {
+  const summarize = (issues: PlanningAvailabilityIssue[]) => {
+    const byKey = new Map<string, {
+      slots: number; hardUnits: number; partialUnits: number;
+      hardIssue?: PlanningAvailabilityIssue;
+      partialIssue?: PlanningAvailabilityIssue;
+    }>();
+    for (const issue of issues) {
+      if (issue.severity === "advisory") continue;
       const k = key(issue);
-      const previous = byKey.get(k) ?? { slots: 0, units: 0 };
-      byKey.set(k, {
-        slots: previous.slots + Math.max(0, issue.missing),
-        units: previous.units + Math.max(0, issue.missingUnits ?? 0),
-      });
+      const prior = byKey.get(k) ?? { slots: 0, hardUnits: 0, partialUnits: 0 };
+      if (issue.severity === "partial") {
+        prior.partialUnits += Math.max(0, issue.missingUnits ?? 0);
+        prior.partialIssue ??= issue;
+      } else {
+        prior.slots += Math.max(0, issue.missing);
+        prior.hardUnits += Math.max(0, issue.missingUnits ?? 0);
+        prior.hardIssue ??= issue;
+      }
+      byKey.set(k, prior);
     }
     return byKey;
   };
-  const previous = totals(before);
-  const next = totals(after);
-  const displayed = new Set<string>();
-  return after.flatMap((issue) => {
-    if (issue.severity === "partial" || issue.severity === "advisory") return [];
-    const k = key(issue);
-    if (displayed.has(k)) return [];
-    displayed.add(k);
-    const old = previous.get(k) ?? { slots: 0, units: 0 };
-    const current = next.get(k) ?? { slots: 0, units: 0 };
+  const oldTotals = summarize(before);
+  const newTotals = summarize(after);
+  const increases: PlanningShortageIncrease[] = [];
+  for (const [id, current] of newTotals) {
+    const old = oldTotals.get(id) ?? { slots: 0, hardUnits: 0, partialUnits: 0 };
+    const totalUnits = current.hardUnits + current.partialUnits;
+    const oldUnits = old.hardUnits + old.partialUnits;
     const addedSlots = Math.max(0, current.slots - old.slots);
-    const addedUnits = Math.max(0, current.units - old.units);
-    return addedSlots || addedUnits
-      ? [{ issue, addedSlots, addedUnits, totalSlots: current.slots, totalUnits: current.units }]
-      : [];
-  });
+    const addedUnits = Math.max(0, totalUnits - oldUnits);
+    const hardIncrease = addedSlots > 0 || current.hardUnits > old.hardUnits + 1e-9;
+    if (!addedSlots && addedUnits <= 1e-9 && !hardIncrease) continue;
+    const issue = hardIncrease
+      ? (current.hardIssue ?? current.partialIssue)
+      : (current.partialIssue ?? current.hardIssue);
+    if (!issue) continue;
+    increases.push({ issue, addedSlots, addedUnits,
+      totalSlots: current.slots, totalUnits, hardIncrease });
+  }
+  return increases;
 }
 
 /**
- * Only downstream SKU quantity/slot shortfalls may be saved after explicit
- * acknowledgement. Bad pallet identity, unsafe unapproved truck loading, and
- * a new shortfall in the edited week remain blocking safety errors.
+ * A new future-week shortage can be explicitly acknowledged; a broken
+ * physical identity or unapproved truck remains unsafe regardless of week.
+ * Preserve pre-existing local partial-pallet advisories without introducing
+ * a new blanket block on their quantities.
  */
 export function classifyPlanningShortageIncreases(
   increases: readonly PlanningShortageIncrease[],
   editedWeekId: string,
 ): { blocking: PlanningShortageIncrease[]; confirmable: PlanningShortageIncrease[] } {
-  const unsafe = (increase: PlanningShortageIncrease) =>
-    increase.issue.week <= editedWeekId ||
+  const structurallyUnsafe = (increase: PlanningShortageIncrease) =>
     increase.issue.productId.startsWith("pallet:") ||
     increase.issue.productId.startsWith("truck:");
+  const hard = (increase: PlanningShortageIncrease) =>
+    increase.hardIncrease ?? (increase.issue.severity !== "partial");
   return {
-    blocking: increases.filter(unsafe),
-    confirmable: increases.filter((increase) => !unsafe(increase)),
+    blocking: increases.filter((increase) =>
+      structurallyUnsafe(increase) ||
+      (increase.issue.week <= editedWeekId && hard(increase))),
+    confirmable: increases.filter((increase) =>
+      increase.issue.week > editedWeekId && !structurallyUnsafe(increase)),
   };
 }
 
@@ -296,5 +318,6 @@ export function newlyWorsenedShipmentShortage(
   before: PlanningAvailabilityIssue[],
   after: PlanningAvailabilityIssue[],
 ): PlanningAvailabilityIssue | undefined {
-  return newlyWorsenedShipmentShortages(before, after)[0]?.issue;
+  return newlyWorsenedShipmentShortages(before, after)
+    .find((increase) => increase.hardIncrease)?.issue;
 }
