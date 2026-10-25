@@ -807,6 +807,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             { key: "other", label: "פעולה אחרת", pattern: /(?:^|[|\\n])\\s*אחר\\s*[:：-]/ },
                         ];
                         reportedActions.forEach(({ key, label, pattern }) => {
+                            // One matching pressure report can fulfill a scheduled
+                            // pressure decision; don't credit it as two actions.
+                            if (key === "pressure-change" && completedScheduledPressure) return;
                             if (pattern.test(todayNotes)) addCompleted(`reported-${key}-${tank.id}`, label);
                         });
                         if (todayNotes.includes("כשות")) addCompleted(`dryhop-${tank.id}`, "דרייהופ");
