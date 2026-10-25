@@ -12,7 +12,7 @@
     "test:dashboard": "node scripts/test-dashboard.mjs",
     "test:planning-snapshots": "node scripts/test-planning-snapshots.mjs",
     "test:cellar-action-kpis": "node scripts/test-cellar-action-kpis.mjs",
-    "test": "npm run test:yesterday-actions && npm run test:cellar-action-kpis && npm run test:salinity && npm run test:hydrometer && npm run test:hop-volume && npm run test:packaging-print-text && npm run test:planning && npm run test:dashboard && npm run test:planning-snapshots && npm run test:server-regressions && npm run test:packaging-pallets && npm run test:shipment-traceability && npm run test:batch-traceability",
+    "test": "npm run test:yesterday-actions && npm run test:cellar-action-kpis && npm run test:salinity && npm run test:hydrometer && npm run test:brew-material-sheet-rows && npm run test:hop-volume && npm run test:packaging-print-text && npm run test:planning && npm run test:dashboard && npm run test:planning-snapshots && npm run test:server-regressions && npm run test:packaging-pallets && npm run test:shipment-traceability && npm run test:batch-traceability",
     "test:server-regressions": "node scripts/test-server-regressions.mjs",
     "test:packaging-pallets": "node scripts/test-packaging-pallet-defaults.mjs",
     "test:shipment-traceability": "node --test scripts/test-shipment-traceability.mjs",
@@ -21,7 +21,8 @@
     "test:hydrometer": "node scripts/test-hydrometer-target.mjs",
     "test:hop-volume": "node scripts/test-hop-volume-recalculation.mjs",
     "test:packaging-print-text": "node scripts/test-packaging-print-text.mjs",
-    "test:batch-traceability": "node --test scripts/test-batch-traceability.mjs"
+    "test:batch-traceability": "node --test scripts/test-batch-traceability.mjs",
+    "test:brew-material-sheet-rows": "node scripts/test-brew-material-sheet-rows.mjs"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
