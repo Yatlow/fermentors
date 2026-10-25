@@ -13,7 +13,7 @@ import { auth, db } from "../../firebase";
 import { recordGlobalServerRead } from "../globalReadDiagnostics";
 import { hasExplicitPressureChangeAction } from "../dashboard/actionKpis";
 
-export type ScheduledCellarActionType = "carbTest" | "yeastDrop" | "pressureChange" | "bottomCarbonation";
+export type ScheduledCellarActionType = "carbTest" | "yeastDrop" | "pressureChange" | "bottomCarbonation" | "coolDown" | "other";
 export type PressureChangeDirection = "raise" | "lower";
 export type ScheduledCellarRecommendation = {
   id: string;
@@ -127,7 +127,17 @@ function measurementCompletesScheduledAction(
     // not by a carbonation test or merely closing a previous procedure.
     return /תחילת\s+גיזוז\s+מלמטה/.test(notes);
   }
-  return hasExplicitPressureChangeAction(notes);
+  if (actionType === "coolDown") {
+    // Only an executed cooling report is evidence. A note merely mentioning
+    // cooling must not silently close a manager's scheduled instruction.
+    return /קירור מיכל ל|התחלת קירור|הועבר לקירור/.test(notes);
+  }
+  if (actionType === "other") {
+    // Free-form work has no reliable automated evidence: staff explicitly
+    // mark each instruction done rather than guessing from unrelated notes.
+    return false;
+  }
+  return actionType === "pressureChange" && hasExplicitPressureChangeAction(notes);
 }
 
 /**
@@ -159,6 +169,8 @@ export function scheduledActionLabel(action: ScheduledCellarActionType): string 
   if (action === "carbTest") return "בדיקת גיזוז";
   if (action === "yeastDrop") return "הורדת שמרים";
   if (action === "bottomCarbonation") return "גיזוז מלמטה";
+  if (action === "coolDown") return "קירור";
+  if (action === "other") return "אחר";
   return "שינוי לחץ";
 }
 
@@ -198,6 +210,9 @@ export async function createScheduledCellarRecommendation(input: {
 }): Promise<string> {
   const user = auth.currentUser;
   if (!user?.email) throw new Error("אין משתמש מחובר");
+  if (input.actionType === "other" && !input.note?.trim()) {
+    throw new Error("יש להזין הוראה חופשית");
+  }
 
   const sourceFields = input.source === "user"
     ? { source: "user" as const }
