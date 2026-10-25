@@ -3597,7 +3597,7 @@ export default function BrewFormStepper({
           const expectedBrew = `${run.batchNumber}${String.fromCharCode(64 + index)}`;
           const headerValues = fullSheetRows[discovered.headerRow - 1] || [];
           if (!headerValues.some((value) =>
-            String(value ?? "").replace(/\\s+/g, "").toUpperCase() === expectedBrew.toUpperCase()
+            String(value ?? "").replace(/\s+/g, "").toUpperCase() === expectedBrew.toUpperCase()
           )) {
             validated = false;
             break;
