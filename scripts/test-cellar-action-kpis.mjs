@@ -12,7 +12,7 @@ const scheduledSource = readFileSync(new URL("../src/SERVICES/cellering/schedule
 const scheduledJs = ts.transpileModule(scheduledSource, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
 }).outputText.replace(/import\s*\{[^}]*\}\s*from\s*["'][^"']+["'];/g, "");
-const { scheduledRecommendationCompletionDate, hasUpcomingBottomCarbonationDecision } = await import(
+const { scheduledRecommendationCompletionDate, scheduledPressureDecisionEvidence, scheduledPressureDecisionConflictText, hasUpcomingBottomCarbonationDecision } = await import(
     "data:text/javascript;base64," + Buffer.from(scheduledJs).toString("base64")
 );
 
@@ -273,4 +273,162 @@ test("no pressure comparison when today lacks pressure, even if yesterday has it
         [{ id: "2026-10-20_0900", pressure: 1.4 }],
         "2026-10-20"
     ), "לחץ היום: 1.4 bar");
+});
+
+
+test("scheduled cooling requires an executed cooling report, not a request to cool", () => {
+    const row = {
+        id: "cool-17", tankNumber: "17", batchNumber: "1609",
+        actionType: "coolDown", dueDate: "2026-10-25", status: "active",
+    };
+    const requests = [
+        { id: "2026-10-25_0710", notes: "נא לבצע קירור היום" },
+        { id: "2026-10-25_0730", notes: "בדיקת גיזוז 2.4, ללא קירור" },
+        { id: "2026-10-24_0745", notes: "קירור מיכל ל0.3°" },
+    ];
+    assert.equal(scheduledRecommendationCompletionDate(row, requests), null);
+    assert.equal(scheduledRecommendationCompletionDate(row, [
+        ...requests, { id: "2026-10-25_0815", notes: "קירור מיכל ל0.3°" },
+    ]), "2026-10-25");
+});
+
+test("free-form cellar instruction is never automatically completed from measurement text", () => {
+    const row = {
+        id: "other-17", tankNumber: "17", batchNumber: "1609",
+        actionType: "other", dueDate: "2026-10-25",
+        note: "דחוף CO₂ מלמטה בועות גדולות", status: "active",
+    };
+    assert.equal(scheduledRecommendationCompletionDate(row, [
+        { id: "2026-10-25_0830", notes: "תחילת גיזוז מלמטה" },
+        { id: "2026-10-25_0910", notes: row.note },
+    ]), null);
+});
+
+test("multiple free-form decisions in one tank count independently under Other KPI", () => {
+    const alerts = [
+        pending("scheduled-first", "1609", "17", { scheduledActionType: "other" }),
+        pending("scheduled-second", "1609", "17", { scheduledActionType: "other" }),
+        pending("scheduled-cooling", "1609", "17", { scheduledActionType: "coolDown" }),
+    ];
+    assert.deepEqual(count(alerts), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 0, total: 3 },
+    });
+    assert.deepEqual(count(alerts, [done("scheduled-first", "אחר", "1609", "17")]), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 1, total: 3 },
+    });
+    assert.deepEqual(count(alerts, [
+        done("scheduled-first", "אחר", "1609", "17"),
+        done("scheduled-cooling", "קירור", "1609", "17"),
+    ]), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 2, total: 3 },
+    });
+});
+
+test("scheduled free-form and cooling UI remains visible and reportable", () => {
+    const panel = readFileSync(new URL("../src/components/dashboard/ScheduledCellarRecommendationsPanel.tsx", import.meta.url), "utf8");
+    const info = readFileSync(new URL("../src/components/dashboard/FermentorInfoBox.tsx", import.meta.url), "utf8");
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    assert.match(panel, /<option value="coolDown">קירור<\/option>/);
+    assert.match(panel, /<option value="other">אחר — הוראה חופשית<\/option>/);
+    assert.match(panel, /actionType === "other" && !note\.trim\(\)/);
+    assert.match(panel, /actionType !== "other" && existing\.some/);
+    assert.match(panel, /completeFreeform\(row\.manualId!/);
+    assert.match(panel, /<textarea rows=\{3\}/);
+    assert.match(info, /if \(row\.actionType === "yeastDrop"\) return !naturalYeastRecommendation/);
+    assert.match(dashboard, /if \(row\.actionType === "yeastDrop"\) return !naturalYeast/);
+    assert.match(dashboard, /coolDown: "קירור"/);
+});
+
+test("ordinary scheduled pressure action closes on any numeric change regardless of target", () => {
+    const task = {
+        id: "ordinary-1", tankNumber: "11", batchNumber: "1701", actionType: "pressureChange",
+        dueDate: "2026-10-25", targetPressure: 1.2, createdByIsCellarManager: false,
+        createdAt: "2026-10-25T14:00:00", status: "active",
+    };
+    assert.equal(scheduledRecommendationCompletionDate(task, [
+        { id: "2026-10-25_0830", notes: "העלאת לחץ ל: 1.6 bar" },
+    ]), "2026-10-25");
+    assert.equal(scheduledPressureDecisionConflictText(task, [
+        { id: "2026-10-25_0830", notes: "העלאת לחץ ל: 1.6 bar" },
+    ]), null);
+});
+
+test("manager pressure target retroactively overrides earlier same-day conflicting action", () => {
+    const task = {
+        id: "manager-1", tankNumber: "11", batchNumber: "1701", actionType: "pressureChange",
+        dueDate: "2026-10-25", targetPressure: 1.2, createdByIsCellarManager: true,
+        createdBy: "manager@example.com", createdAt: "2026-10-25T14:00:00", status: "active",
+    };
+    const earlierReport = [{ id: "2026-10-25_0830", notes: "הורדת לחץ ל: 1.6 bar" }];
+    assert.equal(scheduledRecommendationCompletionDate(task, earlierReport), null);
+    assert.deepEqual(scheduledPressureDecisionEvidence(task, earlierReport), {
+        completionDate: null, latestPressure: 1.6, hasPressureChange: true, mismatched: true,
+    });
+    assert.equal(scheduledPressureDecisionConflictText(task, earlierReport),
+        "משתמש manager@example.com החליט על שינוי לחץ ל־1.2 bar, שינוי לחץ בוצע ל־1.6 bar — יש לשנות ל־1.2 bar בהתאם להמלצה");
+});
+
+test("manager target accepts an earlier same-day matching action, including trailing zeros", () => {
+    const task = {
+        id: "manager-2", tankNumber: "11", batchNumber: "1701", actionType: "pressureChange",
+        dueDate: "2026-10-25", targetPressure: 1.2, createdByIsCellarManager: true,
+        createdAt: "2026-10-25T15:00:00", status: "active",
+    };
+    assert.equal(scheduledRecommendationCompletionDate(task, [
+        { id: "2026-10-25_0720", notes: "העלאת לחץ ל: 1.20 bar" },
+    ]), "2026-10-25");
+    assert.equal(scheduledPressureDecisionConflictText(task, [
+        { id: "2026-10-25_0720", notes: "העלאת לחץ ל: 1.20 bar" },
+    ]), null);
+});
+
+test("the latest actual same-day pressure report determines manager instruction state", () => {
+    const task = {
+        id: "manager-3", tankNumber: "11", batchNumber: "1701", actionType: "pressureChange",
+        dueDate: "2026-10-25", targetPressure: 1.2, createdByIsCellarManager: true,
+        createdAt: "2026-10-25T16:00:00", status: "active",
+    };
+    const changes = [
+        { id: "2026-10-25_1030", notes: "הורדת לחץ ל: 1.4 bar" },
+        { id: "2026-10-25_1100", notes: "הורדת לחץ ל: 1.2 bar" },
+    ];
+    assert.equal(scheduledRecommendationCompletionDate(task, changes), "2026-10-25");
+    assert.equal(scheduledRecommendationCompletionDate(task, [
+        ...changes, { id: "2026-10-25_1130", notes: "העלאת לחץ ל: 1.5 bar" },
+    ]), null);
+    assert.equal(scheduledRecommendationCompletionDate(task, [
+        ...changes, { id: "2026-10-25_1130", notes: "העלאת לחץ ל: 1.5 bar" },
+        { id: "2026-10-25_1240", notes: "הורדת לחץ ל: 1.2 bar" },
+    ]), "2026-10-25");
+});
+
+test("a pressure measurement, suggestion, or prior-day change is never an action completion", () => {
+    const task = {
+        id: "manager-4", tankNumber: "11", batchNumber: "1701", actionType: "pressureChange",
+        dueDate: "2026-10-25", targetPressure: 1.2, createdByIsCellarManager: true,
+        status: "active",
+    };
+    assert.equal(scheduledRecommendationCompletionDate(task, [
+        { id: "2026-10-24_1700", notes: "הורדת לחץ ל: 1.2 bar" },
+        { id: "2026-10-25_0730", pressure: 1.2, notes: "מומלץ לבצע שינוי לחץ" },
+    ]), null);
+    assert.equal(scheduledPressureDecisionConflictText(task, [
+        { id: "2026-10-25_0730", pressure: 1.5, notes: "מומלץ להוריד לחץ ל: 1.2 bar" },
+    ]), null);
+});
+
+test("manager snapshot and tank/dashboard completion gates use numeric pressure evidence", () => {
+    const service = readFileSync(new URL("../src/SERVICES/cellering/scheduledCellarRecommendations.ts", import.meta.url), "utf8");
+    const info = readFileSync(new URL("../src/components/dashboard/FermentorInfoBox.tsx", import.meta.url), "utf8");
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    assert.match(service, /data\.isCellarManager === true \|\| data\.isAdmin === true/);
+    assert.match(service, /createdByIsCellarManager: creatorIsCellarManager/);
+    assert.doesNotMatch(service, /reportedAt < createdAt/);
+    assert.match(info, /row\.actionType !== "pressureChange"/);
+    assert.match(info, /scheduledRecommendationCompletionDate\(row, measurements\)/);
+    assert.match(info, /scheduledPressureDecisionConflictText\(row, measurements\)/);
+    assert.match(dashboard, /scheduledPressureDecisionConflictText\(row, measurements\)/);
 });

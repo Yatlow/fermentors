@@ -33,6 +33,7 @@ import {
     dueScheduledForTank,
     hasUpcomingBottomCarbonationDecision,
     scheduledActionLabel,
+    scheduledPressureDecisionConflictText,
     scheduledRecommendationCompletionDate,
     setScheduledCellarRecommendationStatus,
     subscribeCompletedScheduledCellarRecommendationsToday,
@@ -565,8 +566,10 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             today,
                         );
                         const manualDue = unresolvedScheduled.filter((row) => {
-                            if (row.actionType === "pressureChange" || row.actionType === "bottomCarbonation") return true;
-                            return row.actionType === "carbTest" ? !naturalCarb : !naturalYeast;
+                            if (row.actionType === "carbTest") return !naturalCarb;
+                            if (row.actionType === "yeastDrop") return !naturalYeast;
+                            // Cooling and free-form instructions are independent of yeast work.
+                            return true;
                         });
 
                         let packagingToday = false;
@@ -681,20 +684,29 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                      (hasActiveUserPressureDecision ||
                                       (hasPlannedBottomCarbonation && recommendation.actionType === "pressureChange"))) ||
                                     (recommendation.recommendationKey === "bottomCarbonation" &&
-                                     hasPlannedBottomCarbonation)
+                                     hasPlannedBottomCarbonation) ||
+                                    (recommendation.recommendationKey === "coolDown" &&
+                                     unresolvedScheduled.some((row) => row.actionType === "coolDown"))
                                 )
                             ),
-                            ...manualDue.map((row) => ({
-                                recommendationKey: `scheduled-${row.id}`,
-                                req: true,
-                                display: true,
-                                importance: 3,
-                                actionType: row.actionType,
-                                userDecision: row.source === "user" || row.actionType === "pressureChange",
-                                reason: row.source === "user" || row.actionType === "pressureChange"
-                                    ? `החלטת סלרינג: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`
-                                    : `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
-                            })),
+                            ...manualDue.map((row) => {
+                                const conflict = row.actionType === "pressureChange"
+                                    ? scheduledPressureDecisionConflictText(row, measurements)
+                                    : null;
+                                return {
+                                    recommendationKey: `scheduled-${row.id}`,
+                                    req: true,
+                                    display: true,
+                                    importance: 3,
+                                    actionType: row.actionType,
+                                    userDecision: row.source === "user" || row.actionType === "pressureChange",
+                                    reason: conflict || (
+                                        row.source === "user" || row.actionType === "pressureChange"
+                                            ? `החלטת סלרינג: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`
+                                            : `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`
+                                    ),
+                                };
+                            }),
                         ].forEach((recommendation) => {
                             if (isRecommendationIgnored(
                                 ignoredRecommendations,
@@ -761,6 +773,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         const completedScheduledBottomCarbonation = scheduledCompletedForDisplay.some(
                             (row) => row.actionType === "bottomCarbonation"
                         );
+                        const completedScheduledCooling = scheduledCompletedForDisplay.some(
+                            (row) => row.actionType === "coolDown"
+                        );
 
                         scheduledCompletedForDisplay.forEach((row) => {
                             const isDecision = row.source === "user" || row.actionType === "pressureChange";
@@ -792,10 +807,13 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             { key: "other", label: "פעולה אחרת", pattern: /(?:^|[|\\n])\\s*אחר\\s*[:：-]/ },
                         ];
                         reportedActions.forEach(({ key, label, pattern }) => {
+                            // One matching pressure report can fulfill a scheduled
+                            // pressure decision; don't credit it as two actions.
+                            if (key === "pressure-change" && completedScheduledPressure) return;
                             if (pattern.test(todayNotes)) addCompleted(`reported-${key}-${tank.id}`, label);
                         });
                         if (todayNotes.includes("כשות")) addCompleted(`dryhop-${tank.id}`, "דרייהופ");
-                        if (todayNotes.includes("קירור")) addCompleted(`cooling-${tank.id}`, "התחלת קירור");
+                        if (todayNotes.includes("קירור") && !completedScheduledCooling) addCompleted(`cooling-${tank.id}`, "התחלת קירור");
                         // Award the daily action only when bottom carbonation STARTED today.
                         // Closing yesterday's session today is not a new start.
                         if (todayNotes.includes("תחילת גיזוז מלמטה") && !completedScheduledBottomCarbonation) addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
@@ -1257,7 +1275,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                         diacetylRest: "דיאציטיל", coolDown: "קירור",
                                         pressureAdjustment: "לחץ",
                                     };
-                                    const scheduledMapping: Record<string, string> = { carbTest: "גיזוז", yeastDrop: "שמרים", bottomCarbonation: "גיזוז מלמטה התחלה", pressureChange: "לחץ", ventAdjust: "פורק" };
+                                    const scheduledMapping: Record<string, string> = { carbTest: "גיזוז", yeastDrop: "שמרים", bottomCarbonation: "גיזוז מלמטה התחלה", pressureChange: "לחץ", coolDown: "קירור", ventAdjust: "פורק" };
                                     const noteType = alert.scheduledActionType ? scheduledMapping[alert.scheduledActionType] : alert.recommendationKey === "pressureAdjustment" && alert.detail.includes("לכוון פורק") ? "פורק" : mapping[alert.recommendationKey];
                                     const tank = brews.find(t => String(t.tankNumber) === String(alert.tankNumber));
                                     const isWarm = tank && Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";

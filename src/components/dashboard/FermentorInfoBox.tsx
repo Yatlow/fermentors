@@ -13,6 +13,8 @@ import {
     dueScheduledForTank,
     hasUpcomingBottomCarbonationDecision,
     scheduledActionLabel,
+    scheduledPressureDecisionConflictText,
+    scheduledRecommendationCompletionDate,
     setScheduledCellarRecommendationStatus,
     subscribeScheduledCellarRecommendations,
     todayDateKey,
@@ -255,6 +257,7 @@ export default function FermentorInfoBox({
         }
         if (/שמרים|שמרי/.test(todayNotes)) performed.add("yeastDrop");
         if (/תחילת\s+גיזוז\s+מלמטה/.test(todayNotes)) performed.add("bottomCarbonation");
+        if (/קירור מיכל ל|התחלת קירור|הועבר לקירור/.test(todayNotes)) performed.add("coolDown");
         if (handledPressureAfterCarb) performed.add("pressureChange");
         if (performed.size === 0) return;
 
@@ -264,6 +267,9 @@ export default function FermentorInfoBox({
             tank.batchNumber,
             today,
         ).filter((row) =>
+            // Pressure completion depends on the manager's numeric target;
+            // never persist a generic "a pressure change happened" completion.
+            row.actionType !== "pressureChange" &&
             performed.has(row.actionType) &&
             !autoResolvedScheduledIds.current.has(row.id)
         );
@@ -313,10 +319,12 @@ export default function FermentorInfoBox({
         tank.tankNumber,
         tank.batchNumber,
     ).filter((row) => {
-        if (row.actionType === "pressureChange" || row.actionType === "bottomCarbonation") return true;
-        return row.actionType === "carbTest"
-            ? !naturalCarbRecommendation
-            : !naturalYeastRecommendation;
+        if (row.actionType === "pressureChange" &&
+            scheduledRecommendationCompletionDate(row, measurements)) return false;
+        if (row.actionType === "carbTest") return !naturalCarbRecommendation;
+        if (row.actionType === "yeastDrop") return !naturalYeastRecommendation;
+        // Cooling and free-form work should never be hidden by yeast advice.
+        return true;
     });
     const hasActiveUserPressureDecision = dueManualRecommendations.some(
         (row) => row.actionType === "pressureChange"
@@ -341,7 +349,9 @@ export default function FermentorInfoBox({
                 recomendations.requiredBottomCarbonation,
                 recomendations.requiersDiacytelRest,
                 recomendations.neglectedStatus,
-                recomendations.requiresToCoolDown,
+                ...(!dueManualRecommendations.some((row) => row.actionType === "coolDown")
+                    ? [recomendations.requiresToCoolDown]
+                    : []),
                 ...(!hasActiveUserPressureDecision && !suppressAutomaticCarbPressureAdvice
                     ? [recomendations.requiredPressureAdjustment]
                     : []),
@@ -367,7 +377,9 @@ export default function FermentorInfoBox({
             : []),
         ...dueManualRecommendations.map((row) => ({
             req: true,
-            reason: `החלטת משתמש: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`,
+            reason: (row.actionType === "pressureChange"
+                ? scheduledPressureDecisionConflictText(row, measurements)
+                : null) || `החלטת משתמש: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`,
             importance: 3,
             display: true,
             userDecision: true,
@@ -469,6 +481,7 @@ export default function FermentorInfoBox({
                         tankNumber={tank.tankNumber ?? tank.id}
                         batchNumber={tank.batchNumber}
                         rows={scheduledRecommendations}
+                        measurements={measurements}
                         naturalFuture={naturalFuture}
                         pressureDecisionCandidate={pressureDecisionCandidate}
                     />

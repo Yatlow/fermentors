@@ -2,12 +2,14 @@ import { useMemo, useState } from "react";
 import {
   createScheduledCellarRecommendation,
   scheduledActionLabel,
+  scheduledRecommendationCompletionDate,
   scheduledForTank,
   setScheduledCellarRecommendationStatus,
   todayDateKey,
   type PressureChangeDirection,
   type ScheduledCellarActionType,
   type ScheduledCellarRecommendation,
+  type ScheduledCellarEvidenceMeasurement,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import "./ScheduledCellarRecommendationsPanel.css";
 
@@ -27,6 +29,7 @@ type Props = {
   tankNumber: string | number;
   batchNumber: string | number;
   rows: ScheduledCellarRecommendation[];
+  measurements?: ScheduledCellarEvidenceMeasurement[];
   naturalFuture?: NaturalFutureCellarRecommendation[];
   pressureDecisionCandidate?: PressureDecisionCandidate;
 };
@@ -54,6 +57,7 @@ export default function ScheduledCellarRecommendationsPanel({
   tankNumber,
   batchNumber,
   rows,
+  measurements = [],
   naturalFuture = [],
   pressureDecisionCandidate,
 }: Props) {
@@ -67,8 +71,11 @@ export default function ScheduledCellarRecommendationsPanel({
   const [message, setMessage] = useState("");
 
   const existing = useMemo(
-    () => scheduledForTank(rows, tankNumber, batchNumber),
-    [rows, tankNumber, batchNumber],
+    () => scheduledForTank(rows, tankNumber, batchNumber).filter((row) =>
+      row.actionType !== "pressureChange" ||
+      !scheduledRecommendationCompletionDate(row, measurements)
+    ),
+    [rows, tankNumber, batchNumber, measurements],
   );
 
   const today = todayDateKey();
@@ -111,7 +118,7 @@ export default function ScheduledCellarRecommendationsPanel({
 
   async function add() {
     if (!dueDate) return;
-    if (existing.some((row) => row.actionType === actionType && row.dueDate === dueDate)) {
+    if (actionType !== "other" && existing.some((row) => row.actionType === actionType && row.dueDate === dueDate)) {
       setMessage("כבר קיימת החלטת סלרינג מאותו סוג לתאריך הזה");
       return;
     }
@@ -121,7 +128,13 @@ export default function ScheduledCellarRecommendationsPanel({
     }
 
     let pressureTarget: number | undefined;
-    let scheduledNote = `יש לבצע ${scheduledActionLabel(actionType)}${note.trim() ? ` · ${note.trim()}` : ""}`;
+    if (actionType === "other" && !note.trim()) {
+      setMessage("יש להזין את ההוראה לביצוע");
+      return;
+    }
+    let scheduledNote = actionType === "other"
+      ? note.trim()
+      : `יש לבצע ${scheduledActionLabel(actionType)}${note.trim() ? ` · ${note.trim()}` : ""}`;
     if (actionType === "pressureChange") {
       pressureTarget = Number(targetPressure);
       if (!Number.isFinite(pressureTarget) || pressureTarget < 0 || pressureTarget > 5) {
@@ -189,6 +202,19 @@ export default function ScheduledCellarRecommendationsPanel({
       setMessage("החלטת הסלרינג נוספה להמלצות של היום");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "שמירת החלטת הסלרינג נכשלה");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function completeFreeform(id: string) {
+    setSaving(true);
+    setMessage("");
+    try {
+      await setScheduledCellarRecommendationStatus(id, "completed");
+      setMessage("ההוראה סומנה כבוצעה");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "סימון ההוראה כבוצעה נכשל");
     } finally {
       setSaving(false);
     }
@@ -263,6 +289,9 @@ export default function ScheduledCellarRecommendationsPanel({
               </div>
               {row.manualId && (
                 <div className="scheduled-cellar-actions">
+                  {row.actionType === "other" && row.dueDate && row.dueDate <= today && (
+                    <button type="button" disabled={saving} onClick={() => void completeFreeform(row.manualId!)}>בוצע</button>
+                  )}
                   <button type="button" disabled={saving} onClick={() => void cancel(row.manualId!)}>בטל</button>
                 </div>
               )}
@@ -286,6 +315,8 @@ export default function ScheduledCellarRecommendationsPanel({
             <option value="carbTest">בדיקת גיזוז</option>
             <option value="yeastDrop">הורדת שמרים</option>
             <option value="bottomCarbonation">גיזוז מלמטה</option>
+            <option value="coolDown">קירור</option>
+            <option value="other">אחר — הוראה חופשית</option>
             <option value="pressureChange">שינוי לחץ</option>
           </select>
           <input type="date" min={todayDateKey()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
@@ -310,10 +341,14 @@ export default function ScheduledCellarRecommendationsPanel({
               />
             </>
           )}
-          <input value={note} placeholder="הערה (אופציונלי)" onChange={(event) => setNote(event.target.value)} />
+          {actionType === "other" ? (
+            <textarea rows={3} maxLength={500} value={note} placeholder="מה יש לבצע? למשל: לדחוף CO₂ מלמטה בבועות גדולות" aria-label="הוראה חופשית לביצוע" onChange={(event) => setNote(event.target.value)} />
+          ) : (
+            <input value={note} maxLength={500} placeholder="הערה (אופציונלי)" onChange={(event) => setNote(event.target.value)} />
+          )}
           <button
             type="button"
-            disabled={saving || !dueDate || (actionType === "pressureChange" && !targetPressure)}
+            disabled={saving || !dueDate || (actionType === "pressureChange" && !targetPressure) || (actionType === "other" && !note.trim())}
             onClick={() => void add()}
           >
             {saving ? "שומר…" : "שמירה"}
