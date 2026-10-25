@@ -15,7 +15,7 @@ const classify = (value: string): ActionCategory | null => {
     if (/bottomCarbonation|bottom-carb|גיזוז מלמטה/i.test(value)) return "other";
     if (/carb|carbonation|גיזוז/i.test(value)) return "carb";
     if (/yeast|שמרים/i.test(value)) return "yeast";
-    if (/^(?:other|ventAdjust)$/i.test(value)) return "other";
+    if (/^(?:other|ventAdjust)$/i.test(value) || /(?:^|\s)אחר(?:\s|$)/.test(value)) return "other";
     if (/pressureClose|pressure-close|vent-adjust|dryHop|coolDown|cooling|diacetyl|neglectedStatus|סגירת נשם|סגירת מיכל|כיוון פורק|דרייהופ|כשות|קירור|דיאצטיל|פעולה אחרת|reported-other|scheduled-other/i.test(value)) return "other";
     return null;
 };
