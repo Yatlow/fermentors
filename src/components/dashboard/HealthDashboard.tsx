@@ -33,6 +33,7 @@ import {
     dueScheduledForTank,
     hasUpcomingBottomCarbonationDecision,
     scheduledActionLabel,
+    scheduledPressureDecisionConflictText,
     scheduledRecommendationCompletionDate,
     setScheduledCellarRecommendationStatus,
     subscribeCompletedScheduledCellarRecommendationsToday,
@@ -688,17 +689,24 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                      unresolvedScheduled.some((row) => row.actionType === "coolDown"))
                                 )
                             ),
-                            ...manualDue.map((row) => ({
-                                recommendationKey: `scheduled-${row.id}`,
-                                req: true,
-                                display: true,
-                                importance: 3,
-                                actionType: row.actionType,
-                                userDecision: row.source === "user" || row.actionType === "pressureChange",
-                                reason: row.source === "user" || row.actionType === "pressureChange"
-                                    ? `החלטת סלרינג: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`
-                                    : `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
-                            })),
+                            ...manualDue.map((row) => {
+                                const conflict = row.actionType === "pressureChange"
+                                    ? scheduledPressureDecisionConflictText(row, measurements)
+                                    : null;
+                                return {
+                                    recommendationKey: `scheduled-${row.id}`,
+                                    req: true,
+                                    display: true,
+                                    importance: 3,
+                                    actionType: row.actionType,
+                                    userDecision: row.source === "user" || row.actionType === "pressureChange",
+                                    reason: conflict || (
+                                        row.source === "user" || row.actionType === "pressureChange"
+                                            ? `החלטת סלרינג: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`
+                                            : `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`
+                                    ),
+                                };
+                            }),
                         ].forEach((recommendation) => {
                             if (isRecommendationIgnored(
                                 ignoredRecommendations,
