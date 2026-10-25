@@ -274,3 +274,70 @@ test("no pressure comparison when today lacks pressure, even if yesterday has it
         "2026-10-20"
     ), "לחץ היום: 1.4 bar");
 });
+
+
+test("scheduled cooling requires an executed cooling report, not a request to cool", () => {
+    const row = {
+        id: "cool-17", tankNumber: "17", batchNumber: "1609",
+        actionType: "coolDown", dueDate: "2026-10-25", status: "active",
+    };
+    const requests = [
+        { id: "2026-10-25_0710", notes: "נא לבצע קירור היום" },
+        { id: "2026-10-25_0730", notes: "בדיקת גיזוז 2.4, ללא קירור" },
+        { id: "2026-10-24_0745", notes: "קירור מיכל ל0.3°" },
+    ];
+    assert.equal(scheduledRecommendationCompletionDate(row, requests), null);
+    assert.equal(scheduledRecommendationCompletionDate(row, [
+        ...requests, { id: "2026-10-25_0815", notes: "קירור מיכל ל0.3°" },
+    ]), "2026-10-25");
+});
+
+test("free-form cellar instruction is never automatically completed from measurement text", () => {
+    const row = {
+        id: "other-17", tankNumber: "17", batchNumber: "1609",
+        actionType: "other", dueDate: "2026-10-25",
+        note: "דחוף CO₂ מלמטה בועות גדולות", status: "active",
+    };
+    assert.equal(scheduledRecommendationCompletionDate(row, [
+        { id: "2026-10-25_0830", notes: "תחילת גיזוז מלמטה" },
+        { id: "2026-10-25_0910", notes: row.note },
+    ]), null);
+});
+
+test("multiple free-form decisions in one tank count independently under Other KPI", () => {
+    const alerts = [
+        pending("scheduled-first", "1609", "17", { scheduledActionType: "other" }),
+        pending("scheduled-second", "1609", "17", { scheduledActionType: "other" }),
+        pending("scheduled-cooling", "1609", "17", { scheduledActionType: "coolDown" }),
+    ];
+    assert.deepEqual(count(alerts), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 0, total: 3 },
+    });
+    assert.deepEqual(count(alerts, [done("scheduled-first", "אחר", "1609", "17")]), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 1, total: 3 },
+    });
+    assert.deepEqual(count(alerts, [
+        done("scheduled-first", "אחר", "1609", "17"),
+        done("scheduled-cooling", "קירור", "1609", "17"),
+    ]), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 2, total: 3 },
+    });
+});
+
+test("scheduled free-form and cooling UI remains visible and reportable", () => {
+    const panel = readFileSync(new URL("../src/components/dashboard/ScheduledCellarRecommendationsPanel.tsx", import.meta.url), "utf8");
+    const info = readFileSync(new URL("../src/components/dashboard/FermentorInfoBox.tsx", import.meta.url), "utf8");
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    assert.match(panel, /<option value="coolDown">קירור<\\/option>/);
+    assert.match(panel, /<option value="other">אחר — הוראה חופשית<\\/option>/);
+    assert.match(panel, /actionType === "other" && !note\\.trim\\(\\)/);
+    assert.match(panel, /actionType !== "other" && existing\\.some/);
+    assert.match(panel, /completeFreeform\\(row\\.manualId!/);
+    assert.match(panel, /<textarea rows=\\{3\\}/);
+    assert.match(info, /if \\(row\\.actionType === "yeastDrop"\\) return !naturalYeastRecommendation/);
+    assert.match(dashboard, /if \\(row\\.actionType === "yeastDrop"\\) return !naturalYeast/);
+    assert.match(dashboard, /coolDown: "קירור"/);
+});
