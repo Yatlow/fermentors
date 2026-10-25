@@ -3582,23 +3582,69 @@ export default function BrewFormStepper({
         "'גיליון1'!A1:H220",
       );
       if (!formMountedRef.current) return false;
-      // Only actual in-session edits invalidate this read. A stale local
-      // cache can have a newer timestamp from merely navigating the form;
-      // treating that as a keystroke prevented legacy recovery entirely.
+      const discoveredBlocks = discoverSheetBlocks(fullSheetRows, totalBlocks);
+
+      // Semantic row addresses are not process values. Even if a brewer
+      // edits a field (or Firestore receives a newer A/B block) while this
+      // startup read is in flight, salvaging ONLY exact row coordinates is
+      // safe. The old early return discarded the entire map, leaving 1610's
+      // material approval and following stage inputs unable to write.
+      if (discoveredBlocks.length === totalBlocks) {
+        const mappedByBlock: Record<string, Record<string, string>> = {};
+        let validated = true;
+        for (let index = 1; index <= totalBlocks; index += 1) {
+          const discovered = discoveredBlocks[index - 1];
+          const expectedBrew = `${run.batchNumber}${String.fromCharCode(64 + index)}`;
+          const headerValues = fullSheetRows[discovered.headerRow - 1] || [];
+          if (!headerValues.some((value) =>
+            String(value ?? "").replace(/\\s+/g, "").toUpperCase() === expectedBrew.toUpperCase()
+          )) {
+            validated = false;
+            break;
+          }
+          const pulled = fieldsFromSheetRows(
+            fullSheetRows.slice(discovered.headerRow - 1, discovered.endRow),
+            recipe.lautering.usesGrant,
+            recipe,
+            ingredientLibrary,
+            discovered.baseRow - discovered.headerRow,
+            discovered.headerRow,
+          );
+          if (!pulled["__sheetRow.stage.mashIn"]) {
+            validated = false;
+            break;
+          }
+          mappedByBlock[String(index)] = Object.fromEntries(
+            Object.entries(pulled).filter(([field]) => field.startsWith("__sheetRow.")),
+          );
+        }
+        if (validated) {
+          setExecution((previous) => {
+            const blocks = { ...previous.blocks };
+            let changed = false;
+            for (const [blockId, metadata] of Object.entries(mappedByBlock)) {
+              const oldBlock = blocks[blockId] || { fields: {} };
+              const nextFields = { ...oldBlock.fields, ...metadata };
+              if (Object.entries(metadata).some(([field, value]) => oldBlock.fields[field] !== value)) {
+                blocks[blockId] = { ...oldBlock, fields: nextFields };
+                changed = true;
+              }
+            }
+            return changed ? { ...previous, blocks } : previous;
+          });
+        }
+      }
+
+      // If process values changed mid-read, abandon the stale *values*,
+      // but retain safely rediscovered addresses from the same live Sheet.
       if (latestLocalEditAt.current > readStartedAt ||
           remoteBaselineRef.current !== remoteAtReadStart ||
           pendingSheetWrites.current.size > 0) {
-        // A newer in-app edit, remote revision or pending app→Sheet write
-        // invalidates this snapshot; never persist it over fresh process data.
         return false;
       }
       const fermentationIndex = fullSheetRows.findIndex((row) =>
         /^יום בישול/i.test(String(row[0] ?? "").trim()) &&
         /שעת הוספת שמרים/i.test(String(row[4] ?? "").trim()),
-      );
-      const discoveredBlocks = discoverSheetBlocks(
-        fullSheetRows,
-        totalBlocks,
       );
 
       const startupConflicts: SyncMismatch[] = [];
