@@ -424,11 +424,11 @@ test("manager snapshot and tank/dashboard completion gates use numeric pressure 
     const service = readFileSync(new URL("../src/SERVICES/cellering/scheduledCellarRecommendations.ts", import.meta.url), "utf8");
     const info = readFileSync(new URL("../src/components/dashboard/FermentorInfoBox.tsx", import.meta.url), "utf8");
     const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
-    assert.match(service, /data\\.isCellarManager === true \\|\\| data\\.isAdmin === true/);
+    assert.match(service, /data\.isCellarManager === true \|\| data\.isAdmin === true/);
     assert.match(service, /createdByIsCellarManager: creatorIsCellarManager/);
     assert.doesNotMatch(service, /reportedAt < createdAt/);
-    assert.match(info, /row\\.actionType !== "pressureChange"/);
-    assert.match(info, /scheduledRecommendationCompletionDate\\(row, measurements\\)/);
-    assert.match(info, /scheduledPressureDecisionConflictText\\(row, measurements\\)/);
-    assert.match(dashboard, /scheduledPressureDecisionConflictText\\(row, measurements\\)/);
+    assert.match(info, /row\.actionType !== "pressureChange"/);
+    assert.match(info, /scheduledRecommendationCompletionDate\(row, measurements\)/);
+    assert.match(info, /scheduledPressureDecisionConflictText\(row, measurements\)/);
+    assert.match(dashboard, /scheduledPressureDecisionConflictText\(row, measurements\)/);
 });
