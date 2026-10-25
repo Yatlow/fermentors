@@ -12,7 +12,6 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import { recordGlobalServerRead } from "../globalReadDiagnostics";
-import { hasExplicitPressureChangeAction } from "../dashboard/actionKpis";
 
 export type ScheduledCellarActionType = "carbTest" | "yeastDrop" | "pressureChange" | "bottomCarbonation" | "coolDown" | "other";
 export type PressureChangeDirection = "raise" | "lower";
@@ -141,8 +140,8 @@ function measurementCompletesScheduledAction(
     // mark each instruction done rather than guessing from unrelated notes.
     return false;
   }
-  // Pressure decisions use the dedicated evidence evaluator below, which
-  // accounts for creator role, numeric target, and chronological ordering.
+  // Pressure decisions use the dedicated evaluator below. The latest pressure
+  // report for the due day applies even if the decision was entered later.
   return false;
 }
 
@@ -150,19 +149,6 @@ function measurementCompletesScheduledAction(
 /** Actual pressure-adjustment reports contain a numeric result. Do not treat
  * a suggestion ("מומלץ להעלות לחץ") or a pressure measurement as an action. */
 const PRESSURE_REPORT = /(?:העלאת|הורדת)\s+לחץ\s+ל\s*[:：=-]?\s*(\d+(?:[.,]\d+)?)/gu;
-
-function createdMoment(row: ScheduledCellarRecommendation): number | null {
-  const value = row.createdAt;
-  if (!value) return null;
-  const parsed = value instanceof Date
-    ? value
-    : typeof value === "string"
-      ? new Date(value)
-      : typeof value === "object" && typeof value.toDate === "function"
-        ? value.toDate()
-        : null;
-  return parsed && Number.isFinite(parsed.getTime()) ? parsed.getTime() : null;
-}
 
 function evidenceMoment(measurement: ScheduledCellarEvidenceMeasurement): number | null {
   const match = String(measurement.id ?? "").match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})/);
@@ -197,19 +183,10 @@ export function scheduledPressureDecisionEvidence(
   const none = { completionDate: null, latestPressure: null, hasPressureChange: false, mismatched: false };
   if (row.actionType !== "pressureChange") return none;
 
-  const createdAt = createdMoment(row);
   const events = measurements.flatMap((measurement, index) => {
     const dateKey = scheduledEvidenceDateKey(measurement);
     if (!dateKey || dateKey < row.dueDate) return [];
     const reportedAt = evidenceMoment(measurement);
-    // If createdAt and report timestamps are known, don't let a report from
-    // earlier the same day automatically fulfill a new decision.
-    if (createdAt !== null && reportedAt !== null &&
-        Math.floor(reportedAt / 60_000) < Math.floor(createdAt / 60_000)) return [];
-    // If the report only has a calendar date, a same-day pre-creation action
-    // cannot be proven to follow a new manager decision.
-    if (row.createdByIsCellarManager === true && createdAt !== null &&
-        reportedAt === null && dateKey === todayDateKey(new Date(createdAt))) return [];
     return pressureReports(measurement.notes).map((pressure, innerIndex) => ({
       pressure, dateKey, order: reportedAt ?? new Date(dateKey + "T00:00:00").getTime(),
       index, innerIndex,
@@ -223,7 +200,7 @@ export function scheduledPressureDecisionEvidence(
   const strict = row.createdByIsCellarManager === true;
   const target = row.targetPressure;
   const matches = !strict || (typeof target === "number" && Number.isFinite(target) &&
-    Math.abs(latest.pressure - target) <= 0.0100001);
+    Math.abs(latest.pressure - target) < 0.000001);
   return {
     completionDate: matches ? latest.dateKey : null,
     latestPressure: latest.pressure,
@@ -232,8 +209,8 @@ export function scheduledPressureDecisionEvidence(
   };
 }
 
-/** Extra context only when an authorized manager's numeric instruction was
- * actually contradicted by a subsequent reported pressure change. */
+/** Extra context when a manager's target conflicts with the latest pressure
+ * change report, including one made earlier on the same scheduled day. */
 export function scheduledPressureDecisionConflictText(
   row: ScheduledCellarRecommendation,
   measurements: ScheduledCellarEvidenceMeasurement[],
@@ -243,7 +220,7 @@ export function scheduledPressureDecisionConflictText(
   const who = row.createdBy?.trim() || "מנהל סלרינג";
   const target = Number(row.targetPressure);
   if (!Number.isFinite(target)) return null;
-  return \`משתמש \${who} החליט על שינוי לחץ ל־\${target} bar, שינוי לחץ בוצע ל־\${evidence.latestPressure} bar — יש לשנות ל־\${target} bar בהתאם להמלצה\`;
+  return `משתמש ${who} החליט על שינוי לחץ ל־${target} bar, שינוי לחץ בוצע ל־${evidence.latestPressure} bar — יש לשנות ל־${target} bar בהתאם להמלצה`;
 }
 
 /**
