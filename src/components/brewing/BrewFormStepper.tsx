@@ -1,3 +1,5 @@
+import { resolveBrewMaterialSheetWrites } from "../../SERVICES/brewing/materialSheetWriteMapping";
+import type { MaterialSheetWriteIntent } from "../../SERVICES/brewing/materialSheetWriteMapping";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
@@ -797,9 +799,13 @@ function fieldsFromSheetRows(
   // Yeast material rows move on variable mash layouts. Resolve the visible
   // "שמרים" section instead of assuming the legacy base + 23 coordinate.
   const yeastHeadingRow = findDynamicRow("A", /^שמרים$/i);
+  const yeastColumnHeading = yeastHeadingRow >= 0 &&
+    /^כמות$/i.test(dynamicValue(yeastHeadingRow + 1, "A")) &&
+    /^סוג$/i.test(dynamicValue(yeastHeadingRow + 1, "B"));
+  const yeastCandidateRow = yeastHeadingRow + (yeastColumnHeading ? 2 : 1);
   const yeastMaterialRow =
-    yeastHeadingRow >= 0 && yeastHeadingRow + 1 < rows.length
-      ? yeastHeadingRow + 1
+    yeastHeadingRow >= 0 && yeastCandidateRow < rows.length
+      ? yeastCandidateRow
       : -1;
   if (yeastMaterialRow >= 0) {
     pulled["__sheetRow.material.yeast"] = String(
@@ -1773,10 +1779,8 @@ export default function BrewFormStepper({
     setMaterialsSaveError("");
     latestLocalEditAt.current = Date.now();
     let nextExecution = execution;
-    const writes: Array<{
-      range: string;
-      value: string | number | boolean | null;
-    }> = [];
+    // The explicit approval is persisted independently of Sheet row metadata.
+    const materialWriteIntents: MaterialSheetWriteIntent[] = [];
 
     try {
     recipe.grains.forEach((grain, index) => {
@@ -1793,7 +1797,6 @@ export default function BrewFormStepper({
         `materialLot.${ingredient.id}`,
         lot.id,
       );
-      const row = sheetRowFromMeta("__sheetRow.stage.mashIn", baseRow) + index;
       const typeAndLot = [
         ingredient.name,
         lot.lotNumber ? `#${lot.lotNumber}` : "",
@@ -1801,9 +1804,9 @@ export default function BrewFormStepper({
         .filter(Boolean)
         .join(" ");
 
-      writes.push(
-        { range: `'גיליון1'!B${row}`, value: typeAndLot },
-        { range: `'גיליון1'!C${row}`, value: lot.supplier || "" },
+      materialWriteIntents.push(
+        { rowKey: "__sheetRow.stage.mashIn", rowOffset: index, column: "B", value: typeAndLot },
+        { rowKey: "__sheetRow.stage.mashIn", rowOffset: index, column: "C", value: lot.supplier || "" },
       );
     });
 
@@ -1823,14 +1826,18 @@ export default function BrewFormStepper({
           `materialLot.${ingredient.id}`,
           lot.id,
         );
-        const row = rawHopSheetRow(index);
-        writes.push({
-          range: `'גיליון1'!C${row}`,
+        const rowKey = `__sheetRow.rawHop.${index + 1}`;
+        materialWriteIntents.push({
+          rowKey,
+          rowOffset: 0,
+          column: "C",
           value: `${index + 1})${ingredient.name}${lot.lotNumber ? ` ${lot.lotNumber}` : ""}`,
         });
         if (lot.alpha !== undefined) {
-          writes.push({
-            range: `'גיליון1'!B${row}`,
+          materialWriteIntents.push({
+            rowKey,
+            rowOffset: 0,
+            column: "B",
             value: Number(lot.alpha),
           });
         }
@@ -1846,8 +1853,10 @@ export default function BrewFormStepper({
               amountKey,
               grams,
             );
-            writes.push({
-              range: `'גיליון1'!A${row}`,
+            materialWriteIntents.push({
+              rowKey,
+              rowOffset: 0,
+              column: "A",
               value: Number(grams),
             });
           }
@@ -1884,18 +1893,16 @@ export default function BrewFormStepper({
           `materialLot.${yeast.id}`,
           lot.id,
         );
-        const row = sheetRowFromMeta(
-          "__sheetRow.material.yeast",
-          baseRow + 23,
-        );
         const yeastAmount =
           Math.max(0, Number(recipe.yeast.gramsPerBrew || 0)) * totalBlocks +
           Math.max(0, Number(recipe.yeast.extraPerBatch || 0));
-        writes.push(
-          { range: `'גיליון1'!A${row}`, value: yeastAmount || "" },
-          { range: `'גיליון1'!B${row}`, value: yeast.name },
+        materialWriteIntents.push(
+          { rowKey: "__sheetRow.material.yeast", rowOffset: 0, column: "A", value: yeastAmount || "" },
+          { rowKey: "__sheetRow.material.yeast", rowOffset: 0, column: "B", value: yeast.name },
           {
-            range: `'גיליון1'!C${row}`,
+            rowKey: "__sheetRow.material.yeast",
+            rowOffset: 0,
+            column: "C",
             value: [
               lot.lotNumber,
               lot.supplier,
@@ -1941,8 +1948,37 @@ export default function BrewFormStepper({
       });
     });
     // Sheet holds lots and quantities, not the approval flag itself.
-    // Only start writing it after the Firestore approval is durable.
-    writeSheet("materialsConfirmed", writes);
+    // Firestore is already acknowledged; no missing or stale Sheet mapping
+    // can revoke approval or masquerade as a Firestore save failure.
+    if (run.sheetId && materialWriteIntents.length) {
+      try {
+        const liveSheetRows = await readBrewSheetRange(run.sheetId, "'גיליון1'!A1:H220");
+        const { writes, metadata } = resolveBrewMaterialSheetWrites(
+          liveSheetRows,
+          run.batchNumber,
+          confirmingBlock,
+          materialWriteIntents,
+        );
+        setExecution((previous) => {
+          if (previous.batchNumber !== confirmed.batchNumber) return previous;
+          const existing = previous.blocks[key] || { fields: {} };
+          return {
+            ...previous,
+            blocks: {
+              ...previous.blocks,
+              [key]: {
+                ...existing,
+                fields: { ...existing.fields, ...metadata },
+              },
+            },
+          };
+        });
+        writeSheet("materialsConfirmed", writes);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "שגיאת קריאת גיליון";
+        setSyncError(`אישור חומרי הגלם נשמר ב-Firestore, אבל העדכון ב-Sheet לא הושלם: ${detail}. יש לבצע סנכרון חוזר.`);
+      }
+    }
     } catch (error) {
       const detail = error instanceof Error ? error.message : "שגיאת תקשורת";
       setMaterialsSaveError(
