@@ -481,6 +481,7 @@ export default function FermentorInfoBox({
                         tankNumber={tank.tankNumber ?? tank.id}
                         batchNumber={tank.batchNumber}
                         rows={scheduledRecommendations}
+                        measurements={measurements}
                         naturalFuture={naturalFuture}
                         pressureDecisionCandidate={pressureDecisionCandidate}
                     />
