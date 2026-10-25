@@ -13,6 +13,8 @@ import {
     dueScheduledForTank,
     hasUpcomingBottomCarbonationDecision,
     scheduledActionLabel,
+    scheduledPressureDecisionConflictText,
+    scheduledRecommendationCompletionDate,
     setScheduledCellarRecommendationStatus,
     subscribeScheduledCellarRecommendations,
     todayDateKey,
@@ -265,6 +267,9 @@ export default function FermentorInfoBox({
             tank.batchNumber,
             today,
         ).filter((row) =>
+            // Pressure completion depends on the manager's numeric target;
+            // never persist a generic "a pressure change happened" completion.
+            row.actionType !== "pressureChange" &&
             performed.has(row.actionType) &&
             !autoResolvedScheduledIds.current.has(row.id)
         );
@@ -314,6 +319,8 @@ export default function FermentorInfoBox({
         tank.tankNumber,
         tank.batchNumber,
     ).filter((row) => {
+        if (row.actionType === "pressureChange" &&
+            scheduledRecommendationCompletionDate(row, measurements)) return false;
         if (row.actionType === "carbTest") return !naturalCarbRecommendation;
         if (row.actionType === "yeastDrop") return !naturalYeastRecommendation;
         // Cooling and free-form work should never be hidden by yeast advice.
@@ -370,7 +377,9 @@ export default function FermentorInfoBox({
             : []),
         ...dueManualRecommendations.map((row) => ({
             req: true,
-            reason: `החלטת משתמש: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`,
+            reason: (row.actionType === "pressureChange"
+                ? scheduledPressureDecisionConflictText(row, measurements)
+                : null) || `החלטת משתמש: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`,
             importance: 3,
             display: true,
             userDecision: true,
