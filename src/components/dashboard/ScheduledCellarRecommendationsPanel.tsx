@@ -2,12 +2,14 @@ import { useMemo, useState } from "react";
 import {
   createScheduledCellarRecommendation,
   scheduledActionLabel,
+  scheduledRecommendationCompletionDate,
   scheduledForTank,
   setScheduledCellarRecommendationStatus,
   todayDateKey,
   type PressureChangeDirection,
   type ScheduledCellarActionType,
   type ScheduledCellarRecommendation,
+  type ScheduledCellarEvidenceMeasurement,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import "./ScheduledCellarRecommendationsPanel.css";
 
@@ -27,6 +29,7 @@ type Props = {
   tankNumber: string | number;
   batchNumber: string | number;
   rows: ScheduledCellarRecommendation[];
+  measurements?: ScheduledCellarEvidenceMeasurement[];
   naturalFuture?: NaturalFutureCellarRecommendation[];
   pressureDecisionCandidate?: PressureDecisionCandidate;
 };
@@ -54,6 +57,7 @@ export default function ScheduledCellarRecommendationsPanel({
   tankNumber,
   batchNumber,
   rows,
+  measurements = [],
   naturalFuture = [],
   pressureDecisionCandidate,
 }: Props) {
@@ -67,8 +71,11 @@ export default function ScheduledCellarRecommendationsPanel({
   const [message, setMessage] = useState("");
 
   const existing = useMemo(
-    () => scheduledForTank(rows, tankNumber, batchNumber),
-    [rows, tankNumber, batchNumber],
+    () => scheduledForTank(rows, tankNumber, batchNumber).filter((row) =>
+      row.actionType !== "pressureChange" ||
+      !scheduledRecommendationCompletionDate(row, measurements)
+    ),
+    [rows, tankNumber, batchNumber, measurements],
   );
 
   const today = todayDateKey();
