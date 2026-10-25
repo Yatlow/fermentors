@@ -255,6 +255,7 @@ export default function FermentorInfoBox({
         }
         if (/שמרים|שמרי/.test(todayNotes)) performed.add("yeastDrop");
         if (/תחילת\s+גיזוז\s+מלמטה/.test(todayNotes)) performed.add("bottomCarbonation");
+        if (/קירור מיכל ל|התחלת קירור|הועבר לקירור/.test(todayNotes)) performed.add("coolDown");
         if (handledPressureAfterCarb) performed.add("pressureChange");
         if (performed.size === 0) return;
 
@@ -313,10 +314,10 @@ export default function FermentorInfoBox({
         tank.tankNumber,
         tank.batchNumber,
     ).filter((row) => {
-        if (row.actionType === "pressureChange" || row.actionType === "bottomCarbonation") return true;
-        return row.actionType === "carbTest"
-            ? !naturalCarbRecommendation
-            : !naturalYeastRecommendation;
+        if (row.actionType === "carbTest") return !naturalCarbRecommendation;
+        if (row.actionType === "yeastDrop") return !naturalYeastRecommendation;
+        // Cooling and free-form work should never be hidden by yeast advice.
+        return true;
     });
     const hasActiveUserPressureDecision = dueManualRecommendations.some(
         (row) => row.actionType === "pressureChange"
@@ -341,7 +342,9 @@ export default function FermentorInfoBox({
                 recomendations.requiredBottomCarbonation,
                 recomendations.requiersDiacytelRest,
                 recomendations.neglectedStatus,
-                recomendations.requiresToCoolDown,
+                ...(!dueManualRecommendations.some((row) => row.actionType === "coolDown")
+                    ? [recomendations.requiresToCoolDown]
+                    : []),
                 ...(!hasActiveUserPressureDecision && !suppressAutomaticCarbPressureAdvice
                     ? [recomendations.requiredPressureAdjustment]
                     : []),
