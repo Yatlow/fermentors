@@ -12,7 +12,7 @@ const scheduledSource = readFileSync(new URL("../src/SERVICES/cellering/schedule
 const scheduledJs = ts.transpileModule(scheduledSource, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
 }).outputText.replace(/import\s*\{[^}]*\}\s*from\s*["'][^"']+["'];/g, "");
-const { scheduledRecommendationCompletionDate, hasUpcomingBottomCarbonationDecision } = await import(
+const { scheduledRecommendationCompletionDate, scheduledPressureDecisionEvidence, scheduledPressureDecisionConflictText, hasUpcomingBottomCarbonationDecision } = await import(
     "data:text/javascript;base64," + Buffer.from(scheduledJs).toString("base64")
 );
 
@@ -340,4 +340,95 @@ test("scheduled free-form and cooling UI remains visible and reportable", () => 
     assert.match(info, /if \(row\.actionType === "yeastDrop"\) return !naturalYeastRecommendation/);
     assert.match(dashboard, /if \(row\.actionType === "yeastDrop"\) return !naturalYeast/);
     assert.match(dashboard, /coolDown: "קירור"/);
+});
+
+test("ordinary scheduled pressure action closes on any numeric change regardless of target", () => {
+    const task = {
+        id: "ordinary-1", tankNumber: "11", batchNumber: "1701", actionType: "pressureChange",
+        dueDate: "2026-10-25", targetPressure: 1.2, createdByIsCellarManager: false,
+        createdAt: "2026-10-25T14:00:00", status: "active",
+    };
+    assert.equal(scheduledRecommendationCompletionDate(task, [
+        { id: "2026-10-25_0830", notes: "העלאת לחץ ל: 1.6 bar" },
+    ]), "2026-10-25");
+    assert.equal(scheduledPressureDecisionConflictText(task, [
+        { id: "2026-10-25_0830", notes: "העלאת לחץ ל: 1.6 bar" },
+    ]), null);
+});
+
+test("manager pressure target retroactively overrides earlier same-day conflicting action", () => {
+    const task = {
+        id: "manager-1", tankNumber: "11", batchNumber: "1701", actionType: "pressureChange",
+        dueDate: "2026-10-25", targetPressure: 1.2, createdByIsCellarManager: true,
+        createdBy: "manager@example.com", createdAt: "2026-10-25T14:00:00", status: "active",
+    };
+    const earlierReport = [{ id: "2026-10-25_0830", notes: "הורדת לחץ ל: 1.6 bar" }];
+    assert.equal(scheduledRecommendationCompletionDate(task, earlierReport), null);
+    assert.deepEqual(scheduledPressureDecisionEvidence(task, earlierReport), {
+        completionDate: null, latestPressure: 1.6, hasPressureChange: true, mismatched: true,
+    });
+    assert.equal(scheduledPressureDecisionConflictText(task, earlierReport),
+        "משתמש manager@example.com החליט על שינוי לחץ ל־1.2 bar, שינוי לחץ בוצע ל־1.6 bar — יש לשנות ל־1.2 bar בהתאם להמלצה");
+});
+
+test("manager target accepts an earlier same-day matching action, including trailing zeros", () => {
+    const task = {
+        id: "manager-2", tankNumber: "11", batchNumber: "1701", actionType: "pressureChange",
+        dueDate: "2026-10-25", targetPressure: 1.2, createdByIsCellarManager: true,
+        createdAt: "2026-10-25T15:00:00", status: "active",
+    };
+    assert.equal(scheduledRecommendationCompletionDate(task, [
+        { id: "2026-10-25_0720", notes: "העלאת לחץ ל: 1.20 bar" },
+    ]), "2026-10-25");
+    assert.equal(scheduledPressureDecisionConflictText(task, [
+        { id: "2026-10-25_0720", notes: "העלאת לחץ ל: 1.20 bar" },
+    ]), null);
+});
+
+test("the latest actual same-day pressure report determines manager instruction state", () => {
+    const task = {
+        id: "manager-3", tankNumber: "11", batchNumber: "1701", actionType: "pressureChange",
+        dueDate: "2026-10-25", targetPressure: 1.2, createdByIsCellarManager: true,
+        createdAt: "2026-10-25T16:00:00", status: "active",
+    };
+    const changes = [
+        { id: "2026-10-25_1030", notes: "הורדת לחץ ל: 1.4 bar" },
+        { id: "2026-10-25_1100", notes: "הורדת לחץ ל: 1.2 bar" },
+    ];
+    assert.equal(scheduledRecommendationCompletionDate(task, changes), "2026-10-25");
+    assert.equal(scheduledRecommendationCompletionDate(task, [
+        ...changes, { id: "2026-10-25_1130", notes: "העלאת לחץ ל: 1.5 bar" },
+    ]), null);
+    assert.equal(scheduledRecommendationCompletionDate(task, [
+        ...changes, { id: "2026-10-25_1130", notes: "העלאת לחץ ל: 1.5 bar" },
+        { id: "2026-10-25_1240", notes: "הורדת לחץ ל: 1.2 bar" },
+    ]), "2026-10-25");
+});
+
+test("a pressure measurement, suggestion, or prior-day change is never an action completion", () => {
+    const task = {
+        id: "manager-4", tankNumber: "11", batchNumber: "1701", actionType: "pressureChange",
+        dueDate: "2026-10-25", targetPressure: 1.2, createdByIsCellarManager: true,
+        status: "active",
+    };
+    assert.equal(scheduledRecommendationCompletionDate(task, [
+        { id: "2026-10-24_1700", notes: "הורדת לחץ ל: 1.2 bar" },
+        { id: "2026-10-25_0730", pressure: 1.2, notes: "מומלץ לבצע שינוי לחץ" },
+    ]), null);
+    assert.equal(scheduledPressureDecisionConflictText(task, [
+        { id: "2026-10-25_0730", pressure: 1.5, notes: "מומלץ להוריד לחץ ל: 1.2 bar" },
+    ]), null);
+});
+
+test("manager snapshot and tank/dashboard completion gates use numeric pressure evidence", () => {
+    const service = readFileSync(new URL("../src/SERVICES/cellering/scheduledCellarRecommendations.ts", import.meta.url), "utf8");
+    const info = readFileSync(new URL("../src/components/dashboard/FermentorInfoBox.tsx", import.meta.url), "utf8");
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    assert.match(service, /data\\.isCellarManager === true \\|\\| data\\.isAdmin === true/);
+    assert.match(service, /createdByIsCellarManager: creatorIsCellarManager/);
+    assert.doesNotMatch(service, /reportedAt < createdAt/);
+    assert.match(info, /row\\.actionType !== "pressureChange"/);
+    assert.match(info, /scheduledRecommendationCompletionDate\\(row, measurements\\)/);
+    assert.match(info, /scheduledPressureDecisionConflictText\\(row, measurements\\)/);
+    assert.match(dashboard, /scheduledPressureDecisionConflictText\\(row, measurements\\)/);
 });
