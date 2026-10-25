@@ -303,14 +303,14 @@ export async function createScheduledCellarRecommendation(input: {
   // A single self-document read at creation freezes who is authorized to give
   // binding pressure instructions. Do not re-read all users per dashboard render
   // or let a later role change silently rewrite past decisions.
-  const creatorIsCellarManager = isPullRequestPreview()
-    ? false
-    : await (async () => {
+  const creatorIsCellarManager = !isPullRequestPreview() && input.actionType === "pressureChange"
+    ? await (async () => {
         const profile = await getDoc(doc(db, "approvedUsers", user.email!.toLowerCase()));
         if (!profile.exists()) throw new Error("לא נמצאה הרשאת משתמש מאושר");
         const data = profile.data();
         return data.isCellarManager === true || data.isAdmin === true;
-      })();
+      })()
+    : false;
 
   const sourceFields = input.source === "user"
     ? { source: "user" as const }
