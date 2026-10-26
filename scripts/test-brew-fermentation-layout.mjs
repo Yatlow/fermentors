@@ -20,6 +20,28 @@ assert.equal(ctx.packagingTargetBelowLabel_({ row: 61, col: 8 }).col, 9);
 assert.match(read("server/updatePackagingInfo.js"), /packaging_layout:v2:/);
 assert.doesNotMatch(read("server/updatePackagingInfo.js"), /"packaging_layout:" \+ spreadsheetId/);
 
+assert.match(read("server/updatePackagingInfo.js"), /Total litres and shrinkage are already calculated/);
+const packagingRequests = [];
+ctx.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
+ctx.Sheets = { Spreadsheets: { batchUpdate: ({ requests }) => packagingRequests.push(...requests) } };
+ctx.Logger = { log() {} };
+ctx.logToSheet = () => {};
+ctx.extractSpreadsheetId = () => "test-sheet";
+ctx.formatMeasurementValue = (x) => x;
+vm.runInContext(`getPackagingLayout_ = () => ({
+  sheetId: 42, sheetName: "גיליון1",
+  checkbox: { row: 60, col: 9 }, kegs: { row: 63, col: 8 },
+  crates: { row: 63, col: 9 }, total: { row: 64, col: 9 },
+  shrinkage: { row: 65, col: 9 }
+})`, ctx);
+const packagingResult = ctx.updatePackagingInfo("test-sheet", true, 20, 50, 1083, 9.5);
+assert.equal(packagingRequests.length, 3, "only checkbox/kegs/crates should be written");
+assert.deepEqual(
+  packagingRequests.map((r) => [r.updateCells.range.startRowIndex + 1, r.updateCells.range.startColumnIndex + 1]),
+  [[60,9],[63,8],[63,9]]
+);
+assert.equal(packagingResult.updatedTotal, false);
+
 // Emulate the precise A:I sheet geometry without mutating any production Sheet.
 function sheetWithFermentation(fermentationHeader, metaRow, blocks = 1) {
   const rows = Array.from({ length: metaRow + 3 }, () => Array(9).fill(""));
