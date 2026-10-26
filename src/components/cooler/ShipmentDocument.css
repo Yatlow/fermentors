@@ -1,6 +1,6 @@
 /* Keep the shipment document above the application's sticky navigation. */
 .modal-overlay.shipment-document-overlay {
-    z-index: 12000;
+    z-index: var(--layer-elevated-modal);
 }
 
 .shipment-document-overlay {
