@@ -199,14 +199,20 @@ function brewingSheetResolveFermentationMetadataRange_(sheet, range, semanticFie
              String(r[3] || "").trim() === "אצווה:";
     }).length;
     const oldRow = blocks === 1 ? 59 : blocks === 2 ? 106 : blocks === 3 ? 156 : 0;
-    if (!oldRow || range.getRow() !== oldRow) return range;
+    if (!oldRow) return range;
     const indexes = [];
     rows.forEach(function (r, i) {
       if (/^יום\s*בישול/i.test(String(r[0] || "").trim()) &&
           /^סוכר\s*תחילי/i.test(String(r[2] || "").trim()) &&
           /שעת\s*הוספת\s*שמרים/i.test(String(r[4] || "").trim())) indexes.push(i + 1);
     });
-    return indexes.length === 1 ? sheet.getRange(indexes[0], range.getColumn()) : range;
+    if (indexes.length !== 1) return range;
+    // A brief 3-rest single-brew client version also used row 60. It is safe
+    // to alias ONLY if the actual metadata has shifted below row 60; on a
+    // normal two-rest sheet, G60 can be a packaging calculation.
+    const legacyAlias = range.getRow() === oldRow ||
+      (blocks === 1 && range.getRow() === 60 && indexes[0] > 60);
+    return legacyAlias ? sheet.getRange(indexes[0], range.getColumn()) : range;
   }
   const columns = {
     "fermentation.style": 2,
