@@ -1,7 +1,7 @@
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
-import {validateReport,relatedEvent,distinctSkuEvents,rowsToReports,createSheetRow,formatIsraeliDate,normalize,mergeSkuHistory,parseSheetDate} from '../qualityLogic.mjs';
+import {validateReport,relatedEvent,distinctSkuEvents,rowsToReports,createSheetRow,formatIsraeliDate,normalize,mergeSkuHistory,parseSheetDate,knownSku} from '../qualityLogic.mjs';
 const base = {customer:'החור השחור',beer:'לאגר',issueType:'הקצפת יתר',packageType:'חבית',reporter:'רון',description:'מקציף בפולסים',quantity:'3 חביות',batch:'1532',expiry:'2026-12-25'};
 test('validates and normalizes SKU while keeping quantity free text',()=>{
   const r=validateReport(base); assert.equal(r.sku,'7009942'); assert.equal(r.quantity,'3 חביות');
@@ -30,9 +30,9 @@ test('reads original twenty columns and appends metadata without moving old colu
  assert.equal(normalize('חבית  /  לאגר'),'חבית לאגר');
 });
 
-test('unknown special beers and cans never escalate as a guessed SKU',()=>{
+test('unknown special beers and legacy unsupported packaging never infer a SKU',()=>{
  assert.equal(validateReport({...base,beer:'מיוחדת 2026'}).sku,'');
- assert.equal(validateReport({...base,packageType:'פחית'}).sku,'');
+ assert.equal(knownSku('לאגר','פחית'),'');
 });
 test('distinct event IDs count once even with multiple reporters',()=>{
  const now=new Date('2026-10-26');
