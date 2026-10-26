@@ -75,3 +75,12 @@ test('public complaints accept only a selected keg or bottle package',()=>{
   for(const p of ['חבית','בקבוק']) assert.equal(validateReport({...base,packageType:p}).packageType,p);
   for(const p of ['',undefined,'פחית','אחר','לא ידוע']) assert.throws(()=>validateReport({...base,packageType:p}));
 });
+
+test('preview landing page bypasses brewery login and retains private production root',()=>{
+ const main=readFileSync(new URL('../../src/main.tsx',import.meta.url),'utf8');
+ const preview=main.indexOf("import.meta.env.VITE_DEPLOY_ENV === 'preview' && location.pathname === '/'");
+ const redirect=main.indexOf("history.replaceState(history.state, '', '/report-issue'");
+ const publicBranch=main.indexOf("if (/^\\/report-issue\\/?$/.test(location.pathname))");
+ const privateApp=main.indexOf("import('./App')");
+ assert.ok(preview>=0 && preview<redirect && redirect<publicBranch && publicBranch<privateApp);
+});
