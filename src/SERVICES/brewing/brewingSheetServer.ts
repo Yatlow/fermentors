@@ -7,6 +7,10 @@ import {
 export type BrewingSheetWrite = {
   range: string;
   value: string | number | boolean | null;
+  semanticField?:
+    | "fermentation.style" | "fermentation.batchNumber"
+    | "fermentation.tankNumber" | "fermentation.brewDate"
+    | "fermentation.startingPlato" | "fermentation.yeastPitchTime";
   expectedValue?: string | number | boolean | null;
 };
 
