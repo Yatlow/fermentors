@@ -126,18 +126,18 @@ test('mail always sent on each report, with a batch-specific note for three or m
  assert.doesNotMatch(src,/google.auth.OAuth2|QUALITY_GOOGLE_REFRESH_TOKEN|export const qualityReportWeekly|export const qualityReportMailRetry/);
 });
 
-test('brewcrew standalone worker polls private Firestore and handles Sheets, Drive and MailApp',()=>{
+test('brewcrew standalone worker handles signed immediate dispatch to Sheets, Drive and MailApp',()=>{
  const worker=readFileSync(new URL('../../quality-appsscript/Code.js',import.meta.url),'utf8');
  const manifest=readFileSync(new URL('../../quality-appsscript/appsscript.json',import.meta.url),'utf8');
  assert.match(worker,/ScriptApp.getOAuthToken\(\)/);
- assert.match(worker,/qualityReportWorker\(\)/);
+ assert.match(worker,/function doPost\(e\)/);
  assert.match(worker,/DriveApp.getFolderById/);
  assert.match(worker,/MailApp.sendEmail/);
  assert.match(worker,/state.sheet.getRange/);
  assert.match(worker,/qFindExisting_/);
- assert.doesNotMatch(worker,/function doPost\(/);
+ assert.match(worker,/qConstantTimeEqual_/);
  assert.match(manifest,/script.send_mail/);
- assert.doesNotMatch(manifest,/"webapp"/);
+ assert.match(manifest,/"webapp"/);
 });
 test('public acknowledgment means queued, not saved in Sheets yet',()=>{
  const ui=readFileSync(new URL('../../src/public-report/ReportPage.tsx',import.meta.url),'utf8');

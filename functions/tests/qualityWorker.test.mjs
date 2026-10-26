@@ -38,11 +38,32 @@ test('idempotency match uses submission ID, not reporter or description',()=>{
  assert.equal(vmContext.qFindExisting_([r],'submission-abc'),r);
  assert.equal(vmContext.qFindExisting_([r],'different'),null);
 });
-test('Firestore document decoder supports maps and media arrays without public access',()=>{
+test('Firestore document decoder supports maps and media arrays with signed-only public endpoint',()=>{
  const obj=vmContext.qValue_({mapValue:{fields:{beer:{stringValue:'IPA'},quantity:{integerValue:'3'}}}});
  assert.equal(obj.beer,'IPA');assert.equal(obj.quantity,3);
  assert.equal(vmContext.qTyped_(null).nullValue,null);
  assert.match(source,/currentDocument.updateTime/);
- assert.equal(source.includes('function doPost('),false);
+ assert.equal(source.includes('function doPost('),true);
  assert.equal(source.includes('function doGet('),false);
+});
+
+test('unsigned and stale requests are rejected before Firestore access',()=>{
+ const old=vmContext.PropertiesService;
+ const secret='a'.repeat(64);
+ vmContext.PropertiesService={getScriptProperties:()=>({getProperty:()=>secret})};
+ vmContext.ContentService={MimeType:{JSON:'JSON'},createTextOutput:content=>({setMimeType:()=>({text:content})})};
+ const call=(data)=>JSON.parse(vmContext.doPost({postData:{contents:JSON.stringify(data)}}).text);
+ assert.equal(call({id:'5fbff1b0-b31e-4f67-b719-1c86fca8e2cf',timestamp:Date.now(),signature:'a'.repeat(64)}).ok,false);
+ assert.equal(call({id:'5fbff1b0-b31e-4f67-b719-1c86fca8e2cf',timestamp:Date.now()-300000,signature:'a'.repeat(64)}).ok,false);
+ vmContext.PropertiesService=old;
+});
+test('signature validation uses a timestamp-bound HMAC and no secret in browser',()=>{
+ assert.match(source,/computeHmacSha256Signature/);
+ assert.match(source,/Math.abs\(Date.now\(\)-timestamp\)>120000/);
+ assert.match(source,/qConstantTimeEqual_/);
+ const backend=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
+ assert.match(backend,/createHmac\('sha256',secret\)/);
+ assert.match(backend,/dispatchNow\(submissionId\)/);
+ assert.match(backend,/QUALITY_WEBHOOK_SECRET/);
+ assert.match(backend,/AbortSignal.timeout\(75000\)/);
 });

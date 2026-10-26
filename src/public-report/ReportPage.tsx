@@ -53,7 +53,7 @@ export default function ReportPage(){
   const [captchaToken,setCaptchaToken]=useState('')
   const [error,setError]=useState('')
   const [sending,setSending]=useState(false)
-  const [result,setResult]=useState<{reference:string}|null>(null)
+  const [result,setResult]=useState<{reference:string;ticket?:string;queued:boolean}|null>(null)
   const id=useRef(crypto.randomUUID())
   const onCaptcha=useCallback((token:string)=>setCaptchaToken(token),[])
   const set=(key:keyof FormFields,value:string)=>{setForm(f=>({...f,[key]:value}));setError('')}
@@ -100,7 +100,7 @@ export default function ReportPage(){
       const response=await fetch(apiUrl,{method:'POST',body,credentials:'omit'})
       const data=await response.json().catch(()=>({}))
       if(!response.ok)throw new Error(data.error||'לא הצלחנו לשלוח כרגע. אפשר לנסות שוב.')
-      setResult({reference:String(data.reference||'')})
+      setResult({reference:String(data.reference||''),ticket:data.ticket?String(data.ticket):undefined,queued:Boolean(data.queued)})
     }catch(cause){
       setError(cause instanceof TypeError
         ? 'אין כרגע חיבור לשרת הדיווחים. לא התקבל אישור שהפנייה נשמרה; בדיקת האבטחה לבדה אינה שולחת את הדיווח.'
@@ -121,9 +121,9 @@ export default function ReportPage(){
       {result?<section className="q-card q-done" aria-live="polite">
         <div className="q-done-icon"><CheckCircle2 size={45}/></div>
         <div className="q-pill">הדיווח התקבל</div>
-        <h2>תודה, הדיווח התקבל לעיבוד</h2>
-        <p>הדיווח נקלט בתור המאובטח ויועבר לבקרת האיכות. הרישום בגיליון ושליחת המייל יבוצעו בתוך מספר דקות.</p>
-        <div className="q-ticket"><small>אסמכתה זמנית</small><b>{result.reference}</b><span>כדאי לשמור למעקב</span></div>
+        <h2>{result.queued?'תודה, הדיווח התקבל לעיבוד':'תודה, הדיווח נרשם בהצלחה'}</h2>
+        <p>{result.queued?'הדיווח נקלט בתור המאובטח, אך העיבוד עוד לא הושלם. נמשיך לטפל בו מתוך התור.':'הדיווח נרשם בגיליון בקרת האיכות ונשלחה הודעה לצוות.'}</p>
+        <div className="q-ticket"><small>{result.ticket?'מספר הפנייה':'אסמכתה זמנית'}</small><b>{result.ticket?'#'+result.ticket:result.reference}</b><span>כדאי לשמור למעקב</span></div>
         <button className="q-primary" type="button" onClick={reset}>דיווח נוסף <ArrowLeft size={20}/></button>
       </section>:<section className="q-card">
         <div className="q-card-top"><div><div className="q-eyebrow">פרטי הדיווח</div><h2>{['לקוח ומוצר','פרטי התקלה','צירוף מדיה ושליחה'][step]}</h2></div><span className="q-count">0{step+1} / 03</span></div>

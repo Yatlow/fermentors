@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'functions/**'
+      - 'quality-appsscript/**'
       - 'src/public-report/**'
       - 'src/main.tsx'
       - 'firebase.json'
@@ -17,7 +18,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - run: node --check functions/index.mjs && node --check functions/qualityLogic.mjs
+      - run: node --check functions/index.mjs && node --check functions/qualityLogic.mjs && node --check quality-appsscript/Code.js
       - run: node --test functions/tests/*.test.mjs
       - name: Install and load backend dependencies
         run: npm install --prefix functions --no-audit --no-fund --ignore-scripts && node --input-type=module -e "await import('./functions/index.mjs')"

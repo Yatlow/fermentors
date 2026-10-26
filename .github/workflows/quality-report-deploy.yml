@@ -32,13 +32,17 @@ jobs:
         env:
           HOSTS: ${{ vars.QUALITY_ALLOWED_HOSTS }}
           BUCKET: ${{ vars.QUALITY_UPLOAD_BUCKET }}
+          SCRIPT_URL: ${{ vars.QUALITY_APPS_SCRIPT_URL }}
         run: |
           HOSTS="${HOSTS:-fermenter-dashboard-bada3.web.app,fermenter-dashboard-bada3.firebaseapp.com}"
           HOSTS="${HOSTS},fermenter-dashboard-bada3--pr252-feature-public-quali-r1p21j2p.web.app"
           BUCKET="${BUCKET:-fermenter-dashboard-bada3.firebasestorage.app}"
           test -n "$BUCKET" || { echo "::error::Missing QUALITY_UPLOAD_BUCKET"; exit 1; }
+          test -n "$SCRIPT_URL" || { echo "::error::Missing QUALITY_APPS_SCRIPT_URL"; exit 1; }
+          case "$SCRIPT_URL" in https://script.google.com/macros/s/*/exec) ;; *) echo "::error::Invalid Apps Script URL"; exit 1;; esac
           {
             printf 'QUALITY_UPLOAD_BUCKET=%s\n' "$BUCKET"
+            printf 'QUALITY_APPS_SCRIPT_URL=%s\n' "$SCRIPT_URL"
             printf 'QUALITY_ALLOWED_HOSTS=%s\n' "$HOSTS"
           } > functions/.env.fermenter-dashboard-bada3
       - name: Install gcloud for deployment diagnostics
