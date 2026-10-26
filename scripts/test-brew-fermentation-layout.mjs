@@ -100,21 +100,15 @@ for (const [header, metadata, blocks] of [[56,59,1], [60,63,1], [61,64,1], [111,
     assert.equal(mapped.getRow(), expectedRow, semantic + " exact row");
     assert.equal(mapped.getColumn(), column, semantic + " exact column");
   }
-  if (blocks === 1) {
-    const row60 = ctx.brewingSheetResolveFermentationMetadataRange_(
-      sheet, sheet.getRange(60, 7),
-    );
-    assert.equal(row60.getRow(), metadata > 60 ? metadata : 60,
-      "legacy single-brew row60 alias is restricted to shifted metadata");
-  }
-  // The old untagged address must remain compatible ONLY for the one
-  // historical fermentation row belonging to this layout. In triple brews
-  // B59/B106 are real material cells and must not be redirected.
-  const legacyRow = blocks === 1 ? 59 : blocks === 2 ? 106 : 156;
-  for (const column of [2, 4, 7]) {
-    assert.equal(ctx.brewingSheetResolveFermentationMetadataRange_(sheet, sheet.getRange(legacyRow, column)).getRow(), metadata);
-    const materialRow = blocks === 3 ? 59 : blocks === 2 ? 59 : 45;
-    assert.equal(ctx.brewingSheetResolveFermentationMetadataRange_(sheet, sheet.getRange(materialRow, column)).getRow(), materialRow);
+  // Untagged A1 values (including historical coordinates and material lots)
+  // are never redirected to fermentation metadata, regardless of layout.
+  for (const row of [45, 59, 60, 106, 156]) {
+    for (const column of [2, 4, 7]) {
+      assert.equal(
+        ctx.brewingSheetResolveFermentationMetadataRange_(sheet, sheet.getRange(row, column)).getRow(),
+        row,
+      );
+    }
   }
 }
 const missingLabels = sheetWithFermentation(60, 63);
