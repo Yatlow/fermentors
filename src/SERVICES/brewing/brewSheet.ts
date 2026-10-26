@@ -201,7 +201,12 @@ export async function readBrewSheetRange(
 }
 
 type SheetCellValue = string | number | boolean | null;
-type SheetWrite = { range: string; value: SheetCellValue; expectedValue?: SheetCellValue };
+type SheetWrite = {
+  range: string;
+  value: SheetCellValue;
+  expectedValue?: SheetCellValue;
+  semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime";
+};
 
 const sheetBaselines = new Map<string, Map<string, string>>();
 
