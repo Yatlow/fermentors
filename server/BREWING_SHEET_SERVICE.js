@@ -976,64 +976,6 @@ function brewingSheetTrash_(data) {
   };
 }
 
-function brewingSheetRenameBatch_(data) {
-  const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
-  const oldBatch = String(data.oldBatchNumber || "").replace("#", "").trim();
-  const newBatch = String(data.newBatchNumber || "").replace("#", "").trim();
-  const style = String(data.style || "").trim();
-  if (!/^\d+$/.test(newBatch)) throw new Error("Invalid newBatchNumber");
-
-  const file = DriveApp.getFileById(fileId);
-
-  if (newBatch !== oldBatch) {
-    const folderId = brewingSheetConfig_().folderId;
-    const folder = DriveApp.getFolderById(folderId);
-    const duplicateFiles = folder.searchFiles(
-      "trashed = false and title contains '" + newBatch.replace(/'/g, "\\'") + "'"
-    );
-    while (duplicateFiles.hasNext()) {
-      const candidate = duplicateFiles.next();
-      if (candidate.getId() === fileId) continue;
-      const parsed = brewingSheetBatchFromName_(candidate.getName());
-      if (String(parsed || "").replace("#", "").trim() === newBatch) {
-        throw new Error("Batch " + newBatch + " already exists.");
-      }
-    }
-  }
-
-  const ss = SpreadsheetApp.openById(fileId);
-  const sheet = ss.getSheets()[0];
-  const values = sheet.getDataRange().getDisplayValues();
-  const starts = findBrewBlockStarts(values);
-
-  sheet.getRange("B1").setValue(style);
-  sheet.getRange("F1").setValue(newBatch);
-  starts.forEach(function (start, index) {
-    const headerRow = start - 5;
-    if (headerRow >= 1) {
-      sheet.getRange(headerRow, 3).setValue(style);
-      sheet.getRange(headerRow, 5).setValue(newBatch + ["A", "B", "C"][index]);
-    }
-  });
-
-  const fermentationHeaderRow =
-    starts.length >= 3 ? 154 : starts.length === 2 ? 104 : 57;
-  sheet.getRange(fermentationHeaderRow, 2).setValue(
-    starts.length === 1 ? style : style + " " + (starts.length === 2 ? "כפול" : "משולש")
-  );
-  sheet.getRange(fermentationHeaderRow, 4).setValue(newBatch);
-
-  const currentName = file.getName();
-  const replaced = oldBatch
-    ? currentName.replace(new RegExp("#?" + oldBatch + "#?"), newBatch + "#")
-    : currentName;
-  if (replaced !== currentName) file.setName(replaced);
-  SpreadsheetApp.flush();
-  brewingSheetInvalidateHistoryCache_();
-
-  return { spreadsheetId: fileId, batchNumber: newBatch, style: style, name: file.getName() };
-}
-
 function brewingSheetNumber_(value) {
   const match = String(value == null ? "" : value)
     .replace(/,/g, ".")
