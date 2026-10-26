@@ -1553,7 +1553,7 @@ export default function BrewFormStepper({
 
   function writeSheet(
     key: string,
-    writes: Array<{ range: string; value: string | number | boolean | null }>,
+    writes: Array<{ range: string; value: string | number | boolean | null; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
   ) {
     if (!run.sheetId || writes.length === 0) return;
 
@@ -1584,7 +1584,7 @@ export default function BrewFormStepper({
   async function commit(
     key: string,
     value: string,
-    writes: Array<{ range: string; value: string | number | boolean | null }>,
+    writes: Array<{ range: string; value: string | number | boolean | null; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
   ) {
     let baseExecution = execution;
     const dateWrites: Array<{ range: string; value: string | number | boolean | null }> = [];
@@ -1741,6 +1741,7 @@ export default function BrewFormStepper({
     const writes: Array<{
       range: string;
       value: string | number | boolean | null;
+      semanticField?: "fermentation.brewDate";
     }> = [
       {
         range: `'גיליון1'!H${headerRow}`,
@@ -1754,6 +1755,7 @@ export default function BrewFormStepper({
         {
           range: `'גיליון1'!B${mappedFermentationRow()}`,
           value: display,
+          semanticField: "fermentation.brewDate",
         },
       );
     }
@@ -3075,6 +3077,7 @@ export default function BrewFormStepper({
     const writes: Array<{
       range: string;
       value: string | number | boolean | null;
+      semanticField?: "fermentation.startingPlato";
     }> = [
       {
         range: `'גיליון1'!${column}${targetSheetRow}`,
@@ -3160,6 +3163,7 @@ export default function BrewFormStepper({
         writes.push({
           range: `'גיליון1'!D${mappedFermentationRow()}`,
           value: Number(projectedStartingPlato.value.toFixed(2)),
+          semanticField: "fermentation.startingPlato",
         });
       }
     }
@@ -3482,6 +3486,7 @@ export default function BrewFormStepper({
       {
         range: `'גיליון1'!G${mappedFermentationRow()}`,
         value,
+        semanticField: "fermentation.yeastPitchTime",
       },
     ]);
   }

@@ -651,17 +651,28 @@ console.log("Critical server regression tests passed");
   };
 
   const service = loadAppsScript("server/BREWING_SHEET_SERVICE.js");
-  for (const [blocks, fermentationRow, legitFallback] of [
-    [1, 63, 59], [2, 114, 106], [3, 168, 156],
+  for (const [blocks, fermentationRow] of [
+    [1, 63], [2, 114], [3, 168],
   ]) {
     const sheet = mockSheet(cellsFor(blocks, fermentationRow));
-    for (const oldRow of [59, 106, 156]) {
-      const resolved = service.brewingSheetResolveFermentationMetadataRange_(
-        sheet, sheet.getRange(oldRow, 2),
+    // Legacy A1 addresses never silently remap; only explicit semantic intent
+    // can change a destination. In particular grain lot B59 is never moved.
+    for (const oldRow of [59, 60, 106, 156]) {
+      assert.equal(
+        service.brewingSheetResolveFermentationMetadataRange_(
+          sheet, sheet.getRange(oldRow, 2),
+        ).getRow(),
+        oldRow,
+        `layout ${blocks}: untagged B${oldRow} must stay put`,
       );
-      assert.equal(resolved.getRow(), oldRow === legitFallback ? fermentationRow : oldRow,
-        `layout ${blocks}: only B${legitFallback} can alias fermentation metadata`);
     }
+    assert.equal(
+      service.brewingSheetResolveFermentationMetadataRange_(
+        sheet, sheet.getRange(59, 2), "fermentation.brewDate",
+      ).getRow(),
+      fermentationRow,
+      `layout ${blocks}: tagged brewDate resolves by semantic label`,
+    );
   }
 
   const triple = mockSheet(cellsFor(3, 156));
