@@ -2,6 +2,42 @@
 export const ISSUE_TYPES = ['הקצפת יתר', 'טעם חריג', 'ריח חריג', 'בעיה באריזה', 'משקעים / עכירות', 'אחר'];
 export const PACKAGES = ['חבית', 'בקבוק', 'פחית', 'אחר', 'לא ידוע'];
 export const BEER_TYPES = ['IPA', 'פייל אייל', 'לאגר', 'הופי לאגר', 'חיטה', 'סטאוט'];
+// Source: the brewery's PalletCatalog.ts defaults. Editable Firestore productCatalog
+// overrides are applied by the server when available.
+const DEFAULT_SKUS = {
+  'ipa__kegs':'7009940','ipa__crates':'7009676',
+  'פייל אייל__kegs':'7009939','פייל אייל__crates':'7009670',
+  'לאגר__kegs':'7009942','לאגר__crates':'7009678',
+  'הופי לאגר__kegs':'7013781','הופי לאגר__crates':'7013782',
+  'חיטה__kegs':'7009941','חיטה__crates':'7009677',
+  'סטאוט__crates':'7009679',
+  'סשן ipa__kegs':'7010951','סשן ipa__crates':'7010892',
+  'דאבל ipa__crates':'7009681','אגסים__crates':'7014515',
+  'מהדורת חורף__crates':'7009876','סאוור__crates':'7009682'
+};
+export function skuCatalogKey(beer,packageType) {
+  const itemType=packageType==='חבית'?'kegs':packageType==='בקבוק'?'crates':'';
+  if(!itemType)return '';
+  let style=normalize(beer);
+  if(style.includes('הופי') && style.includes('לאגר'))style='הופי לאגר';
+  else if(style.includes('סשן')&&style.includes('ipa'))style='סשן ipa';
+  else if(style.includes('דאבל')&&style.includes('ipa'))style='דאבל ipa';
+  else if(style.includes('מהדורת חורף')||style.includes('בירת חורף'))style='מהדורת חורף';
+  else if(style.includes('אגסים'))style='אגסים';
+  else if(style.includes('לאגר'))style='לאגר';
+  else if(style.includes('פייל'))style='פייל אייל';
+  else if(style.includes('חיטה'))style='חיטה';
+  else if(style.includes('סטאוט'))style='סטאוט';
+  else if(style.includes('סאוור')||style.includes('סאואר'))style='סאוור';
+  else if(style==='ipa')style='ipa';
+  return style+'__'+itemType;
+}
+export function knownSku(beer,packageType,overrides={}) {
+  const key=skuCatalogKey(beer,packageType);
+  if(!key)return '';
+  if(overrides[key] && overrides[key].enabled===false)return '';
+  return String(overrides[key]?.sku || DEFAULT_SKUS[key] || '');
+}
 export const HEADERS = [
   'מספר אירוע', 'סוג התקלה', 'טלפון המדווח', 'סוג האריזה', 'מק"ט',
   'קישורים למדיה', 'מזהה שליחה', 'תאריך ושעת דיווח', 'סטטוס התראה', 'מקור הדיווח',
@@ -35,7 +71,7 @@ export function validateReport(data) {
   if (expiry && !validIsoDate(expiry)) throw new Error('תאריך תפוגה לא תקין.');
   const phone = optional(data.phone, 30, 'טלפון');
   if (phone && !/^[+0-9()\s-]{6,30}$/.test(phone)) throw new Error('מספר טלפון לא תקין.');
-  const sku = packageType === 'לא ידוע' ? '' : normalize(beer) + ' / ' + packageType;
+  const sku = knownSku(beer,packageType);
   return {customer, beer, type, packageType, reporter, description, quantity, batch, expiry, phone, sku};
 }
 function validIsoDate(value) {
@@ -84,7 +120,8 @@ export function rowsToReports(rows) {
     eventId: String(r[20] || ('LEGACY-' + String(r[0] || i+5))),
     type: String(r[21] || inferIssueType(r[9])),
     packageType: String(r[23] || inferPackageType(r[6])),
-    sku: String(r[24] || ''),
+    sku: String(r[24] || knownSku(r[3],String(r[23] || inferPackageType(r[6])))),
+    resolved: Boolean(String(r[17] || '').trim()),
     rowIndex: i + 5,
   })).filter(r => r.ticket && r.customer && r.beer);
 }
@@ -104,7 +141,7 @@ export function distinctSkuEvents(reports, report, now, days=90) {
   const since = now.valueOf() - days * 86400_000;
   return new Set(reports.filter(r => {
     if (!r.date || r.date.valueOf() < since) return false;
-    const sku = r.sku || (r.packageType === 'לא ידוע' ? '' : normalize(r.beer) + ' / ' + r.packageType);
+    const sku = r.sku || knownSku(r.beer,r.packageType);
     return normalize(sku) === normalize(report.sku);
   }).map(r => r.eventId));
 }

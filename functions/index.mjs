@@ -6,10 +6,10 @@ import {getFirestore} from 'firebase-admin/firestore';
 import {google} from 'googleapis';
 import Busboy from 'busboy';
 import {Readable} from 'node:stream';
-import {randomUUID,createHmac} from 'node:crypto';
+import {createHmac} from 'node:crypto';
 import {
   validateReport,HEADERS,rowsToReports,relatedEvent,distinctSkuEvents,
-  createSheetRow,normalize,formatIsraeliDate
+  createSheetRow,normalize,formatIsraeliDate,knownSku,skuCatalogKey
 } from './qualityLogic.mjs';
 
 initializeApp();
@@ -172,6 +172,18 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     if(!/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(fields.submissionId||''))throw new Error('מזהה שליחה חסר.');
     reportId=fields.submissionId;
     const report=validateReport(fields);
+    // Resolve the real product SKU using the same editable product catalog as
+    // the brewery app, with its default catalog as a fallback.
+    if(report.packageType==='חבית'||report.packageType==='בקבוק'){
+      const key=skuCatalogKey(report.beer,report.packageType);
+      try {
+        const entry=await database.doc('productCatalog/'+key).get();
+        if(entry.exists){
+          const override=entry.data();
+          report.sku=override.enabled===false?'':String(override.sku||'');
+        } else report.sku=knownSku(report.beer,report.packageType);
+      }catch(error){console.warn('Product catalog lookup unavailable',error?.message);}
+    }
     await checkTurnstile(fields.turnstileToken,req.ip);
     await chargeLimit(req.ip);
     const {sheets,drive,gmail}=clients();
@@ -224,9 +236,8 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
         valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}
       });
     }
-    // Successful Sheets persistence is the completion boundary, even if email later fails.
-    await idRef.update({status:'completed',completedAt:new Date(),folderId:media.folderId});
-    res.status(201).json({ticket,eventId:claimed.eventId});
+    // Successful Sheets persistence is the completion boundary. Email is retried independently on failure.
+
     const escalation=Boolean(report.sku&&!related&&earlierEvents.size===2);
     const subject=(escalation?'⚠️ התראת תקלות חוזרות · ':'דיווח תקלה חדש · ')+report.beer+' · פנייה #'+ticket;
     const body=['פנייה #'+ticket,'אירוע: '+claimed.eventId,
@@ -236,8 +247,18 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
       'תיאור: '+report.description,
       ...(escalation?['','⚠️ זוהו לפחות שלושה אירועי תקלה נפרדים באותו מק״ט ב־90 יום.']:[]),
       ...media.links.map(x=>'מדיה: '+x),'','גיליון: '+sheetLink()].join('\n');
-    try{await sendMail(gmail,subject,body);await idRef.update({mailStatus:'sent'});}
-    catch(error){console.error('quality report email failed',error?.message);await idRef.update({mailStatus:'failed'});}
+    await idRef.update({
+      status:'completed',completedAt:new Date(),folderId:media.folderId,
+      mailStatus:'pending',mailSubject:subject,mailBody:body,mailAttempts:0
+    });
+    try {
+      await sendMail(gmail,subject,body);
+      await idRef.update({mailStatus:'sent',mailSentAt:new Date(),mailAttempts:1});
+    } catch(error) {
+      console.error('quality report email failed; will retry',error?.message);
+      try{await idRef.update({mailStatus:'failed',mailAttempts:1});}catch(inner){console.error('Email retry state failed',inner?.message);}
+    }
+    res.status(201).json({ticket,eventId:claimed.eventId});
   }catch(error){
     console.error('quality report processing error',error?.message);
     if(reportId){
@@ -266,7 +287,7 @@ export const qualityReportWeekly=onSchedule({
   const repeated=[...map.entries()].filter(([,events])=>events.size>=3);
   const open=recent.filter(r=>{
     const original=rows.find(x=>x.rowIndex===r.rowIndex);
-    return Boolean(original && r.date && now.valueOf()-r.date.valueOf()>7*86400000);
+    return Boolean(original && !original.resolved && r.date && now.valueOf()-r.date.valueOf()>7*86400000);
   });
   const report=[
     'דוח שבועי · תקלות לקוחות · '+formatIsraeliDate(now),
@@ -279,4 +300,24 @@ export const qualityReportWeekly=onSchedule({
     'גיליון המעקב: '+sheetLink()
   ].join('\n');
   await sendMail(gmail,'סיכום תקלות שבועי · שפירא · '+formatIsraeliDate(now),report);
+});
+
+export const qualityReportMailRetry=onSchedule({
+  schedule:'10 * * * *',timeZone:'Asia/Jerusalem',region:'europe-west1',
+  secrets:[clientId,clientSecret,refreshToken]
+},async()=>{
+  const {gmail}=clients();
+  const snapshot=await database.collection('qualitySubmissions').where('mailStatus','==','failed').limit(20).get();
+  for(const item of snapshot.docs){
+    const row=item.data();
+    if(Number(row.mailAttempts||0)>=12)continue;
+    if(!row.mailSubject||!row.mailBody)continue;
+    try{
+      await sendMail(gmail,row.mailSubject,row.mailBody);
+      await item.ref.update({mailStatus:'sent',mailSentAt:new Date(),mailAttempts:Number(row.mailAttempts||0)+1});
+    }catch(error){
+      console.error('quality email retry failed',item.id,error?.message);
+      await item.ref.update({mailAttempts:Number(row.mailAttempts||0)+1});
+    }
+  }
 });

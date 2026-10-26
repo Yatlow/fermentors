@@ -1,0 +1,22 @@
+name: Validate public quality report
+on:
+  pull_request:
+    paths:
+      - 'functions/**'
+      - 'src/public-report/**'
+      - 'src/main.tsx'
+      - 'firebase.json'
+      - '.github/workflows/quality-report-validate.yml'
+  workflow_dispatch:
+jobs:
+  validate-quality-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: node --check functions/index.mjs && node --check functions/qualityLogic.mjs
+      - run: node --test functions/tests/*.test.mjs
+      - run: npm ci && npm run build
