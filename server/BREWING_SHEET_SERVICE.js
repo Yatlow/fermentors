@@ -191,9 +191,7 @@ function brewingSheetResolveFermentationMetadataRange_(sheet, range) {
 
   const col = range.getColumn();
   const row = range.getRow();
-  if ([2, 4, 7].indexOf(col) < 0 || [59, 106, 156].indexOf(row) < 0) {
-    return range;
-  }
+  if ([2, 4, 7].indexOf(col) < 0) return range;
 
   const data = sheet.getDataRange().getDisplayValues();
   // A fixed row is the fermentation date row ONLY for its tank layout.
@@ -205,7 +203,11 @@ function brewingSheetResolveFermentationMetadataRange_(sheet, range) {
            String(cells[3] || "").trim() === "אצווה:";
   }).length;
   const fallbackRow = blockCount === 3 ? 156 : blockCount === 2 ? 106 : blockCount === 1 ? 59 : 0;
-  if (!fallbackRow || row !== fallbackRow) return range;
+  // An early single-brew form version also wrote B/D/G60 after adding a
+  // third mash rest. Only recognize this alias when the real metadata row
+  // actually moved PAST row 60; on a normal sheet row 60 may be shrinkage.
+  const candidate = fallbackRow && (row === fallbackRow || (blockCount === 1 && row === 60));
+  if (!candidate) return range;
 
   for (let r = 0; r < data.length; r++) {
     const current = data[r] || [];
@@ -214,6 +216,7 @@ function brewingSheetResolveFermentationMetadataRange_(sheet, range) {
       /^סוכר\s*תחילי/i.test(String(current[2] || "").trim()) &&
       /שעת\s*הוספת\s*שמרים/i.test(String(current[4] || "").trim())
     ) {
+      if (blockCount === 1 && row === 60 && r + 1 <= 60) return range;
       return sheet.getRange(r + 1, col);
     }
   }
@@ -323,6 +326,42 @@ function brewingSheetTemplateForType_(tankType) {
     templateId: templateId,
     tankType: type
   };
+}
+
+
+// Repair the missing empty-tank control in older single-brew Masters, and
+// defend every newly copied Sheet (including three-rest layouts) regardless
+// of which template ID is configured in Apps Script properties.
+// This never inserts rows or changes brew/fermentation coordinate mappings.
+function brewingSheetEnsureEmptyCheckbox_(sheet) {
+  const values = sheet.getDataRange().getDisplayValues();
+  const headerIndex = values.findIndex(function (row) {
+    return String(row[0] || "").trim() === "דף תסיסה" &&
+           String(row[7] || "").trim() === "סיכום אריזה";
+  });
+  if (headerIndex < 1) throw new Error("Missing fermentation/packaging header in new brew Sheet");
+  const controlRow = headerIndex; // previous row, 1-based
+  const label = sheet.getRange(controlRow, 8);
+  const checkbox = sheet.getRange(controlRow, 9);
+  const labelText = String(label.getDisplayValue() || "").trim();
+  const current = String(checkbox.getDisplayValue() || "").trim().toUpperCase();
+  if (labelText && !/^ריק\\s*\\??\\s*:??$/.test(labelText)) {
+    throw new Error("Unsafe empty-tank control location: H" + controlRow);
+  }
+  if (current && current !== "TRUE" && current !== "FALSE") {
+    throw new Error("Unsafe checkbox location: I" + controlRow);
+  }
+  if (!labelText || !checkbox.getDataValidation() ||
+      checkbox.getDataValidation().getCriteriaType() !== SpreadsheetApp.DataValidationCriteria.CHECKBOX) {
+    // Use the packaging summary's border/typography without altering rows.
+    sheet.getRange(headerIndex + 1, 8, 1, 2)
+      .copyFormatToRange(sheet, 8, 9, controlRow, controlRow);
+    label.setValue("ריק?:");
+    checkbox.insertCheckboxes();
+    checkbox.setValue(current === "TRUE");
+    return true;
+  }
+  return false;
 }
 
 function brewingSheetCreate_(data) {
@@ -554,6 +593,10 @@ function brewingSheetCreate_(data) {
       });
       SpreadsheetApp.flush();
     }
+
+    // Validate/restore the empty-tank control on the final shifted layout.
+    // This is after variable mash row insertions, before publishing the file.
+    brewingSheetEnsureEmptyCheckbox_(ss.getSheets()[0]);
 
     // Keep the out-to-boil pH unit consistent across all Master variants. Wheat
     // inserts extra mash rows and its Master can be missing the visible pH label,
