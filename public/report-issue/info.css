@@ -1,0 +1,24 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700;800;900&family=Rubik:wght@400;500;600;700;800&display=swap');
+:root{color-scheme:light;font-family:Assistant,Arial,sans-serif;color:#332821;background:#f5eddd}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:linear-gradient(160deg,#fbf8ef,#f3e9d6)}
+.top{background:#292420;border-bottom:4px solid #ba613e;color:#fff}
+.top-inner{max-width:860px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:17px 22px}
+.brand{color:#fff;font-family:Rubik,Assistant,sans-serif;font-size:17px;font-weight:700;text-decoration:none}
+.brand span{font-weight:500;color:#e8be7c}
+.back{border:1px solid #f0dcc055;border-radius:40px;color:#fcecd5;text-decoration:none;font-size:14px;padding:6px 13px}
+main{max-width:820px;margin:46px auto 55px;background:#fffdfa;border:1px solid #e8decc;border-radius:18px;box-shadow:0 12px 33px #59492b1a;padding:38px 46px}
+.eyebrow{color:#a34b33;font:700 12px Rubik,Assistant,sans-serif}
+h1{font:700 clamp(28px,5vw,39px) Rubik,Assistant,sans-serif;line-height:1.35;margin:10px 0 20px}
+h2{font:700 21px Rubik,Assistant,sans-serif;margin:32px 0 8px}
+p,li{font-size:17px;line-height:1.85}
+p{margin:10px 0}
+a{color:#9b4430}
+a:hover{text-decoration:underline}
+nav{display:flex;flex-wrap:wrap;gap:10px;margin-top:23px}
+nav a{background:#fff2dc;border:1px solid #e5c8a7;color:#7a3729;border-radius:8px;padding:10px 14px;text-decoration:none;font-weight:700}
+.small{font-size:14px;color:#77695c}
+footer{max-width:820px;margin:0 auto 30px;padding:0 22px;color:#8b7562;text-align:center;font-size:14px}
+ul{padding-inline-start:23px}
+@media(max-width:670px){main{margin:18px 12px 32px;padding:24px 20px}.top-inner{padding:12px 15px}.brand{font-size:14px}.back{font-size:12px}.small{font-size:13px}}

@@ -156,7 +156,7 @@ export default function ReportPage(){
           <label className="q-upload"><UploadCloud size={35}/><b>צרפו תמונה או וידאו</b><span>אפשר גם לצלם ישירות מהטלפון</span><small>עד 4 קבצים · 14MB לקובץ · 22MB סה״כ</small><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm" multiple onChange={selectFiles}/></label>
           {attachments.length>0&&<ul className="q-files">{attachments.map((file,i)=><li key={file.name+i}>{file.type.startsWith('video')?<Camera size={19}/>:<FileImage size={19}/>}<div><b>{file.name}</b><small>{sizeLabel(file.size)}</small></div><button type="button" aria-label={'הסר '+file.name} onClick={()=>setAttachments(all=>all.filter((_,j)=>j!==i))}><X size={18}/></button></li>)}</ul>}
           <div className="q-review"><strong><CheckCircle2 size={20}/> סיכום הפנייה</strong><p>{form.customer} · {form.beer==='בירה מיוחדת'?form.specialBeer:form.beer}</p><p>{form.issueType}{form.batch?' · אצווה '+form.batch:''}</p></div>
-          <div className="q-privacy"><ShieldCheck size={20}/> המדיה נשמרת בתיקיית אבטחת האיכות ונגישה לבעלי ההרשאה המתאימה.</div>
+          <div className="q-privacy"><ShieldCheck size={20}/> המדיה נשמרת בתיקיית אבטחת האיכות ונגישה לבעלי ההרשאה המתאימה. לפרטים: <a href="/report-issue/privacy.html" target="_blank" rel="noopener noreferrer">מדיניות הפרטיות</a>.</div>
           {previewSubmissionBlocked&&<div className="q-preview-notice" role="status"><ShieldCheck size={18}/> סביבת תצוגה בלבד: אפשר למלא ולצרף קבצים, אך השליחה כבויה עד לפריסת השרת ובדיקת החיבור.</div>}
           {!previewSubmissionBlocked&&<Captcha onToken={onCaptcha}/>}
 
@@ -167,7 +167,7 @@ export default function ReportPage(){
           <button className="q-primary" type="button" disabled={sending||(step===2&&(!siteKey||previewSubmissionBlocked))} onClick={step===2?()=>{void submit()}:goNext}>{sending?'שולחים...':step===2?'שליחת דיווח':'ממשיכים'}{step===2?<Send size={19}/>:<ArrowLeft size={19}/>}</button>
         </div>
       </section>}
-      <footer className="q-footer">מבשלת שפירא · מחלקת בקרת איכות</footer>
+      <footer className="q-footer">מבשלת שפירא · מחלקת בקרת איכות <span aria-hidden="true">·</span> <a href="/report-issue/privacy.html">מדיניות פרטיות</a> <span aria-hidden="true">·</span> <a href="/report-issue/terms.html">תנאי שימוש</a></footer>
     </main>
   </div>
 }
