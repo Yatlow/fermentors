@@ -1,12 +1,5 @@
-/**
- * Shapiro Quality Inbox — a standalone Google Apps Script project.
- * Signed server-to-server Web App executed as brewcrew (no user login).
- * No external OAuth client or Refresh Token.
- *
- * Install exactly ONE worker project. Grant its executing user datastore.user
- * on the Firebase project, and storage.objectUser on the private upload bucket.
- * Required signing key Script Properties documented in README.md.
- */
+// Quality module for the EXISTING Apps Script deployment, with an HMAC-only action.
+// Do not change the authentication requirement for any other doPost action.
 const Q_PROJECT = 'fermenter-dashboard-bada3';
 const Q_SHEET_ID = '19urjK3mUk1vO1clZ2IFDq-3ORqLeX5edBLmBeDwIud4';
 const Q_MEDIA_ROOT = '1FrGg-gBKRyCSsw4EHTq8qb6zJEpWaQSn';
@@ -24,18 +17,17 @@ const Q_MAX_ATTEMPTS = 8;
  * timestamp and a UUID. The signing key is only in Apps Script Properties
  * and Firebase Secret Manager, not in browser code.
  */
-function qualityVerifyAndAuthorize() {
-  const email=Session.getEffectiveUser().getEmail().toLowerCase();
-  if(email!=='brewcrew@shapirobeer.co.il')throw new Error('Run as brewcrew only, got '+email);
+
+function qualityVerifyCurrentProject() {
+  const who=Session.getEffectiveUser().getEmail();
   const secret=PropertiesService.getScriptProperties().getProperty('QUALITY_WEBHOOK_SECRET');
-  if(!secret||secret.length<48)throw new Error('Set a random 48+ character QUALITY_WEBHOOK_SECRET in Script Properties first.');
-  SpreadsheetApp.openById(Q_SHEET_ID).getSheetByName(Q_SHEET_NAME).getRange('A4').getValue();
+  if(!secret||secret.length<48)throw new Error('QUALITY_WEBHOOK_SECRET must be at least 48 characters');
+  const sheet=SpreadsheetApp.openById(Q_SHEET_ID).getSheetByName(Q_SHEET_NAME);
+  if(!sheet)throw new Error('Quality spreadsheet not accessible');
+  sheet.getRange('A4').getValue();
   DriveApp.getFolderById(Q_MEDIA_ROOT).getName();
   qQuery_('queued',1);
-  console.log('Quality web app authorized for brewcrew. Deploy as me, access anyone.');
-}
-function qOutput_(value) {
-  return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON);
+  console.log('Quality access verified as '+who);
 }
 function qHex_(bytes){
   return bytes.map(x=>('0'+(x<0?x+256:x).toString(16)).slice(-2)).join('');
@@ -49,36 +41,36 @@ function qConstantTimeEqual_(a,b){
   for(let i=0;i<a.length;i++)diff|=a.charCodeAt(i)^b.charCodeAt(i);
   return diff===0;
 }
-function doPost(e) {
+
+function qualityHandleSignedDispatch_(body) {
   // This public Web App performs no action without a valid signed payload.
   // Never log the signature, key or raw contact information.
   try{
-    if(!e?.postData?.contents||e.postData.contents.length>1800)return qOutput_({ok:false});
-    const body=JSON.parse(e.postData.contents);
+    if(!body || typeof body!=='object' || Object.keys(body).length>6)return {ok:false};
     const id=String(body.id||'');
     const timestamp=Number(body.timestamp);
     const signature=String(body.signature||'');
     if(!/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(id)||
        !Number.isSafeInteger(timestamp)||Math.abs(Date.now()-timestamp)>120000||
-       !/^[0-9a-f]{64}$/i.test(signature))return qOutput_({ok:false});
+       !/^[0-9a-f]{64}$/i.test(signature))return ({ok:false});
     const secret=PropertiesService.getScriptProperties().getProperty('QUALITY_WEBHOOK_SECRET');
-    if(!secret||secret.length<48)return qOutput_({ok:false});
+    if(!secret||secret.length<48)return ({ok:false});
     const expected=qSignature_(secret,String(timestamp)+'.'+id);
-    if(!qConstantTimeEqual_(expected,signature))return qOutput_({ok:false});
+    if(!qConstantTimeEqual_(expected,signature))return ({ok:false});
 
     const lock=LockService.getScriptLock();
-    if(!lock.tryLock(10000))return qOutput_({ok:true,queued:true});
+    if(!lock.tryLock(10000))return ({ok:true,queued:true});
     try{
       const path=Q_FIELDS+'/qualitySubmissions/'+encodeURIComponent(id);
       const doc=JSON.parse(qFetch_(path).getContentText());
       const status=qValue_(doc.fields?.status);
-      if(status==='completed')return qOutput_({
+      if(status==='completed')return ({
         ok:true,queued:false,ticket:qValue_(doc.fields.ticket),eventId:qValue_(doc.fields.eventId)
       });
-      if(status!=='queued')return qOutput_({ok:true,queued:true});
+      if(status!=='queued')return ({ok:true,queued:true});
       try{
         const result=qProcess_(doc);
-        return qOutput_({ok:true,queued:false,ticket:result.ticket,eventId:result.eventId});
+        return ({ok:true,queued:false,ticket:result.ticket,eventId:result.eventId});
       }catch(error){
         // A write or email may fail after claiming the submission; return it
         // to the private queue so the same ID can be retried safely.
@@ -88,15 +80,16 @@ function doPost(e) {
           status:attempts>=Q_MAX_ATTEMPTS?'dead':'queued',
           attempts,lastError:String(error.message).slice(0,180),processingAt:null
         },null)}catch(requeue){console.error('Quality requeue failed: '+requeue.message)}
-        return qOutput_({ok:false,retry:true});
+        return ({ok:false,retry:true});
       }
     }finally{lock.releaseLock()}
   }catch(error){
     console.error('Quality signed dispatch failed: '+String(error?.message||error).slice(0,190));
     // The Firestore claim remains queued / processing for safe recovery.
-    return qOutput_({ok:false,retry:true});
+    return ({ok:false,retry:true});
   }
 }
+
 
 /** Manual recovery only. Ordinary reports are processed immediately by doPost. */
 function qualityRecoverQueued() {

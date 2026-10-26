@@ -127,10 +127,10 @@ test('mail always sent on each report, with a batch-specific note for three or m
 });
 
 test('brewcrew standalone worker handles signed immediate dispatch to Sheets, Drive and MailApp',()=>{
- const worker=readFileSync(new URL('../../quality-appsscript/Code.js',import.meta.url),'utf8');
- const manifest=readFileSync(new URL('../../quality-appsscript/appsscript.json',import.meta.url),'utf8');
+ const worker=readFileSync(new URL('../../server/QUALITY_REPORT_SERVICE.js',import.meta.url),'utf8');
+ const manifest=readFileSync(new URL('../../server/appsscript.json',import.meta.url),'utf8');
  assert.match(worker,/ScriptApp.getOAuthToken\(\)/);
- assert.match(worker,/function doPost\(e\)/);
+ assert.match(worker,/function qualityHandleSignedDispatch_\(body\)/);
  assert.match(worker,/DriveApp.getFolderById/);
  assert.match(worker,/MailApp.sendEmail/);
  assert.match(worker,/state.sheet.getRange/);

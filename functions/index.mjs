@@ -105,7 +105,7 @@ async function dispatchNow(submissionId){
   try{
     const response=await fetch(endpoint,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id:submissionId,timestamp,signature}),
+      body:JSON.stringify({action:'QualitySignedDispatch',id:submissionId,timestamp,signature}),
       signal:AbortSignal.timeout(75000)
     });
     if(!response.ok)throw new Error('Apps Script HTTP '+response.status);

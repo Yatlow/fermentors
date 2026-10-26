@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import assert from 'node:assert/strict';
 
-const source=readFileSync(new URL('../../quality-appsscript/Code.js',import.meta.url),'utf8');
+const source=readFileSync(new URL('../../server/QUALITY_REPORT_SERVICE.js',import.meta.url),'utf8');
 const vmContext={console,Date,JSON,Math,Number,String,RegExp,Set,Array,Object,encodeURIComponent};
 runInNewContext(source,vmContext,{filename:'Code.js',timeout:3000});
 
@@ -43,7 +43,8 @@ test('Firestore document decoder supports maps and media arrays with signed-only
  assert.equal(obj.beer,'IPA');assert.equal(obj.quantity,3);
  assert.equal(vmContext.qTyped_(null).nullValue,null);
  assert.match(source,/currentDocument.updateTime/);
- assert.equal(source.includes('function doPost('),true);
+ assert.equal(source.includes('function doPost('),false);
+ assert.equal(source.includes('function qualityHandleSignedDispatch_(body)'),true);
  assert.equal(source.includes('function doGet('),false);
 });
 
@@ -52,7 +53,7 @@ test('unsigned and stale requests are rejected before Firestore access',()=>{
  const secret='a'.repeat(64);
  vmContext.PropertiesService={getScriptProperties:()=>({getProperty:()=>secret})};
  vmContext.ContentService={MimeType:{JSON:'JSON'},createTextOutput:content=>({setMimeType:()=>({text:content})})};
- const call=(data)=>JSON.parse(vmContext.doPost({postData:{contents:JSON.stringify(data)}}).text);
+ const call=(data)=>vmContext.qualityHandleSignedDispatch_(data);
  assert.equal(call({id:'5fbff1b0-b31e-4f67-b719-1c86fca8e2cf',timestamp:Date.now(),signature:'a'.repeat(64)}).ok,false);
  assert.equal(call({id:'5fbff1b0-b31e-4f67-b719-1c86fca8e2cf',timestamp:Date.now()-300000,signature:'a'.repeat(64)}).ok,false);
  vmContext.PropertiesService=old;
@@ -66,4 +67,13 @@ test('signature validation uses a timestamp-bound HMAC and no secret in browser'
  assert.match(backend,/dispatchNow\(submissionId\)/);
  assert.match(backend,/QUALITY_WEBHOOK_SECRET/);
  assert.match(backend,/AbortSignal.timeout\(75000\)/);
+});
+
+test('existing brewery doPost routes ONLY signed quality before normal Firebase authentication',()=>{
+ const post=readFileSync(new URL('../../server/post.js',import.meta.url),'utf8');
+ const signed=post.indexOf('data.action === "QualitySignedDispatch"');
+ const normal=post.indexOf('authenticateFirebaseRequest_(data.idToken)');
+ assert.ok(signed>0 && signed<normal);
+ assert.match(post,/qualityHandleSignedDispatch_\(data\)/);
+ assert.match(post,/const response = runPostActionIdempotently_\(data\)/);
 });
