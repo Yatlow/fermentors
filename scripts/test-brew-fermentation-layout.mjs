@@ -78,6 +78,13 @@ for (const [header, metadata, blocks] of [[56,59,1], [60,63,1], [61,64,1], [111,
     assert.equal(mapped.getRow(), expectedRow, semantic + " exact row");
     assert.equal(mapped.getColumn(), column, semantic + " exact column");
   }
+  if (blocks === 1) {
+    const row60 = ctx.brewingSheetResolveFermentationMetadataRange_(
+      sheet, sheet.getRange(60, 7),
+    );
+    assert.equal(row60.getRow(), metadata > 60 ? metadata : 60,
+      "legacy single-brew row60 alias is restricted to shifted metadata");
+  }
   // The old untagged address must remain compatible ONLY for the one
   // historical fermentation row belonging to this layout. In triple brews
   // B59/B106 are real material cells and must not be redirected.
