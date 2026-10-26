@@ -2,7 +2,8 @@ import { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM } from "./truckCap
 import { nextShipmentMarkingRevision, shipmentMarkingGuardRef,
     shipmentMarkingGuardWrite } from "../planning/shipmentMarkingGuard";
 import { dateKey, weekStart } from "../planning/planningEngine";
-import { isDispatchTripInQueue } from "../planning/shipmentDispatchIdentity";
+import { isDispatchTripInQueue, plannedTripsForDispatchDay } from "../planning/shipmentDispatchIdentity";
+import { sameDispatchManifest, type DispatchQuantityLine } from "../planning/shipmentDispatchVariance";
 import { validatePhysicalShipmentLoad } from "./shipmentDispatchSafety";
 export { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM };
 import {
@@ -775,6 +776,10 @@ export async function createPallets(input: { itemType: PalletItemType; beerStyle
 export async function createShipment(
     palletIds: string[], customerName?: string | null, customerId?: string | null,
     explicitPlannedTruckId?: string | null | false,
+    reviewedLoad?: {
+        pallets: Array<Pick<Pallet, "id" | "beerStyle" | "itemType" | "quantity">>;
+        plannedManifest: DispatchQuantityLine[] | null;
+    },
 ): Promise<string> {
     const uniquePalletIds = [...new Set(palletIds.filter(Boolean))];
     if (uniquePalletIds.length === 0) throw new Error("לא נבחרו משטחים למשלוח");
@@ -798,6 +803,16 @@ export async function createShipment(
             if (pallet.zone === "shipped") throw new Error(`המשטח ${pallet.id} כבר נשלח`);
             return pallet;
         });
+        // The displayed discrepancy must refer to the exact physical load
+        // that is eventually recorded, even if another device edits a pallet.
+        if (reviewedLoad && (reviewedLoad.pallets.length !== pallets.length ||
+            pallets.some((pallet) => {
+                const reviewed = reviewedLoad.pallets.find((entry) => entry.id === pallet.id);
+                return !reviewed || Number(reviewed.quantity) !== Number(pallet.quantity) ||
+                    reviewed.itemType !== pallet.itemType || reviewed.beerStyle !== pallet.beerStyle;
+            }))) {
+            throw new Error("העמסת המשאית השתנתה מאז בדיקת הפער. יש לפתוח מחדש ולבדוק את הכמויות.");
+        }
         // A banner in React is not a physical safety gate. Recheck all
         // current pallet documents atomically at dispatch time.
         validatePhysicalShipmentLoad(pallets, dispatchDay);
@@ -835,7 +850,18 @@ export async function createShipment(
                 if (explicitPlannedTruckId)
                     throw new Error("הנסיעה המתוכננת השתנתה או כבר אינה פתוחה. יש לפתוח מחדש ולבחור נסיעה.");
                 plannedTruckId = null;
+            } else if (reviewedLoad?.plannedManifest) {
+                const currentTrip = plannedTripsForDispatchDay(
+                    queueSnap.data()?.deliveries ?? [], dispatchDay,
+                ).find((trip) => trip.id === plannedTruckId);
+                if (!currentTrip ||
+                    !sameDispatchManifest(currentTrip.manifest, reviewedLoad.plannedManifest)) {
+                    throw new Error("כמויות הנסיעה בתכנון השתנו מאז האישור. יש לפתוח מחדש ולאשר את הפער המעודכן.");
+                }
             }
+        }
+        if (reviewedLoad?.plannedManifest && !plannedTruckId) {
+            throw new Error("לא ניתן לשייך את המשלוח לנסיעה שנבדקה. יש לפתוח מחדש.");
         }
         // Claim the same planned physical truck at most once across ALL devices.
         // The queue can still be stale for a moment after the first dispatch;

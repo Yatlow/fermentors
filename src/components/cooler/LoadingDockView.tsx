@@ -10,7 +10,8 @@ import {
     type ShipmentCustomerOption,
 } from "../../SERVICES/cooler/Palletservice";
 import BeerLoader from "../general/Loading";
-import { getCatalogEntry } from "../../SERVICES/cooler/PalletCatalog";
+import { getCatalogEntry, getShipmentCatalogOptions } from "../../SERVICES/cooler/PalletCatalog";
+import { compareDispatchManifests } from "../../SERVICES/planning/shipmentDispatchVariance";
 import { loadPlannedDispatchTrips, type PlannedDispatchTrip } from
     "../../SERVICES/planning/shipmentDispatchIdentity";
 
@@ -69,6 +70,10 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
     const [plannedTripChoice, setPlannedTripChoice] = useState("");
     const [plannedTripsLoading, setPlannedTripsLoading] = useState(false);
     const [plannedTripsError, setPlannedTripsError] = useState("");
+    const [varianceApproved, setVarianceApproved] = useState(false);
+    const dispatchLabels = useMemo(() => new Map(getShipmentCatalogOptions().map((item) => [
+        item.sku, `${item.beerStyle} (${item.itemType === "kegs" ? "חביות" : "ארגזים"})`,
+    ])), []);
 
     useEffect(() => {
         if (!showCustomerModal) return;
@@ -80,6 +85,25 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
     }, [showCustomerModal]);
 
     const selectedPallets = useMemo(() => pallets.filter((p) => selected.has(p.id)), [pallets, selected]);
+    const actualDispatchManifest = useMemo(() => selectedPallets.map((pallet) => ({
+        productId: getCatalogEntry(pallet.beerStyle, pallet.itemType)?.sku ??
+            `__unmapped__:${pallet.itemType}:${pallet.beerStyle.trim().toLocaleLowerCase("he-IL")}`,
+        quantity: Number(pallet.quantity),
+    })), [selectedPallets]);
+    const selectedTrip = plannedTrips.find((trip) => trip.id === plannedTripChoice) ?? null;
+    const varianceRows = useMemo(() => selectedTrip
+        ? compareDispatchManifests(selectedTrip.manifest, actualDispatchManifest)
+        : [], [selectedTrip, actualDispatchManifest]);
+    const labelForSku = (productId: string) => {
+        const pallet = selectedPallets.find((item) =>
+            (getCatalogEntry(item.beerStyle, item.itemType)?.sku ??
+                `__unmapped__:${item.itemType}:${item.beerStyle.trim().toLocaleLowerCase("he-IL")}`) === productId);
+        return pallet
+            ? `${pallet.beerStyle} (${pallet.itemType === "kegs" ? "חביות" : "ארגזים"})`
+            : dispatchLabels.get(productId) ?? `מק״ט ${productId}`;
+    };
+    useEffect(() => { setVarianceApproved(false); },
+        [showCustomerModal, customerId, plannedTripChoice, selectedPallets]);
     const taggedAutoTrip = useMemo(() => {
         const ids = new Set(selectedPallets.map((p) =>
             p.markedForShipment && p.autoReservationTruckId ? p.autoReservationTruckId : ""));
@@ -99,10 +123,11 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
         loadPlannedDispatchTrips().then((trips) => {
             if (cancelled) return;
             setPlannedTrips(trips);
-            // A fully auto-marked trip can be preselected safely; manual loads
-            // require a deliberate choice of the planned departure.
+            // Keep dispatch moving: select the only real trip automatically.
+            // With several trips, a physical auto-reservation can identify the
+            // truck; otherwise the operator must choose the correct truck.
             setPlannedTripChoice(trips.some((trip) => trip.id === taggedAutoTrip)
-                ? taggedAutoTrip! : trips.length ? "" : "__unlinked__");
+                ? taggedAutoTrip! : trips.length === 1 ? trips[0].id : "");
         }).catch(() => {
             if (!cancelled) setPlannedTripsError("לא ניתן לבדוק את נסיעות טמפו המתוכננות. יש לבדוק חיבור ולפתוח מחדש.");
         }).finally(() => {
@@ -164,12 +189,14 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
                 setError(plannedTripsError || "יש להמתין לטעינת הנסיעות המתוכננות");
                 return;
             }
-            if (plannedTrips.length && !plannedTripChoice) {
-                setError("בחר נסיעה מתוכננת או אשר במפורש שהמשלוח אינו משויך לתכנון.");
+            if (plannedTrips.length && !selectedTrip) {
+                setError("יש לבחור איזו נסיעה מתוכננת יוצאת בפועל.");
                 return;
             }
-            if (plannedTrips.length && plannedTripChoice === "__unlinked__" &&
-                !window.confirm("משלוח טמפו זה לא ישויך לנסיעה מתוכננת. ההקצאות של נסיעות לא מזוהות ייעצרו לבדיקה ידנית. להמשיך?")) return;
+            if (selectedTrip && varianceRows.length > 0 && !varianceApproved) {
+                setError("יש לאשר את הפער בין התכנון להעמסה בפועל לפני השליחה.");
+                return;
+            }
         }
         setBusy(true);
         setBusyAction("ship");
@@ -178,9 +205,13 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
             const palletsForShipment = pallets.filter((p) => selected.has(p.id));
             const shipmentId = await createShipment(
                 palletsForShipment.map((p) => p.id), trimmedName, customerId,
-                customerId === "tempo" && plannedTripChoice === "__unlinked__"
-                    ? false : customerId === "tempo" && plannedTripChoice
-                        ? plannedTripChoice : null,
+                customerId === "tempo" ? selectedTrip?.id ?? false : null,
+                {
+                    pallets: selectedPallets.map(({ id, quantity, itemType, beerStyle }) => ({
+                        id, quantity, itemType, beerStyle,
+                    })),
+                    plannedManifest: selectedTrip?.manifest ?? null,
+                },
             );
             setLastShipmentId(shipmentId);
             setLastCustomerName(trimmedName);
@@ -256,24 +287,57 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
                                 <span className="spec-field-label">שיוך לתכנון — איזו משאית יוצאת בפועל?</span>
                                 <select className="spec-input" value={plannedTripChoice}
                                     onChange={(event) => setPlannedTripChoice(event.target.value)}>
-                                    <option value="">בחר נסיעה</option>
+                                    <option value="">בחר נסיעה מתוכננת</option>
                                     {plannedTrips.map((trip, index) => <option key={trip.id} value={trip.id}>
                                         {index + 1}. {trip.date} · {trip.manifest.map((line) =>
                                             `${line.productId}: ${line.quantity}`).join(", ")}
                                     </option>)}
-                                    <option value="__unlinked__">משלוח לא משויך לתכנון — דורש בדיקה</option>
                                 </select>
                             </label>}
+                        {selectedTrip && varianceRows.length === 0 &&
+                            <small className="edit-specs-message success">✓ הכמויות שנבחרו למשלוח תואמות לתכנון.</small>}
+                        {selectedTrip && varianceRows.length > 0 && (
+                            <section aria-label="פערים בין התכנון למשלוח" style={{
+                                border: "1px solid #e7b15c", background: "#fff9ed",
+                                borderRadius: 12, padding: 12, color: "#563b12",
+                            }}>
+                                <strong>הכמויות שונות מהתכנון</strong>
+                                <p style={{ margin: "6px 0 10px" }}>זה בסדר לשלוח כמות אחרת. בדוק ואשר את הפערים:</p>
+                                <div style={{ overflowX: "auto" }}>
+                                    <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "right", fontSize: 13 }}>
+                                        <thead><tr><th>מוצר</th><th>תוכנן</th><th>בפועל</th><th>פער</th></tr></thead>
+                                        <tbody>{varianceRows.map((line) => (
+                                            <tr key={line.productId}>
+                                                <td style={{ padding: "6px 2px" }}>{labelForSku(line.productId)}</td>
+                                                <td>{line.planned}</td>
+                                                <td>{line.actual}</td>
+                                                <td style={{ fontWeight: 700, whiteSpace: "nowrap" }} dir="ltr">
+                                                    {line.difference > 0 ? "+" : ""}{line.difference}
+                                                </td>
+                                            </tr>
+                                        ))}</tbody>
+                                    </table>
+                                </div>
+                                <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, cursor: "pointer" }}>
+                                    <input type="checkbox" checked={varianceApproved} disabled={busy}
+                                        onChange={(event) => setVarianceApproved(event.target.checked)} />
+                                    <span>בדקתי את הפער ואני מאשר לשלוח את הכמויות בפועל.</span>
+                                </label>
+                                <small>הנסיעה תישאר משויכת לתכנון ותסומן כבוצעה בהרכב שונה.</small>
+                            </section>
+                        )}
                         {!plannedTripsLoading && !plannedTripsError && plannedTrips.length === 0 &&
-                            <small>אין נסיעה מתוכננת להיום בתור טמפו; המשלוח יירשם כמשלוח בפועל ללא שיוך.</small>}
+                            <small>לא נמצאה נסיעה מתוכננת לטמפו היום. אפשר לשלוח כרגיל; המשלוח יירשם כביצוע נוסף.</small>}
                     </>}
                     {customerId !== "tempo" && looksLikeTempoTypo(customerName) && <div className="edit-specs-message error">נראה שהתכוונת לטמפו. בחר “טמפו” מהרשימה כדי שהמשלוח ייספר בתכנון טמפו.</div>}
                     <div className="customer-name-modal-actions">
                         <button type="button" onClick={() => setShowCustomerModal(false)} disabled={busy}>ביטול</button>
                         <button type="button" className="shipment-btn" onClick={() => void handleShip()} disabled={!customerName.trim() || busy ||
                             (customerId === "tempo" && (plannedTripsLoading || !!plannedTripsError ||
-                                (plannedTrips.length > 0 && !plannedTripChoice))) ||
-                            (customerId !== "tempo" && looksLikeTempoTypo(customerName))}>{busyAction === "ship" ? <BeerLoader message="יוצר תעודה" overlay={false} size="spinner" /> : "אשר ושלח"}</button>
+                                (plannedTrips.length > 0 && (!selectedTrip ||
+                                    (varianceRows.length > 0 && !varianceApproved))))) ||
+                            (customerId !== "tempo" && looksLikeTempoTypo(customerName))}>{busyAction === "ship" ? <BeerLoader message="יוצר תעודה" overlay={false} size="spinner" />
+                            : selectedTrip && varianceRows.length > 0 ? "מאשר פער ושולח" : "אשר ושלח"}</button>
                     </div>
                     {error && <div className="edit-specs-message error">{error}</div>}
                 </div>
