@@ -200,7 +200,7 @@ export default function ScheduledCellarRecommendationsPanel({
         tankNumber,
         batchNumber,
         actionType: "pressureChange",
-        dueDate: today,
+        dueDate: todayDateKey(),
         note: decisionText,
         pressureDirection,
         targetPressure: target,
@@ -339,7 +339,10 @@ export default function ScheduledCellarRecommendationsPanel({
             min={today}
             value={dueDate}
             aria-invalid={Boolean(selectedDateError)}
-            onChange={(event) => setDueDate(event.target.value)}
+            onChange={(event) => {
+              setDueDate(event.target.value);
+              setMessage("");
+            }}
           />
           {selectedDateError && (
             <small className="scheduled-cellar-date-error" role="alert">
