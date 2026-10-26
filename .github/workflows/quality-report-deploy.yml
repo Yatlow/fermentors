@@ -1,11 +1,17 @@
 name: Deploy quality-report Cloud Functions (manual)
 on:
+  push:
+    branches:
+      - feature/public-quality-issue-report
+    paths:
+      - .github/workflows/quality-report-deploy.yml
   workflow_dispatch:
 permissions:
   contents: read
   id-token: write
 jobs:
   deploy-quality-backend:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[quality-backend-test-deploy]') }}
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -32,6 +38,7 @@ jobs:
           MEDIA: ${{ vars.QUALITY_MEDIA_FOLDER_ID }}
         run: |
           SENDER="${SENDER:-brewcrew@shapirobeer.co.il}"
+          HOSTS="${HOSTS},fermenter-dashboard-bada3--pr252-feature-public-quali-r1p21j2p.web.app"
           test -n "$HOSTS" || { echo "::error::Missing QUALITY_ALLOWED_HOSTS repository variable"; exit 1; }
           test -n "$SHEET" || { echo "::error::Missing QUALITY_SHEET_ID repository variable"; exit 1; }
           test -n "$MEDIA" || { echo "::error::Missing QUALITY_MEDIA_FOLDER_ID repository variable"; exit 1; }
