@@ -53,7 +53,7 @@ export default function ReportPage(){
   const [captchaToken,setCaptchaToken]=useState('')
   const [error,setError]=useState('')
   const [sending,setSending]=useState(false)
-  const [result,setResult]=useState<{ticket:number,eventId:string}|null>(null)
+  const [result,setResult]=useState<{reference:string}|null>(null)
   const id=useRef(crypto.randomUUID())
   const onCaptcha=useCallback((token:string)=>setCaptchaToken(token),[])
   const set=(key:keyof FormFields,value:string)=>{setForm(f=>({...f,[key]:value}));setError('')}
@@ -86,7 +86,7 @@ export default function ReportPage(){
   const submit=async()=>{
     const invalid=validate(0)||validate(1)
     if(invalid){setError(invalid);return}
-    if(previewSubmissionBlocked){setError('זו סביבת תצוגה בלבד. שליחת דיווחים תתאפשר לאחר הפעלת השרת ובדיקת החיבור.');return}
+    if(previewSubmissionBlocked){setError('זו סביבת תצוגה בלבד. שליחת דיווחים תתאפשר לאחר הפעלת התור ובדיקת החיבור.');return}
     if(!siteKey||!captchaToken){setError('יש להשלים את בדיקת האבטחה.');return}
     if(sending)return
     setSending(true);setError('')
@@ -100,7 +100,7 @@ export default function ReportPage(){
       const response=await fetch(apiUrl,{method:'POST',body,credentials:'omit'})
       const data=await response.json().catch(()=>({}))
       if(!response.ok)throw new Error(data.error||'לא הצלחנו לשלוח כרגע. אפשר לנסות שוב.')
-      setResult({ticket:data.ticket,eventId:data.eventId})
+      setResult({reference:String(data.reference||'')})
     }catch(cause){
       setError(cause instanceof TypeError
         ? 'אין כרגע חיבור לשרת הדיווחים. לא התקבל אישור שהפנייה נשמרה; בדיקת האבטחה לבדה אינה שולחת את הדיווח.'
@@ -120,10 +120,10 @@ export default function ReportPage(){
       </section>
       {result?<section className="q-card q-done" aria-live="polite">
         <div className="q-done-icon"><CheckCircle2 size={45}/></div>
-        <div className="q-pill">הדיווח נקלט</div>
-        <h2>תודה, הפנייה נרשמה</h2>
-        <p>הפרטים נשמרו ונשלחו למעקב צוות האיכות.</p>
-        <div className="q-ticket"><small>מספר הפנייה</small><b>#{String(result.ticket).padStart(4,'0')}</b><span>כדאי לשמור למעקב</span></div>
+        <div className="q-pill">הדיווח התקבל</div>
+        <h2>תודה, הדיווח התקבל לעיבוד</h2>
+        <p>הדיווח נקלט בתור המאובטח ויועבר לבקרת האיכות. הרישום בגיליון ושליחת המייל יבוצעו בתוך מספר דקות.</p>
+        <div className="q-ticket"><small>אסמכתה זמנית</small><b>{result.reference}</b><span>כדאי לשמור למעקב</span></div>
         <button className="q-primary" type="button" onClick={reset}>דיווח נוסף <ArrowLeft size={20}/></button>
       </section>:<section className="q-card">
         <div className="q-card-top"><div><div className="q-eyebrow">פרטי הדיווח</div><h2>{['לקוח ומוצר','פרטי התקלה','צירוף מדיה ושליחה'][step]}</h2></div><span className="q-count">0{step+1} / 03</span></div>
@@ -157,7 +157,7 @@ export default function ReportPage(){
           {attachments.length>0&&<ul className="q-files">{attachments.map((file,i)=><li key={file.name+i}>{file.type.startsWith('video')?<Camera size={19}/>:<FileImage size={19}/>}<div><b>{file.name}</b><small>{sizeLabel(file.size)}</small></div><button type="button" aria-label={'הסר '+file.name} onClick={()=>setAttachments(all=>all.filter((_,j)=>j!==i))}><X size={18}/></button></li>)}</ul>}
           <div className="q-review"><strong><CheckCircle2 size={20}/> סיכום הפנייה</strong><p>{form.customer} · {form.beer==='בירה מיוחדת'?form.specialBeer:form.beer}</p><p>{form.issueType}{form.batch?' · אצווה '+form.batch:''}</p></div>
           <div className="q-privacy"><ShieldCheck size={20}/> המדיה נשמרת בתיקיית אבטחת האיכות ונגישה לבעלי ההרשאה המתאימה. לפרטים: <a href="/report-issue/privacy.html" target="_blank" rel="noopener noreferrer">מדיניות הפרטיות</a>.</div>
-          {previewSubmissionBlocked&&<div className="q-preview-notice" role="status"><ShieldCheck size={18}/> סביבת תצוגה בלבד: אפשר למלא ולצרף קבצים, אך השליחה כבויה עד לפריסת השרת ובדיקת החיבור.</div>}
+          {previewSubmissionBlocked&&<div className="q-preview-notice" role="status"><ShieldCheck size={18}/> סביבת תצוגה בלבד: אפשר למלא ולצרף קבצים, אך השליחה כבויה עד להפעלת התור ולבדיקת החיבור.</div>}
           {!previewSubmissionBlocked&&<Captcha onToken={onCaptcha}/>}
 
         </div>}
