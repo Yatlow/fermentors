@@ -9,7 +9,7 @@ import {Readable} from 'node:stream';
 import {createHmac,createHash} from 'node:crypto';
 import {
   validateReport,HEADERS,rowsToReports,relatedEvent,
-  createSheetRow,normalize,formatIsraeliDate,knownSku,skuCatalogKey
+  createSheetRow,normalize,formatIsraeliDate,knownSku,skuCatalogKey,mergeSkuHistory
 } from './qualityLogic.mjs';
 
 initializeApp();
@@ -232,16 +232,8 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
 
       // Merge the authoritative Sheet history and concurrent in-flight claims.
       // This makes the exact third distinct incident trigger atomic.
-      const history=new Map();
-      const historyRows=[...fromSheet,...(skuSnapshot?.data()?.events||[])];
-      for(const event of historyRows){
-        const when=Date.parse(String(event?.at||''));
-        if(event?.id && Number.isFinite(when) && when>=cutoff)
-          history.set(String(event.id),{id:String(event.id),at:new Date(when).toISOString()});
-      }
-      const before=history.size;
-      if(skuRef && !history.has(eventId))history.set(eventId,{id:eventId,at:now.toISOString()});
-      const escalation=Boolean(skuRef && newEvent && before<3 && history.size>=3);
+      const history=mergeSkuHistory(fromSheet,skuSnapshot?.data()?.events||[],cutoff,eventId,now);
+      const escalation=Boolean(skuRef && newEvent && history.added && history.before<3 && history.events.length>=3);
       const claim={
         ticket:nextTicket,eventId,payload:key,status:'processing',processingAt:new Date(),
         createdAt:now,sku:report.sku,client:report.customer,escalation
@@ -252,7 +244,7 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
         eventId,lastEventAt:now,customer:report.customer,beer:report.beer,
         batch:report.batch,type:report.type
       });
-      if(skuRef)tx.set(skuRef,{events:[...history.values()],updatedAt:now});
+      if(skuRef)tx.set(skuRef,{events:history.events,updatedAt:now});
       return {...claim,completed:false};
     });
     if(claimed.completed){res.status(200).json({ticket:claimed.ticket,eventId:claimed.eventId,duplicate:true});return;}
@@ -345,7 +337,7 @@ export const qualityReportMailRetry=onSchedule({
   secrets:[clientId,clientSecret,refreshToken]
 },async()=>{
   const {gmail}=clients();
-  const snapshot=await database.collection('qualitySubmissions').where('mailStatus','==','failed').limit(20).get();
+  const snapshot=await database.collection('qualitySubmissions').where('mailStatus','in',['failed','pending']).limit(20).get();
   for(const item of snapshot.docs){
     const row=item.data();
     if(Number(row.mailAttempts||0)>=12)continue;

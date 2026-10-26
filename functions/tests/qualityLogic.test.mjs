@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateReport,relatedEvent,distinctSkuEvents,rowsToReports,createSheetRow,formatIsraeliDate,normalize} from '../qualityLogic.mjs';
+import {validateReport,relatedEvent,distinctSkuEvents,rowsToReports,createSheetRow,formatIsraeliDate,normalize,mergeSkuHistory} from '../qualityLogic.mjs';
 const base = {customer:'החור השחור',beer:'לאגר',issueType:'הקצפת יתר',packageType:'חבית',reporter:'רון',description:'מקציף בפולסים',quantity:'3 חביות',batch:'1532',expiry:'2026-12-25'};
 test('validates and normalizes SKU while keeping quantity free text',()=>{
   const r=validateReport(base); assert.equal(r.sku,'7009942'); assert.equal(r.quantity,'3 חביות');
@@ -37,4 +37,18 @@ test('distinct event IDs count once even with multiple reporters',()=>{
  const now=new Date('2026-10-26');
  const reports=[1,1,2,3].map(n=>({eventId:'INC-'+n,date:new Date('2026-10-24'),sku:'7009942'}));
  assert.equal(distinctSkuEvents(reports,validateReport(base),now).size,3);
+});
+
+test('atomic history fold counts third distinct incident while ignoring duplicate reporters',()=>{
+  const now=new Date('2026-10-26T08:00:00Z'),cutoff=now.valueOf()-90*86400_000;
+  const initial=[{id:'INC-1',at:'2026-10-20T08:00:00Z'},{id:'INC-2',at:'2026-10-21T08:00:00Z'}];
+  const third=mergeSkuHistory(initial,[initial[0]],cutoff,'INC-3',now);
+  assert.equal(third.before,2);assert.equal(third.added,true);assert.equal(third.events.length,3);
+  const repeat=mergeSkuHistory(initial,[...third.events],cutoff,'INC-3',now);
+  assert.equal(repeat.added,false);assert.equal(repeat.events.length,3);
+});
+test('rolling SKU history excludes incidents older than ninety days',()=>{
+  const now=new Date('2026-10-26T08:00:00Z'),cutoff=now.valueOf()-90*86400_000;
+  const result=mergeSkuHistory([{id:'OLD',at:'2026-01-01T10:00:00Z'}],[],cutoff,'NEW',now);
+  assert.equal(result.before,0);assert.deepEqual(result.events.map(x=>x.id),['NEW']);
 });

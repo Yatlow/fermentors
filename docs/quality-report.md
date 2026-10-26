@@ -57,3 +57,14 @@ npx firebase-tools deploy --only hosting --project fermenter-dashboard-bada3
 * שירות OAuth שברשותו `drive` צריך הרשאות כתיבה לתיקייה הקיימת, ושולח Gmail צריך להיות הבעלים או alias מאומת.
 * תהליך אימות הספאם כולל אימות Turnstile בשרת; הגדרות ה־Turnstile והדומיין חייבות להתאים.
 * אם מייל נכשל אחרי שמירה בגיליון, הפנייה עדיין נשמרת ומנגנון retry בודק אחת לשעה (עד 12 ניסיונות).
+
+## Deployment strategy — staged rollout
+
+The PR Preview is a **visual preview only** until Turnstile and the live API are configured. It is not a public data-entry endpoint for real reports.
+Deploy backend functions using the **manual** GitHub Actions workflow `quality-report-deploy.yml`, after setting OAuth/Turnstile secrets and the repo variables `QUALITY_SENDER_EMAIL`, `QUALITY_ALLOWED_HOSTS`.
+The functions deploy workflow intentionally does *not* edit or deploy brewery Hosting. After a successful production end-to-end smoke test, merge the PR to deploy Hosting via the existing automatic workflow.
+When the form is live, check mobile Safari / Chrome, including retry after network timeout and a second report on the same event.
+
+### OAuth and permissions
+The parent 'בישולים' Drive folder is shared, so attachments can inherit access by other folder members. Check the effective ACLs with the brewery's Drive administrator, and restrict access at the parent or choose a separate protected folder if quality-only visibility is required. This project never turns on 'anyone with the link' permissions for attached files.
+A Google OAuth refresh token is required to use Sheets/Drive/Gmail. Use a production OAuth consent screen; a refresh token from a testing-only consent screen may expire quickly.

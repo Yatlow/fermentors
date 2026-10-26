@@ -111,7 +111,7 @@ export default function ReportPage(){
         <div className="q-done-icon"><CheckCircle2 size={45}/></div>
         <div className="q-pill">קיבלנו!</div>
         <h2>תודה שדיווחתם 🍻</h2>
-        <p>הפרטים נשמרו, והצוות קיבל את הפנייה לטיפול.</p>
+        <p>הפרטים נשמרו ונשלחו למעקב צוות האיכות.</p>
         <div className="q-ticket"><small>מספר הפנייה</small><b>#{String(result.ticket).padStart(4,'0')}</b><span>כדאי לשמור למעקב</span></div>
         <button className="q-primary" type="button" onClick={reset}>דיווח נוסף <ArrowLeft size={20}/></button>
       </section>:<section className="q-card">
@@ -145,7 +145,7 @@ export default function ReportPage(){
           <label className="q-upload"><UploadCloud size={35}/><b>צרפו תמונה או וידאו</b><span>אפשר גם לצלם ישירות מהטלפון</span><small>עד 4 קבצים · 14MB לקובץ · 22MB סה״כ</small><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm" multiple onChange={selectFiles}/></label>
           {attachments.length>0&&<ul className="q-files">{attachments.map((file,i)=><li key={file.name+i}>{file.type.startsWith('video')?<Camera size={19}/>:<FileImage size={19}/>}<div><b>{file.name}</b><small>{sizeLabel(file.size)}</small></div><button type="button" aria-label={'הסר '+file.name} onClick={()=>setAttachments(all=>all.filter((_,j)=>j!==i))}><X size={18}/></button></li>)}</ul>}
           <div className="q-review"><strong><CheckCircle2 size={20}/> הכול מוכן!</strong><p>{form.customer} · {form.beer==='בירה מיוחדת'?form.specialBeer:form.beer}</p><p>{form.issueType}{form.batch?' · אצווה '+form.batch:''}</p></div>
-          <div className="q-privacy"><ShieldCheck size={20}/> המדיה והפרטים נשמרים עבור צוות האיכות בלבד.</div>
+          <div className="q-privacy"><ShieldCheck size={20}/> המדיה נשמרת בתיקיית אבטחת האיכות ונגישה לבעלי ההרשאה המתאימה.</div>
           <Captcha onToken={onCaptcha}/>
         </div>}
         {error&&<div className="q-error" role="alert">{error}</div>}

@@ -157,3 +157,17 @@ export function createSheetRow(ticket, eventId, report, mediaUrls, timestamp, su
   row[27] = timestamp.toISOString(); row[28] = alertStatus; row[29] = 'טופס אינטרנטי';
   return row;
 }
+
+/** Fold authoritative sheet events and in-flight claims into an incident history. */
+export function mergeSkuHistory(sheetRows,storedRows,cutoff,eventId,now) {
+  const history=new Map();
+  for(const item of [...sheetRows,...storedRows]) {
+    const when=Date.parse(String(item?.at||''));
+    if(item?.id && Number.isFinite(when) && when>=cutoff)
+      history.set(String(item.id),{id:String(item.id),at:new Date(when).toISOString()});
+  }
+  const before=history.size;
+  const added=!history.has(eventId);
+  if(added) history.set(eventId,{id:eventId,at:now.toISOString()});
+  return {before,added,events:[...history.values()]};
+}

@@ -1,0 +1,41 @@
+name: Deploy quality-report Cloud Functions (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deploy-quality-backend:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Validate server
+        run: |
+          node --check functions/index.mjs
+          node --test functions/tests/*.test.mjs
+          npm install --prefix functions --no-audit --no-fund --ignore-scripts
+          node --input-type=module -e "await import('./functions/index.mjs')"
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FERMENTER_DASHBOARD_BADA3 }}
+      - name: Prepare non-secret runtime configuration
+        env:
+          SENDER: ${{ vars.QUALITY_SENDER_EMAIL }}
+          HOSTS: ${{ vars.QUALITY_ALLOWED_HOSTS }}
+        run: |
+          test -n "$SENDER" || { echo "::error::Missing QUALITY_SENDER_EMAIL repository variable"; exit 1; }
+          test -n "$HOSTS" || { echo "::error::Missing QUALITY_ALLOWED_HOSTS repository variable"; exit 1; }
+          {
+            printf 'QUALITY_SHEET_ID=19urjK3mUk1vO1clZ2IFDq-3ORqLeX5edBLmBeDwIud4\n'
+            printf 'QUALITY_MEDIA_FOLDER_ID=1FrGg-gBKRyCSsw4EHTq8qb6zJEpWaQSn\n'
+            printf 'QUALITY_SENDER_EMAIL=%s\n' "$SENDER"
+            printf 'QUALITY_ALLOWED_HOSTS=%s\n' "$HOSTS"
+          } > functions/.env.fermenter-dashboard-bada3
+      - name: Deploy backend only (does not touch Hosting)
+        run: npx --yes firebase-tools deploy --only functions:quality-reports --project fermenter-dashboard-bada3 --non-interactive
