@@ -186,34 +186,9 @@ function brewingSheetMirrorFinalTankVolume_(sheet, row, col, rawValue) {
 // Do NOT guess from row numbers and do NOT redirect untagged material writes.
 function brewingSheetResolveFermentationMetadataRange_(sheet, range, semanticField) {
   const name = String(semanticField || "").trim();
-  if (!name) {
-    // Compatibility for already-deployed clients that still send the historical
-    // fermentation row as an untagged A1 address. Only the one legacy row for
-    // THIS tank layout may alias; e.g. triple B59/B106 are grain lots, never
-    // brew dates. New client writes always use semanticField instead.
-    if (!range || range.getNumRows() !== 1 || range.getNumColumns() !== 1 ||
-        [2, 4, 7].indexOf(range.getColumn()) < 0) return range;
-    const rows = sheet.getDataRange().getDisplayValues();
-    const blocks = rows.filter(function (r) {
-      return String(r[1] || "").trim() === "סוג:" &&
-             String(r[3] || "").trim() === "אצווה:";
-    }).length;
-    const oldRow = blocks === 1 ? 59 : blocks === 2 ? 106 : blocks === 3 ? 156 : 0;
-    if (!oldRow) return range;
-    const indexes = [];
-    rows.forEach(function (r, i) {
-      if (/^יום\s*בישול/i.test(String(r[0] || "").trim()) &&
-          /^סוכר\s*תחילי/i.test(String(r[2] || "").trim()) &&
-          /שעת\s*הוספת\s*שמרים/i.test(String(r[4] || "").trim())) indexes.push(i + 1);
-    });
-    if (indexes.length !== 1) return range;
-    // A brief 3-rest single-brew client version also used row 60. It is safe
-    // to alias ONLY if the actual metadata has shifted below row 60; on a
-    // normal two-rest sheet, G60 can be a packaging calculation.
-    const legacyAlias = range.getRow() === oldRow ||
-      (blocks === 1 && range.getRow() === 60 && indexes[0] > 60);
-    return legacyAlias ? sheet.getRange(indexes[0], range.getColumn()) : range;
-  }
+  // Untagged writes belong to their original A1 coordinates. They may hold
+  // grain lots or other fields and must never be reinterpreted as metadata.
+  if (!name) return range;
   const columns = {
     "fermentation.style": 2,
     "fermentation.batchNumber": 4,
