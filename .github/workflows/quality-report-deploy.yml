@@ -28,12 +28,16 @@ jobs:
         env:
           SENDER: ${{ vars.QUALITY_SENDER_EMAIL }}
           HOSTS: ${{ vars.QUALITY_ALLOWED_HOSTS }}
+          SHEET: ${{ vars.QUALITY_SHEET_ID }}
+          MEDIA: ${{ vars.QUALITY_MEDIA_FOLDER_ID }}
         run: |
           test -n "$SENDER" || { echo "::error::Missing QUALITY_SENDER_EMAIL repository variable"; exit 1; }
           test -n "$HOSTS" || { echo "::error::Missing QUALITY_ALLOWED_HOSTS repository variable"; exit 1; }
+          test -n "$SHEET" || { echo "::error::Missing QUALITY_SHEET_ID repository variable"; exit 1; }
+          test -n "$MEDIA" || { echo "::error::Missing QUALITY_MEDIA_FOLDER_ID repository variable"; exit 1; }
           {
-            printf 'QUALITY_SHEET_ID=19urjK3mUk1vO1clZ2IFDq-3ORqLeX5edBLmBeDwIud4\n'
-            printf 'QUALITY_MEDIA_FOLDER_ID=1FrGg-gBKRyCSsw4EHTq8qb6zJEpWaQSn\n'
+            printf 'QUALITY_SHEET_ID=%s\n' "$SHEET"
+            printf 'QUALITY_MEDIA_FOLDER_ID=%s\n' "$MEDIA"
             printf 'QUALITY_SENDER_EMAIL=%s\n' "$SENDER"
             printf 'QUALITY_ALLOWED_HOSTS=%s\n' "$HOSTS"
           } > functions/.env.fermenter-dashboard-bada3

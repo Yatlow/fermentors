@@ -79,3 +79,12 @@ The public HTTPS function must have Cloud Run invoker access for unauthenticated
 The public form submits directly to `https://europe-west1-fermenter-dashboard-bada3.cloudfunctions.net/qualityReport` by default rather than through Firebase Hosting, because Hosting function rewrites impose a 60-second request timeout. The regional Cloud Function is configured for 120 seconds and validates both the request Origin and the Turnstile hostname. The Hosting rewrite remains as a compatible same-origin fallback. Override the public endpoint using `VITE_QUALITY_API_URL` only if needed.
 
 After deploying the backend, test a video upload on mobile data, including an interrupted/repeated request. If Firebase Cloud Functions' native HTTP request-size limits are exceeded, show a useful error and reduce or chunk file sizes before widening limits.
+
+### Test-data vs live-data deployment
+
+The manual Functions deployment workflow intentionally requires *separately configurable* repo variables `QUALITY_SHEET_ID` and `QUALITY_MEDIA_FOLDER_ID`, rather than hardcoding production IDs. For the first E2E deployment, point those variables at a **copy** of the existing complaint sheet and an isolated test-media folder. Do not open the public form to real customers during this stage. Once end-to-end submission, Drive links and Gmail alerts are verified, change the variables to production IDs below, redeploy backend, then merge for Hosting deployment:
+
+* Production Sheet: `19urjK3mUk1vO1clZ2IFDq-3ORqLeX5edBLmBeDwIud4`
+* Production media folder: `1FrGg-gBKRyCSsw4EHTq8qb6zJEpWaQSn`
+
+Never test on the production Sheet as a substitute for an isolated staging test.
