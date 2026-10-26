@@ -13,7 +13,7 @@
 * שמירת פניות בעמודות A:T הקיימות, והוספת מטא־דאטה U:AD ללא שינוי עמודות המקור. כותרות חדשות בשורה 4.
 * אימות מוצר לפי `productCatalog` ב־Firestore (עם ברירת מחדל של קטלוג פרמנטורים), וקישור אירועים מאותה אצווה+לקוח+סוג תקלה.
 * תמונות/סרטונים בתיקיית Drive, בתיקיית משנה לפי פנייה. אין שיתוף ציבורי אוטומטי לקבצים.
-* מייל לכל פנייה ל־yochai@shapirobeer.co.il, מייל הסלמה על אירוע שלישי באותו מק״ט ב־90 יום, סיכום בכל יום א׳ 08:00 ושגרת ניסיון חוזר למייל שנכשל.
+* מייל יחיד לכל פנייה ל־yochai@shapirobeer.co.il; כאשר קיימים לפחות שלושה אירועי תקלה נפרדים **מאותה בירה ואותה אצווה** (כולל הפנייה הנוכחית), מצוינת עובדה זו בתוך המייל הרגיל. אין סיכום שבועי. נשמר מנגנון ניסיון חוזר למייל שנכשל.
 
 ## לפני פריסה — חובה
 
@@ -49,7 +49,7 @@ npx firebase-tools deploy --only functions:quality-reports --project fermenter-d
 npx firebase-tools deploy --only hosting --project fermenter-dashboard-bada3
 ```
 
-**אל תשלחו דיווחי אמת בזמן בדיקות.** בצעו תחילה בדיקה בסביבת ניסוי/עותק של הגיליון. יש לאמת כתיבת Sheet, קישורי Drive, שליחת Gmail ושגרה שבועית לפני פרסום הקישור. פריסת Hosting לבדה אינה מספיקה.
+**אל תשלחו דיווחי אמת בזמן בדיקות.** בצעו תחילה בדיקה בסביבת ניסוי/עותק של הגיליון. יש לאמת כתיבת Sheet, קישורי Drive, שליחת Gmail ושליחת התראה באירוע שלישי מאותה אצווה לפני פרסום הקישור. פריסת Hosting לבדה אינה מספיקה.
 
 ### תחזוקה ותקלות
 
@@ -109,3 +109,10 @@ The PR Preview can display and validate the form without connecting to the backe
 Only after the function is deployed, the preview hostname is approved both by Cloudflare Turnstile and `QUALITY_ALLOWED_HOSTS`, and a test copy of the Sheet is configured, set GitHub Actions repository variable `VITE_QUALITY_PREVIEW_SUBMISSIONS_ENABLED=true` and redeploy the preview. Remove or set it to false once testing finishes.
 
 A Cloudflare checkmark proves only bot verification in the browser; it does not mean a report was saved. A network error with no server acknowledgement is ambiguous if a function is running (the server may have written and then disconnected), so verify the Sheet before resubmitting. The UI now uses a Hebrew connectivity error instead of surfacing `Failed to fetch`.
+
+## החלטת משתמש — התראות (26.10.2026)
+- **מייל אחד לכל דיווח**, ללא דוח שבועי וללא מייל הסלמה נפרד.
+- מצטברים שלושה אירועים נפרדים של **אותה בירה ואותה אצווה** (ללא תלות במק״ט, באריזה ובגיל האירוע): החל מהשלישי, תופיע הערת אזהרה במייל הרגיל עם מספר האירועים כולל הדיווח הנוכחי.
+- כאשר שני דיווחים של אותו לקוח, אותה בירה, אותה אצווה ואותה קטגוריית תקלה משויכים לאירוע אחד, הם נספרים פעם אחת אך כל דיווח מקבל מייל.
+- בלי אצווה ידועה אין ספירת אירועים משותפת ואין הערת אזהרה.
+- לאחר הפריסה יש לוודא שפונקציית `qualityReportWeekly` והמשימה `firebase-schedule-qualityReportWeekly-europe-west1` נמחקו, ולא משאירים סיכומים מתוזמנים פעילים.

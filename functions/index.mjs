@@ -9,7 +9,7 @@ import {Readable} from 'node:stream';
 import {createHmac,createHash} from 'node:crypto';
 import {
   validateReport,HEADERS,rowsToReports,relatedEvent,
-  createSheetRow,normalize,formatIsraeliDate,knownSku,skuCatalogKey,mergeSkuHistory
+  createSheetRow,normalize,knownSku,skuCatalogKey,mergeSkuHistory
 } from './qualityLogic.mjs';
 
 initializeApp();
@@ -212,16 +212,22 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     const groupRef=groupSignature
       ? database.doc('qualityEventGroups/'+createHash('sha256').update(groupSignature).digest('hex'))
       : null;
-    const skuRef=report.sku ? database.doc('qualitySkuHistory/'+report.sku) : null;
-    const cutoff=now.valueOf()-90*86400_000;
-    const fromSheet=(report.sku?existing:[]).filter(r=>r.sku===report.sku && r.date && r.date.valueOf()>=cutoff)
-      .map(r=>({id:r.eventId,at:r.date.toISOString()}));
+    // Count distinct quality incidents per beer+batch, regardless of SKU, packaging or date.
+    // A batch can have both kegs and bottles, and older history remains relevant.
+    const batchSignature=report.batch ? [report.beer,report.batch].map(normalize).join('|') : '';
+    const batchRef=batchSignature
+      ? database.doc('qualityBatchHistory/'+createHash('sha256').update(batchSignature).digest('hex'))
+      : null;
+    const cutoff=now.valueOf()-90*86400_000; // Only same customer/issue event grouping uses 90 days.
+    const fromSheet=(batchRef?existing:[])
+      .filter(r=>normalize(r.beer)===normalize(report.beer) && normalize(r.batch)===normalize(report.batch))
+      .map(r=>({id:r.eventId,at:(r.date||now).toISOString()}));
     const key=createHash('sha256').update(JSON.stringify(report)).digest('hex');
     const claimed=await database.runTransaction(async tx=>{
-      const [prior,counter,groupSnapshot,skuSnapshot]=await Promise.all([
+      const [prior,counter,groupSnapshot,batchSnapshot]=await Promise.all([
         tx.get(idRef),tx.get(counterRef),
         groupRef?tx.get(groupRef):Promise.resolve(null),
-        skuRef?tx.get(skuRef):Promise.resolve(null)
+        batchRef?tx.get(batchRef):Promise.resolve(null)
       ]);
       if(prior.exists){
         if(prior.data()?.payload!==key)throw new Error('מזהה שליחה כבר שימש לדיווח אחר.');
@@ -241,13 +247,16 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
       const nextEvent=Math.max(Number(counter.data()?.nextEvent||0),highestEvent)+(newEvent?1:0);
       const eventId=relatedEventId||'INC-'+String(nextEvent).padStart(4,'0');
 
-      // Merge the authoritative Sheet history and concurrent in-flight claims.
-      // This makes the exact third distinct incident trigger atomic.
-      const history=mergeSkuHistory(fromSheet,skuSnapshot?.data()?.events||[],cutoff,eventId,now);
-      const escalation=Boolean(skuRef && newEvent && history.added && history.before<3 && history.events.length>=3);
+      // The current report is included in the batch count. Distinct event IDs
+      // prevent two reports of the same customer+issue from inflating the count.
+      // The transaction serializes concurrent submissions for the same batch.
+      const history=batchRef?mergeSkuHistory(fromSheet,batchSnapshot?.data()?.events||[],
+        Number.NEGATIVE_INFINITY,eventId,now):null;
+      const batchIncidentCount=history?.events.length||0;
+      const escalation=Boolean(batchRef && batchIncidentCount>=3);
       const claim={
         ticket:nextTicket,eventId,payload:key,status:'processing',processingAt:new Date(),
-        createdAt:now,sku:report.sku,client:report.customer,escalation
+        createdAt:now,sku:report.sku,client:report.customer,escalation,batchIncidentCount
       };
       tx.set(idRef,claim);
       tx.set(counterRef,{nextTicket,nextEvent},{merge:true});
@@ -255,7 +264,7 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
         eventId,lastEventAt:now,customer:report.customer,beer:report.beer,
         batch:report.batch,type:report.type
       });
-      if(skuRef)tx.set(skuRef,{events:history.events,updatedAt:now});
+      if(batchRef)tx.set(batchRef,{events:history.events,updatedAt:now,beer:report.beer,batch:report.batch});
       return {...claim,completed:false};
     });
     if(claimed.completed){res.status(200).json({ticket:claimed.ticket,eventId:claimed.eventId,duplicate:true});return;}
@@ -271,7 +280,8 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     const media=await saveMedia(drive,ticket,files,folderId);
     await ensureHeaders(sheets);
     if(!await existingSubmission(sheets,reportId)){
-      const row=createSheetRow(String(ticket),claimed.eventId,report,media.links,now,reportId,claimed.escalation?'הסלמה: אירוע שלישי':'');
+      const row=createSheetRow(String(ticket),claimed.eventId,report,media.links,now,reportId,
+        claimed.escalation?'3+ תקלות באצווה ('+claimed.batchIncidentCount+')':'');
       await sheets.spreadsheets.values.append({
         spreadsheetId:sheetId.value(),range:"'גיליון1'!A:AD",
         valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}
@@ -280,13 +290,13 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     // Successful Sheets persistence is the completion boundary. Email is retried independently on failure.
 
     const escalation=Boolean(claimed.escalation);
-    const subject=(escalation?'⚠️ התראת תקלות חוזרות · ':'דיווח תקלה חדש · ')+report.beer+' · פנייה #'+ticket;
+    const subject='דיווח תקלה חדש · '+report.beer+' · פנייה #'+ticket;
     const body=['פנייה #'+ticket,'אירוע: '+claimed.eventId,
       'לקוח: '+report.customer,'בירה: '+report.beer,'אצווה: '+(report.batch||'לא ידוע'),
       'סוג אריזה: '+report.packageType,'קטגוריה: '+report.type,'כמות: '+(report.quantity ? report.quantity+' '+(report.packageType==='חבית'?'חביות':'בקבוקים') : 'לא צוין'),
       'מדווח: '+report.reporter,'טלפון: '+(report.phone||'לא סופק'),
       'תיאור: '+report.description,
-      ...(escalation?['','⚠️ זוהו לפחות שלושה אירועי תקלה נפרדים באותו מק״ט ב־90 יום.']:[]),
+      ...(escalation?['','⚠️ תשומת לב: '+claimed.batchIncidentCount+' אירועי תקלה נפרדים כבר דווחו על אצווה '+report.batch+' ('+report.beer+'), כולל הפנייה הנוכחית.']:[]),
       ...media.links.map(x=>'מדיה: '+x),'','גיליון: '+sheetLink()].join('\n');
     await idRef.update({
       status:'completed',completedAt:new Date(),folderId:media.folderId,
@@ -310,36 +320,6 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     res.status(safe?400:500).json({error:safe?error.message:'אירעה שגיאה בשמירת הפנייה. נסו שוב מאוחר יותר.'});
   }
 });
-export const qualityReportWeekly=onSchedule({
-  schedule:'0 8 * * 0',timeZone:'Asia/Jerusalem',region:'europe-west1',
-  secrets:[clientId,clientSecret,refreshToken]
-},async()=>{
-  const {sheets,gmail}=clients();
-  const rows=rowsToReports(await sheetRows(sheets));
-  const now=new Date(), cutoff=now.valueOf()-90*86400000;
-  const recent=rows.filter(r=>r.date&&r.date.valueOf()>=cutoff);
-  const map=new Map();
-  for(const r of recent){
-    const sku=r.sku||knownSku(r.beer,r.packageType);
-    if(!sku)continue;
-    if(!map.has(sku))map.set(sku,new Set());
-    map.get(sku).add(r.eventId);
-  }
-  const repeated=[...map.entries()].filter(([,events])=>events.size>=3);
-  const open=recent.filter(r=>!r.resolved && r.date && now.valueOf()-r.date.valueOf()>7*86400000);
-  const report=[
-    'דוח שבועי · תקלות לקוחות · '+formatIsraeliDate(now),
-    'אירועי תקלה ב־90 יום: '+new Set(recent.map(x=>x.eventId)).size,
-    'פניות ב־90 יום: '+recent.length,
-    '',
-    'מק״טים עם שלושה אירועים נפרדים או יותר:',
-    ... (repeated.length?repeated.map(([sku,events])=>sku+' — '+events.size+' אירועים'):['לא נמצאו']),
-    '', 'פניות בנות יותר משבוע לבדיקה: '+open.length,
-    'גיליון המעקב: '+sheetLink()
-  ].join('\n');
-  await sendMail(gmail,'סיכום תקלות שבועי · שפירא · '+formatIsraeliDate(now),report);
-});
-
 export const qualityReportMailRetry=onSchedule({
   schedule:'10 * * * *',timeZone:'Asia/Jerusalem',region:'europe-west1',
   secrets:[clientId,clientSecret,refreshToken]

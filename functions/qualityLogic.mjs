@@ -143,6 +143,15 @@ export function relatedEvent(reports, report, now, days=90) {
     r.type === report.type
   ) || null;
 }
+/** Distinct complaint events in a particular beer batch across all historical records.
+ * Counts the current event only once even when multiple submissions describe it. */
+export function distinctBatchEvents(reports, report) {
+  if (!report.batch) return new Set();
+  return new Set(reports.filter(r =>
+    normalize(r.beer)===normalize(report.beer) &&
+    normalize(r.batch)===normalize(report.batch)
+  ).map(r => r.eventId).filter(Boolean));
+}
 export function distinctSkuEvents(reports, report, now, days=90) {
   if (!report.sku) return new Set();
   const since = now.valueOf() - days * 86400_000;

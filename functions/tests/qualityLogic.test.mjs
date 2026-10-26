@@ -1,7 +1,7 @@
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
-import {validateReport,relatedEvent,distinctSkuEvents,rowsToReports,createSheetRow,formatIsraeliDate,normalize,mergeSkuHistory,parseSheetDate,knownSku} from '../qualityLogic.mjs';
+import {validateReport,relatedEvent,distinctBatchEvents,rowsToReports,createSheetRow,formatIsraeliDate,normalize,mergeSkuHistory,parseSheetDate,knownSku} from '../qualityLogic.mjs';
 const base = {customer:'החור השחור',beer:'לאגר',issueType:'הקצפת יתר',packageType:'חבית',reporter:'רון',description:'מקציף בפולסים',quantity:'3',batch:'1532',expiry:'2026-12-25'};
 test('validates and normalizes SKU and numeric quantity',()=>{
   const r=validateReport(base); assert.equal(r.sku,'7009942'); assert.equal(r.quantity,'3');
@@ -15,10 +15,12 @@ test('same customer, batch and issue category link to one event',()=>{
   assert.equal(relatedEvent([earlier],validateReport({...base,issueType:'טעם חריג'}),new Date('2026-10-26')),null);
   assert.equal(relatedEvent([earlier],validateReport(base),new Date('2027-04-26')),null);
 });
-test('same event reported multiple times is one incident for threshold',()=>{
-  const now=new Date('2026-10-26');
-  const reports=['INC-1','INC-1','INC-2'].map(eventId=>({eventId,date:new Date('2026-10-20'),beer:'לאגר',packageType:'חבית',sku:'7009942'}));
-  assert.equal(distinctSkuEvents(reports,validateReport(base),now).size,2);
+test('same batch counts distinct issues across package types but not duplicate submissions',()=>{
+  const reports=['INC-1','INC-1','INC-2'].map((eventId,i)=>({eventId,date:new Date('2024-10-20'),beer:'לאגר',batch:'1532',packageType:i===2?'בקבוק':'חבית'}));
+  reports.push({eventId:'INC-3',date:new Date('2020-01-01'),beer:'IPA',batch:'1532'});
+  reports.push({eventId:'INC-4',date:new Date('2020-01-01'),beer:'לאגר',batch:'1533'});
+  assert.equal(distinctBatchEvents(reports,validateReport(base)).size,2);
+  assert.equal(distinctBatchEvents(reports,validateReport({...base,batch:''})).size,0);
 });
 test('reads original twenty columns and appends metadata without moving old columns',()=>{
  const raw=new Array(30).fill('');raw[0]='3';raw[2]='החור השחור';raw[3]='לאגר';raw[4]='1532';raw[6]='3 חביות';raw[7]='25/10/26';raw[9]='3 חביות מקציפות';
@@ -35,10 +37,9 @@ test('unknown special beers and legacy unsupported packaging never infer a SKU',
  assert.equal(validateReport({...base,beer:'מיוחדת 2026'}).sku,'');
  assert.equal(knownSku('לאגר','פחית'),'');
 });
-test('distinct event IDs count once even with multiple reporters',()=>{
- const now=new Date('2026-10-26');
- const reports=[1,1,2,3].map(n=>({eventId:'INC-'+n,date:new Date('2026-10-24'),sku:'7009942'}));
- assert.equal(distinctSkuEvents(reports,validateReport(base),now).size,3);
+test('three reports from one batch produce three distinct incidents even without SKU',()=>{
+ const reports=[1,1,2,3].map(n=>({eventId:'INC-'+n,beer:'לאגר',batch:'1532',date:null,sku:''}));
+ assert.equal(distinctBatchEvents(reports,validateReport(base)).size,3);
 });
 
 test('atomic history fold counts third distinct incident while ignoring duplicate reporters',()=>{
@@ -64,7 +65,7 @@ test('legacy day/month dates roll to the previous calendar year in January',()=>
 
 test('public API rejects bot traffic before any catalog or Sheets reads',()=>{
  const source=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
- const code=source.slice(source.indexOf('export const qualityReport=onRequest'),source.indexOf('export const qualityReportWeekly='));
+ const code=source.slice(source.indexOf('export const qualityReport=onRequest'),source.indexOf('export const qualityReportMailRetry='));
  const antiBot=code.indexOf('await checkTurnstile(fields.turnstileToken,req.ip)');
  const limit=code.indexOf('await chargeLimit(req.ip)');
  const catalog=code.indexOf("database.doc('productCatalog/'+key).get()");
@@ -115,4 +116,15 @@ test('batch keyboard is numeric, and input normalizes digits only',()=>{
  assert.match(batch,/inputMode="numeric"/);
  assert.match(batch,/pattern="\[0-9\]\*"/);
  assert.match(batch,/replace\(\/\[\^0-9\]\/g,''\)/);
+});
+
+test('mail always sent on each report, with a batch-specific note for three or more incidents',()=>{
+ const src=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
+ assert.match(src,/const subject='דיווח תקלה חדש · '/);
+ assert.match(src,/batchIncidentCount>=3/);
+ assert.match(src,/אירועי תקלה נפרדים כבר דווחו על אצווה/);
+ assert.match(src,/Number.NEGATIVE_INFINITY/); // all-time batch history
+ assert.doesNotMatch(src,/export const qualityReportWeekly=/);
+ assert.match(src,/export const qualityReportMailRetry=/);
+ assert.doesNotMatch(src,/qualitySkuHistory\//);
 });
