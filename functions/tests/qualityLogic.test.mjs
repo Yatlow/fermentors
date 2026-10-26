@@ -139,9 +139,10 @@ test('brewcrew standalone worker handles signed immediate dispatch to Sheets, Dr
  assert.match(manifest,/script.send_mail/);
  assert.match(manifest,/"webapp"/);
 });
-test('public acknowledgment means queued, not saved in Sheets yet',()=>{
+test('public acknowledgment distinguishes immediately saved reports from queued fallback',()=>{
  const ui=readFileSync(new URL('../../src/public-report/ReportPage.tsx',import.meta.url),'utf8');
  assert.match(ui,/אסמכתה זמנית/);
  assert.match(ui,/הדיווח התקבל לעיבוד/);
- assert.doesNotMatch(ui,/result.ticket/);
+ assert.match(ui,/result.ticket/);
+ assert.match(ui,/result.queued/);
 });
