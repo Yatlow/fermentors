@@ -315,10 +315,7 @@ export const qualityReportWeekly=onSchedule({
     map.get(sku).add(r.eventId);
   }
   const repeated=[...map.entries()].filter(([,events])=>events.size>=3);
-  const open=recent.filter(r=>{
-    const original=rows.find(x=>x.rowIndex===r.rowIndex);
-    return Boolean(original && !original.resolved && r.date && now.valueOf()-r.date.valueOf()>7*86400000);
-  });
+  const open=recent.filter(r=>!r.resolved && r.date && now.valueOf()-r.date.valueOf()>7*86400000);
   const report=[
     'דוח שבועי · תקלות לקוחות · '+formatIsraeliDate(now),
     'אירועי תקלה ב־90 יום: '+new Set(recent.map(x=>x.eventId)).size,
