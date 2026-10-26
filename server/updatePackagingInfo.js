@@ -3,6 +3,8 @@
 // ============================================================
 
 const PACKAGING_LAYOUT_CACHE_SECONDS = 21600; // 6 hours
+// Layout v2 fixes total/shrinkage coordinates. Do not reuse cached v1 G-column positions.
+const PACKAGING_LAYOUT_CACHE_PREFIX = "packaging_layout:v2:";
 
 function roundPackagingValue_(value) {
   const numeric = Number(value);
@@ -66,9 +68,10 @@ function packagingTargetBelowLabel_(pos) {
 }
 
 function packagingTargetLeftOfLabel_(pos) {
-  // Existing sheet convention: value is one displayed cell to the left in RTL,
-  // which is the same 1-based column number as the label's zero-based col.
-  return pos ? { row: pos.row + 1, col: pos.col } : null;
+  // For the RTL packaging summary, the value sits one logical column AFTER
+  // the label (H -> I). pos.col is zero-based: target 1-based = pos.col + 2.
+  // The former pos.col wrote into G and could overwrite yeast pitch time.
+  return pos ? { row: pos.row + 1, col: pos.col + 2 } : null;
 }
 
 function discoverPackagingLayout_(sheet, spreadsheetId) {
@@ -98,7 +101,7 @@ function discoverPackagingLayout_(sheet, spreadsheetId) {
   };
 
   CacheService.getScriptCache().put(
-    "packaging_layout:" + spreadsheetId,
+    PACKAGING_LAYOUT_CACHE_PREFIX + spreadsheetId,
     JSON.stringify(layout),
     PACKAGING_LAYOUT_CACHE_SECONDS
   );
@@ -108,7 +111,7 @@ function discoverPackagingLayout_(sheet, spreadsheetId) {
 
 function getPackagingLayout_(spreadsheetId) {
   const cache = CacheService.getScriptCache();
-  const key = "packaging_layout:" + spreadsheetId;
+  const key = PACKAGING_LAYOUT_CACHE_PREFIX + spreadsheetId;
   const cached = cache.get(key);
 
   if (cached) {
