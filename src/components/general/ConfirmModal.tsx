@@ -1,4 +1,5 @@
 // ConfirmModal.tsx
+import { createPortal } from "react-dom";
 export default function ConfirmModal({
     title, message, confirmLabel = "אישור", cancelLabel = "ביטול", danger, onConfirm, onCancel,
 }: {
@@ -10,9 +11,9 @@ export default function ConfirmModal({
     onConfirm: () => void;
     onCancel: () => void;
 }) {
-    return (
+    return createPortal(
         <div className="modal-overlay" onClick={onCancel}>
-            <div className="modal-box confirm-modal" onClick={(e) => e.stopPropagation()} dir="rtl">
+            <div className="modal-box confirm-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} dir="rtl">
                 <h3>{title}</h3>
                 <p>{message}</p>
                 <div className="modal-actions-primary">
@@ -20,6 +21,7 @@ export default function ConfirmModal({
                     <button className="modal-cancel-btn" onClick={onCancel}>{cancelLabel}</button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body,
     );
 }
