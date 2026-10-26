@@ -70,3 +70,8 @@ test('public API rejects bot traffic before any catalog or Sheets reads',()=>{
  const sheet=code.indexOf('const rows=await sheetRows(sheets)');
  assert.ok(antiBot>=0 && antiBot<limit && limit<catalog && catalog<sheet);
 });
+
+test('public complaints accept only a selected keg or bottle package',()=>{
+  for(const p of ['חבית','בקבוק']) assert.equal(validateReport({...base,packageType:p}).packageType,p);
+  for(const p of ['',undefined,'פחית','אחר','לא ידוע']) assert.throws(()=>validateReport({...base,packageType:p}));
+});

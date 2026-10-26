@@ -1,6 +1,6 @@
 // Pure quality-report domain logic. No Google APIs, side effects or secrets.
 export const ISSUE_TYPES = ['הקצפת יתר', 'טעם חריג', 'ריח חריג', 'בעיה באריזה', 'משקעים / עכירות', 'אחר'];
-export const PACKAGES = ['חבית', 'בקבוק', 'פחית', 'אחר', 'לא ידוע'];
+export const PACKAGES = ['חבית', 'בקבוק'];
 export const BEER_TYPES = ['IPA', 'פייל אייל', 'לאגר', 'הופי לאגר', 'חיטה', 'סטאוט'];
 // Source: the brewery's PalletCatalog.ts defaults. Editable Firestore productCatalog
 // overrides are applied by the server when available.
@@ -61,7 +61,7 @@ export function validateReport(data) {
   const beer = required(data.beer, 80, 'סוג בירה');
   const type = required(data.issueType, 40, 'סוג התקלה');
   if (!ISSUE_TYPES.includes(type)) throw new Error('סוג תקלה לא מוכר.');
-  const packageType = optional(data.packageType, 40, 'סוג האריזה') || 'לא ידוע';
+  const packageType = required(data.packageType, 40, 'סוג האריזה');
   if (!PACKAGES.includes(packageType)) throw new Error('סוג אריזה לא מוכר.');
   const reporter = required(data.reporter, 120, 'שם המדווח');
   const description = required(data.description, 2000, 'תיאור התקלה');

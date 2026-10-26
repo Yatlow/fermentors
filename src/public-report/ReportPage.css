@@ -27,3 +27,64 @@ body:has(.q-site){margin:0;background:#f8f7ec}
 @media(max-width:700px){.q-top-inner{padding:13px 20px}.q-logo{font-size:16px}.q-logo-icon{height:37px;width:37px}.q-safe{font-size:12px}.q-wrap{padding:0 13px 24px}.q-hero{padding:39px 4px 25px}.q-hero p{font-size:16px}.q-card{padding:24px 19px;border-radius:21px}.q-card h2{font-size:23px}.q-beers{grid-template-columns:repeat(3,minmax(0,1fr))}.q-problems{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:430px){.q-hero h1{letter-spacing:-1px}.q-two{grid-template-columns:1fr}.q-option{font-size:12px}.q-actions button.q-primary{flex:1}}
 @media(prefers-reduced-motion:reduce){.q-site *{transition:none!important;animation:none!important}}
+
+/* Shapiro brand alignment: warm label-paper, dark ink, amber and ale-red. */
+body:has(.q-site){background:#f6f0e3}
+.q-site{--ink:#332821;--teal:#a94431;--muted:#75685a;background:linear-gradient(160deg,#fbf8f0 0%,#f3ecdb 57%,#f8efdf 100%);}
+.q-glow-a{background:#f2c7744d}
+.q-glow-b{background:#e1ae8f36}
+.q-top{background:#292420;border-bottom:4px solid #ba613e}
+.q-top-inner{max-width:940px;padding:13px 23px;min-height:94px}
+.q-logo{direction:rtl;gap:17px;letter-spacing:0;font:800 20px Rubik,Arial,sans-serif}
+.q-logo-image{width:70px;height:66px;flex-shrink:0;display:grid;place-items:center;background:#fffaf0;border:1px solid #ebd5b5;border-radius:12px;padding:5px;overflow:hidden}
+.q-logo-image img{display:block;max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain}
+.q-brand-title{line-height:1.35;max-width:440px}
+.q-brand-title strong{color:#f0cb8d}
+.q-brand-title>span{color:#f2d4a5;margin:0 3px}
+.q-safe{font-weight:600;color:#f2e7d8;border:1px solid #ffffff36;padding:7px 12px;border-radius:50px;white-space:nowrap}
+.q-wrap{max-width:790px}
+.q-overline{direction:ltr;background:#fff5e5;border-color:#ead4b6;color:#965037;font:800 11px Rubik,Arial,sans-serif;letter-spacing:1.8px}
+.q-hero{padding-top:46px}
+.q-hero h1{letter-spacing:-1.5px}
+.q-hero h1 strong{color:#a94431}
+.q-hero h1 strong:after{border-bottom-color:#e1ae58}
+.q-hero p{color:#6b5d51}
+.q-mini{color:#6d6255}
+.q-mini span{background:#a94431;box-shadow:0 0 0 4px #a9443120}
+.q-card{background:#fffdfa;border:1px solid #e8decc;border-radius:18px;box-shadow:0 15px 42px #54412d17,0 4px 0 #dfbd89}
+.q-eyebrow{color:#a94431;letter-spacing:.5px;font:700 12px Rubik,Arial,sans-serif}
+.q-count{background:#f3ecdf;color:#816d59}
+.q-progress{background:#f0e8d9}
+.q-progress div{background:linear-gradient(90deg,#b84d35,#e3b45d)}
+.q-section>span{background:#f9e8cf;color:#a34431;border-radius:12px}
+.q-field>span i{color:#bb442a}
+.q-field>span em{color:#988a7e}
+.q-field input,.q-field select,.q-field textarea{background:#fffcf5;border-color:#dfd2bf;color:#342b25}
+.q-field input:focus,.q-field select:focus,.q-field textarea:focus{border-color:#ae563e;box-shadow:0 0 0 4px #ae563e16}
+.q-field input::placeholder,.q-field textarea::placeholder{color:#a59789}
+.q-option,.q-problem,.q-package{background:#fffbf4;border-color:#e6dac8;color:#594c40}
+.q-option svg{color:#b25a36}
+.q-option.selected,.q-problem.selected,.q-package.selected{background:#fff0d9;border-color:#b44f35;box-shadow:0 0 0 2px #bb61321a;color:#833421}
+.q-option:hover,.q-problem:hover,.q-package:hover{border-color:#b44f35}
+.q-problem b{font-size:21px}
+.q-packages{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.q-package{display:flex;align-items:center;justify-content:center;gap:9px;min-height:51px;padding:8px 12px;border:1.5px solid #e6dac8;border-radius:12px;font:800 15px Assistant,Arial,sans-serif;cursor:pointer;transition:background .2s,border-color .2s}
+.q-package svg{color:#a94431}
+.q-upload{background:#fbf2e3;border-color:#d8b990;color:#98502f}
+.q-upload>svg{background:#fffdfa}
+.q-upload span{color:#7e6652}
+.q-upload small{color:#95806d}
+.q-files li{background:#fffaf1;border-color:#e6d9c6}
+.q-files li>svg{color:#b35a3a}
+.q-review{background:#fff5e2;border-color:#e7cd9f}
+.q-review strong{color:#8b5930}
+.q-review p{color:#75604a}
+.q-privacy{color:#7e6b5a}
+.q-primary{background:#ebbf69;color:#30271e;box-shadow:0 4px 0 #bf8e40}
+.q-back{background:#f0e7d9;color:#554738}
+.q-done-icon{background:#f9ead5;color:#a94431}
+.q-pill{background:#f6e6d4;color:#91422e}
+.q-ticket{background:#fffaed;border-color:#ead3a8}
+.q-footer{direction:rtl;letter-spacing:0;color:#7d6957;font:600 13px Assistant,Arial,sans-serif}
+@media(max-width:700px){.q-top-inner{padding:10px 15px;min-height:80px}.q-logo{gap:11px;font-size:15px}.q-logo-image{height:56px;width:58px}.q-safe{font-size:11px;padding:6px 8px}.q-hero{padding-top:34px}}
+@media(max-width:430px){.q-brand-title{font-size:13px}.q-logo-image{height:50px;width:52px}.q-safe{display:none}.q-hero h1{font-size:clamp(30px,8vw,38px)}.q-overline{font-size:10px}.q-packages{grid-template-columns:repeat(2,minmax(0,1fr))}}
