@@ -24,6 +24,7 @@ import { loadRecipes, replaceRecipes } from "../../SERVICES/brewing/recipeEditor
 import { loadIngredients, saveIngredients } from "../../SERVICES/brewing/ingredientEditorStore";
 import { sameStyle } from "../../SERVICES/planning/planningEngine";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
+import { batchDeletionBlockReason } from "../../SERVICES/brewing/brewDeletionPolicy";
 import {
     buildBrewSheetInitialWrites,
 } from "../../SERVICES/brewing/brewSheet";
@@ -814,30 +815,21 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
             getDocs(collection(db, "fermentors")),
             getDocs(query(collection(db, "brews", normalizedBatch, "measurements"), limit(1))),
         ]);
-        if (!measurementSnapshot.empty) {
-            throw new Error(`אי אפשר למחוק אצווה ${normalizedBatch}: כבר קיימות עבורה מדידות.`);
-        }
-
-        const matchingActiveTanks = tankSnapshot.docs.filter((snapshot) => {
-            const tank = snapshot.data();
-            const assignedBatch = String(tank.batchNumber || "").replace("#", "").trim();
-            return assignedBatch === normalizedBatch && (Number(tank.action) === 0 || Number(tank.action) === 1);
-        });
-        if (!expectedTankId) {
-            if (matchingActiveTanks.length > 0) {
-                throw new Error(`אי אפשר למחוק אצווה ${normalizedBatch}: היא כבר משובצת למיכל. יש לרענן את הדף.`);
-            }
-            return null;
-        }
-
-        if (matchingActiveTanks.length !== 1 || matchingActiveTanks[0].id !== expectedTankId) {
-            throw new Error("שיוך האצווה למיכל השתנה. יש לרענן את הדף לפני מחיקה.");
-        }
-        const snapshot = matchingActiveTanks[0];
+        const tanks = tankSnapshot.docs.map((snapshot) => ({
+            ...snapshot.data(),
+            id: snapshot.id,
+        }));
+        const blockReason = batchDeletionBlockReason(
+            normalizedBatch,
+            tanks,
+            !measurementSnapshot.empty,
+            expectedTankId,
+        );
+        if (blockReason) throw new Error(blockReason);
+        if (!expectedTankId) return null;
+        const snapshot = tankSnapshot.docs.find((row) => row.id === expectedTankId);
+        if (!snapshot) throw new Error("המיכל לא נמצא.");
         const fresh = snapshot.data();
-        if (Number(fresh.action) !== 0 || fresh.brewProgress?.stageName) {
-            throw new Error(`אי אפשר למחוק אצווה ${normalizedBatch}: הבישול כבר התחיל.`);
-        }
         return { ...fresh, id: snapshot.id } as Fermentor;
     }
 
