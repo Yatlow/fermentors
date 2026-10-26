@@ -82,13 +82,17 @@ function validIsoDate(value) {
 export function formatIsraeliDate(date) {
   return new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Jerusalem',day:'2-digit',month:'2-digit',year:'numeric'}).format(date);
 }
-export function parseSheetDate(raw) {
+export function parseSheetDate(raw,now=new Date()) {
   const value = String(raw || '').trim();
   const d = value.match(/^(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?$/);
   if (!d) return null;
-  const year = d[3] ? (d[3].length === 2 ? 2000 + Number(d[3]) : Number(d[3])) : new Date().getFullYear();
-  const dt = new Date(Date.UTC(year, Number(d[2])-1, Number(d[1]),12));
-  if (dt.getUTCDate() !== Number(d[1]) || dt.getUTCMonth() !== Number(d[2])-1) return null;
+  const specified=d[3]? (d[3].length===2?2000+Number(d[3]):Number(d[3])):null;
+  const thisYear=Number(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Jerusalem',year:'numeric'}).format(now));
+  const create=year=>new Date(Date.UTC(year,Number(d[2])-1,Number(d[1]),12));
+  let dt=create(specified??thisYear);
+  if(dt.getUTCDate()!==Number(d[1])||dt.getUTCMonth()!==Number(d[2])-1)return null;
+  // Bare dd/mm dates refer to the most recent occurrence, never a future date.
+  if(!specified && dt.valueOf()>now.valueOf()+86400000)dt=create(thisYear-1);
   return dt;
 }
 export function inferIssueType(description) {

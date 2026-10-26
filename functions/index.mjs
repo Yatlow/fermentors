@@ -2,7 +2,7 @@ import {onRequest} from 'firebase-functions/v2/https';
 import {onSchedule} from 'firebase-functions/v2/scheduler';
 import {defineSecret,defineString} from 'firebase-functions/params';
 import {initializeApp} from 'firebase-admin/app';
-import {getFirestore} from 'firebase-admin/firestore';
+import {getFirestore,FieldValue} from 'firebase-admin/firestore';
 import {google} from 'googleapis';
 import Busboy from 'busboy';
 import {Readable} from 'node:stream';
@@ -28,7 +28,7 @@ const MAX_MEDIA_BYTES=22*1024*1024;
 const FILE_BYTES=14*1024*1024;
 const MEDIA_TYPES=new Set(['image/jpeg','image/png','image/webp','image/heic','image/heif','video/mp4','video/quicktime','video/webm']);
 const API_OPTIONS={
-  region:'europe-west1',memory:'512MiB',timeoutSeconds:120,maxInstances:5,
+  region:'europe-west1',memory:'512MiB',timeoutSeconds:120,maxInstances:5,invoker:'public',
   secrets:[clientId,clientSecret,refreshToken,turnstileSecret]
 };
 function clients() {
@@ -192,8 +192,8 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     const existing=rowsToReports(rows);
     const now=new Date();
     const related=relatedEvent(existing,report,now);
-    const highestTicket=Math.max(0,...existing.map(x=>Number(x.ticket)||0));
-    const highestEvent=Math.max(highestTicket,...existing.map(x=>Number(x.eventId.match(/\d+$/)?.[0]||0)));
+    const highestTicket=existing.reduce((m,x)=>Math.max(m,Number(x.ticket)||0),0);
+    const highestEvent=existing.reduce((m,x)=>Math.max(m,Number(x.eventId.match(/\d+$/)?.[0]||0)),highestTicket);
 
     const idRef=database.doc('qualitySubmissions/'+reportId);
     const counterRef=database.doc('qualityReportMeta/counters');
@@ -203,9 +203,9 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
       : null;
     const skuRef=report.sku ? database.doc('qualitySkuHistory/'+report.sku) : null;
     const cutoff=now.valueOf()-90*86400_000;
-    const fromSheet=existing.filter(r=>r.sku===report.sku && r.date && r.date.valueOf()>=cutoff)
+    const fromSheet=(report.sku?existing:[]).filter(r=>r.sku===report.sku && r.date && r.date.valueOf()>=cutoff)
       .map(r=>({id:r.eventId,at:r.date.toISOString()}));
-    const key=JSON.stringify(report);
+    const key=createHash('sha256').update(JSON.stringify(report)).digest('hex');
     const claimed=await database.runTransaction(async tx=>{
       const [prior,counter,groupSnapshot,skuSnapshot]=await Promise.all([
         tx.get(idRef),tx.get(counterRef),
@@ -283,7 +283,7 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     });
     try {
       await sendMail(gmail,subject,body);
-      await idRef.update({mailStatus:'sent',mailSentAt:new Date(),mailAttempts:1});
+      await idRef.update({mailStatus:'sent',mailSentAt:new Date(),mailAttempts:1,mailSubject:FieldValue.delete(),mailBody:FieldValue.delete()});
     } catch(error) {
       console.error('quality report email failed; will retry',error?.message);
       try{await idRef.update({mailStatus:'failed',mailAttempts:1});}catch(inner){console.error('Email retry state failed',inner?.message);}
@@ -344,7 +344,7 @@ export const qualityReportMailRetry=onSchedule({
     if(!row.mailSubject||!row.mailBody)continue;
     try{
       await sendMail(gmail,row.mailSubject,row.mailBody);
-      await item.ref.update({mailStatus:'sent',mailSentAt:new Date(),mailAttempts:Number(row.mailAttempts||0)+1});
+      await item.ref.update({mailStatus:'sent',mailSentAt:new Date(),mailAttempts:Number(row.mailAttempts||0)+1,mailSubject:FieldValue.delete(),mailBody:FieldValue.delete()});
     }catch(error){
       console.error('quality email retry failed',item.id,error?.message);
       await item.ref.update({mailAttempts:Number(row.mailAttempts||0)+1});

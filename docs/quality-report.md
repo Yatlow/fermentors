@@ -68,3 +68,8 @@ When the form is live, check mobile Safari / Chrome, including retry after netwo
 ### OAuth and permissions
 The parent 'בישולים' Drive folder is shared, so attachments can inherit access by other folder members. Check the effective ACLs with the brewery's Drive administrator, and restrict access at the parent or choose a separate protected folder if quality-only visibility is required. This project never turns on 'anyone with the link' permissions for attached files.
 A Google OAuth refresh token is required to use Sheets/Drive/Gmail. Use a production OAuth consent screen; a refresh token from a testing-only consent screen may expire quickly.
+
+### Privacy and retention
+
+Firestore stores SHA-256 of the normalized report to recognize duplicate submissions, rather than a plaintext copy of user-entered fields. Email content is kept only until it is delivered or needs retry, then deleted from the Firestore outbox. The Google Sheet remains the authoritative complaint record. Configure TTL cleanup for `qualityRateLimits.expiresAt` in Firebase, and review the organization's media retention requirements.
+The public HTTPS function must have Cloud Run invoker access for unauthenticated submitters, and request authentication comes from server-verified Turnstile plus abuse controls.
