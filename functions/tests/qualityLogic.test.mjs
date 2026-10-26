@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {validateReport,relatedEvent,distinctSkuEvents,rowsToReports,createSheetRow,formatIsraeliDate,normalize,mergeSkuHistory,parseSheetDate} from '../qualityLogic.mjs';
 const base = {customer:'החור השחור',beer:'לאגר',issueType:'הקצפת יתר',packageType:'חבית',reporter:'רון',description:'מקציף בפולסים',quantity:'3 חביות',batch:'1532',expiry:'2026-12-25'};
@@ -58,4 +59,13 @@ test('legacy day/month dates roll to the previous calendar year in January',()=>
  assert.equal(parseSheetDate('25/12',now)?.toISOString().slice(0,10),'2026-12-25');
  assert.equal(parseSheetDate('03/01',now)?.toISOString().slice(0,10),'2027-01-03');
  assert.equal(parseSheetDate('31/02',now),null);
+});
+
+test('public API rejects bot traffic before any catalog or Sheets reads',()=>{
+ const code=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
+ const antiBot=code.indexOf('await checkTurnstile(fields.turnstileToken,req.ip)');
+ const limit=code.indexOf('await chargeLimit(req.ip)');
+ const catalog=code.indexOf("database.doc('productCatalog/'+key).get()");
+ const sheet=code.indexOf('const rows=await sheetRows(sheets)');
+ assert.ok(antiBot>=0 && antiBot<limit && limit<catalog && catalog<sheet);
 });
