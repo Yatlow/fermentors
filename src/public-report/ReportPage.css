@@ -97,3 +97,7 @@ body:has(.q-site){background:#f6f0e3}
   .q-two{grid-template-columns:minmax(0,1fr)}
   .q-two>.q-field{width:100%;max-width:100%;min-width:0}
 }
+
+/* The PR preview is non-operational until an end-to-end backend test is approved. */
+.q-preview-notice{display:flex;gap:10px;align-items:flex-start;border:1px solid #e7ce9f;background:#fff4de;border-radius:12px;padding:13px 15px;color:#754d27;font-weight:700;font-size:14px}
+.q-preview-notice svg{flex-shrink:0}
