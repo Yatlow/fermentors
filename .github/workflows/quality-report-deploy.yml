@@ -1,17 +1,12 @@
 name: Deploy quality-report Cloud Functions (manual)
 on:
-  push:
-    branches:
-      - feature/public-quality-issue-report
-    paths:
-      - .github/workflows/quality-report-deploy.yml
   workflow_dispatch:
 permissions:
   contents: read
   id-token: write
 jobs:
   deploy-quality-backend:
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[quality-backend-test-deploy]') }}
+    # Deliberately manual: installing the authorized Apps Script worker is a prerequisite.
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -33,22 +28,17 @@ jobs:
       - name: Identify the deploying service account (email only)
         run: |
           node -e "const fs=require('node:fs'); const p=process.env.GOOGLE_APPLICATION_CREDENTIALS; const x=JSON.parse(fs.readFileSync(p,'utf8')); console.log('Deploying service account: '+x.client_email)"
-      - name: Prepare non-secret runtime configuration
+      - name: Prepare non-secret intake configuration
         env:
-          SENDER: ${{ vars.QUALITY_SENDER_EMAIL }}
           HOSTS: ${{ vars.QUALITY_ALLOWED_HOSTS }}
-          SHEET: ${{ vars.QUALITY_SHEET_ID }}
-          MEDIA: ${{ vars.QUALITY_MEDIA_FOLDER_ID }}
+          BUCKET: ${{ vars.QUALITY_UPLOAD_BUCKET }}
         run: |
-          SENDER="${SENDER:-brewcrew@shapirobeer.co.il}"
+          HOSTS="${HOSTS:-fermenter-dashboard-bada3.web.app,fermenter-dashboard-bada3.firebaseapp.com}"
           HOSTS="${HOSTS},fermenter-dashboard-bada3--pr252-feature-public-quali-r1p21j2p.web.app"
-          test -n "$HOSTS" || { echo "::error::Missing QUALITY_ALLOWED_HOSTS repository variable"; exit 1; }
-          test -n "$SHEET" || { echo "::error::Missing QUALITY_SHEET_ID repository variable"; exit 1; }
-          test -n "$MEDIA" || { echo "::error::Missing QUALITY_MEDIA_FOLDER_ID repository variable"; exit 1; }
+          BUCKET="${BUCKET:-fermenter-dashboard-bada3.firebasestorage.app}"
+          test -n "$BUCKET" || { echo "::error::Missing QUALITY_UPLOAD_BUCKET"; exit 1; }
           {
-            printf 'QUALITY_SHEET_ID=%s\n' "$SHEET"
-            printf 'QUALITY_MEDIA_FOLDER_ID=%s\n' "$MEDIA"
-            printf 'QUALITY_SENDER_EMAIL=%s\n' "$SENDER"
+            printf 'QUALITY_UPLOAD_BUCKET=%s\n' "$BUCKET"
             printf 'QUALITY_ALLOWED_HOSTS=%s\n' "$HOSTS"
           } > functions/.env.fermenter-dashboard-bada3
       - name: Install gcloud for deployment diagnostics
@@ -61,7 +51,8 @@ jobs:
         run: |
           set -o pipefail
           # --force configures the artifact cleanup policy in non-interactive CI (quality-reports codebase only).
-          # Retire the weekly summary by deleting the now-absent qualityReportWeekly function.
+          # At cutover Firebase also removes the two retired scheduler-backed
+          # functions. Ensure the CI service account has cloudscheduler.jobs.delete.
           npx --yes firebase-tools deploy --only functions:quality-reports --project fermenter-dashboard-bada3 --non-interactive --force 2>&1 | tee "$RUNNER_TEMP/quality-functions-deploy.log"
       - name: Diagnose failed Cloud Build operations
         if: ${{ failure() && steps.deploy-functions.outcome == 'failure' }}
