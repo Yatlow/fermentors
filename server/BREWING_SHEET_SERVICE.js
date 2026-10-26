@@ -205,17 +205,17 @@ function brewingSheetResolveFermentationMetadataRange_(sheet, range, semanticFie
       const preceding = rows[i - 1] || [];
       const row = rows[i] || [];
       if (String(preceding[0] || "").trim() === "דף תסיסה" &&
-          /^אצווה\\s*:?$/.test(String(row[2] || "").trim()) &&
-          /^מספר\\s*מיכל\\s*:?$/.test(String(row[5] || "").trim())) {
+          /^אצווה\s*:?$/.test(String(row[2] || "").trim()) &&
+          /^מספר\s*מיכל\s*:?$/.test(String(row[5] || "").trim())) {
         indexes.push(i + 1);
       }
     }
   } else {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i] || [];
-      if (/^יום\\s*בישול/i.test(String(row[0] || "").trim()) &&
-          /^סוכר\\s*תחילי/i.test(String(row[2] || "").trim()) &&
-          /שעת\\s*הוספת\\s*שמרים/i.test(String(row[4] || "").trim())) {
+      if (/^יום\s*בישול/i.test(String(row[0] || "").trim()) &&
+          /^סוכר\s*תחילי/i.test(String(row[2] || "").trim()) &&
+          /שעת\s*הוספת\s*שמרים/i.test(String(row[4] || "").trim())) {
         indexes.push(i + 1);
       }
     }
@@ -348,7 +348,7 @@ function brewingSheetEnsureEmptyCheckbox_(sheet) {
   const checkbox = sheet.getRange(controlRow, 9);
   const labelText = String(label.getDisplayValue() || "").trim();
   const current = String(checkbox.getDisplayValue() || "").trim().toUpperCase();
-  if (labelText && !/^ריק\\s*\\??\\s*:??$/.test(labelText)) {
+  if (labelText && !/^ריק\s*\??\s*:??$/.test(labelText)) {
     throw new Error("Unsafe empty-tank control location: H" + controlRow);
   }
   if (current && current !== "TRUE" && current !== "FALSE") {
