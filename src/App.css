@@ -6,8 +6,8 @@
     /* Global layering: interactive navigation stays below every dialog. */
     --layer-nav-backdrop: 290;
     --layer-nav: 300;
-    --layer-search: 310;
-    --layer-status: 500;
+    --layer-search: 260;
+    --layer-status: 240;
     --layer-modal: 10000;
     --layer-elevated-modal: 12000;
     --layer-busy: 14000;
