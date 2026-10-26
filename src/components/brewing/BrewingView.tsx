@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { Fermentor } from "../../App";
-import { collection, deleteField, doc, getDocs, limit, onSnapshot, query, updateDoc, where, writeBatch } from "firebase/firestore";
+import { collection, deleteField, doc, getDocs, limit, onSnapshot, query, where, writeBatch } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
     serverListBrewDriveHistory,
