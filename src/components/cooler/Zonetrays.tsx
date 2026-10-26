@@ -1,4 +1,5 @@
 import { useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
     ArrowRightLeft,
     Pencil,
@@ -58,9 +59,9 @@ export function ZoneMoveModal({ pallet, onMove, onClose }: {
         }
     }
 
-    return (
+    return createPortal(
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-box zone-move-modal" onClick={(e) => e.stopPropagation()} dir="rtl">
+            <div className="modal-box zone-move-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} dir="rtl">
                 <div className="modal-header-row">
                     <div><span className="modal-kicker">העברת משטח</span><h3>לאן להעביר?</h3></div>
                     <button className="modal-x" onClick={onClose} disabled={moving}>×</button>
@@ -82,7 +83,8 @@ export function ZoneMoveModal({ pallet, onMove, onClose }: {
                     <button className="modal-save-btn" onClick={handleMove} disabled={moving}>{moving ? "מעביר..." : "אשר העברה"}</button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body,
     );
 }
 
@@ -146,9 +148,9 @@ function BulkZoneMoveModal({ count, currentZone, onMove, onClose }: {
         try { setMoving(true); await onMove(targetZone); onClose(); }
         finally { setMoving(false); }
     }
-    return (
+    return createPortal(
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-box zone-move-modal" onClick={(e) => e.stopPropagation()} dir="rtl">
+            <div className="modal-box zone-move-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} dir="rtl">
                 <div className="modal-header-row"><div><span className="modal-kicker">העברה מרובה</span><h3>לאן להעביר?</h3></div><button className="modal-x" onClick={onClose} disabled={moving}>×</button></div>
                 <p className="zone-move-modal-subtitle">נבחרו <strong>{count}</strong> משטחים</p>
                 <div className="zone-move-modal-options">
@@ -156,7 +158,8 @@ function BulkZoneMoveModal({ count, currentZone, onMove, onClose }: {
                 </div>
                 <div className="zone-move-modal-footer"><button className="modal-cancel-btn" onClick={onClose} disabled={moving}>ביטול</button><button className="modal-save-btn" onClick={handleMove} disabled={moving}>{moving ? "מעביר..." : "אשר העברה"}</button></div>
             </div>
-        </div>
+        </div>,
+        document.body,
     );
 }
 
