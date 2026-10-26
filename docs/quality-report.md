@@ -34,7 +34,7 @@
 6. פרמטרים שאינם סוד ל־Functions (קובץ `functions/.env.<project-id>` שאינו ב־Git):
    `QUALITY_SHEET_ID=19urjK3mUk1vO1clZ2IFDq-3ORqLeX5edBLmBeDwIud4`
    `QUALITY_MEDIA_FOLDER_ID=1FrGg-gBKRyCSsw4EHTq8qb6zJEpWaQSn`
-   `QUALITY_SENDER_EMAIL=<כתובת Google המאושרת לשליחת מייל>`
+   `QUALITY_SENDER_EMAIL=brewcrew@shapirobeer.co.il` (ברירת מחדל בשרת)
    `QUALITY_ALLOWED_HOSTS=fermenter-dashboard-bada3.web.app,fermenter-dashboard-bada3.firebaseapp.com`
 7. ב־GitHub Actions variable `VITE_QUALITY_TURNSTILE_SITE_KEY` להגדיר את ה־site key הפומבי. ריצה מקומית — באמצעות `.env.local` ולא `.env.example`.
 
@@ -88,3 +88,11 @@ The manual Functions deployment workflow intentionally requires *separately conf
 * Production media folder: `1FrGg-gBKRyCSsw4EHTq8qb6zJEpWaQSn`
 
 Never test on the production Sheet as a substitute for an isolated staging test.
+
+## חשבון השירות המאושר (26.10.2026)
+
+* **חשבון השירות:** `brewcrew@shapirobeer.co.il` — OAuth offline authorization for Sheets, Drive and Gmail. **Recipient:** `yochai@shapirobeer.co.il`.
+* **אימות הרשאות Drive:** ל־brewcrew קיימת הרשאת `writer` גם לגיליון `תקלות אצל נקודות קצה` וגם לתיקייה `בישולים/אבטחת איכות/מדיה - דיווחי תקלות`. אין צורך לשתף מחדש.
+* **הערת פרטיות:** תיקיית המדיה נמצאת תחת תיקיית `בישולים` המשותפת לעובדים נוספים; הקבצים עשויים לרשת גישה מהתיקייה. אין לטעון שהמדיה נגישה *רק* ליוחאי/צוות האיכות בלי תיקון הרשאות ברמת ההורה או מעבר לתיקייה מוגנת אחרת.
+* **מה עוד צריך:** התחברות מאושרת לחשבון `brewcrew@shapirobeer.co.il` להנפקת OAuth refresh token לשלושת השירותים, שמירת פרטי OAuth ב־Firebase Secret Manager, חשבון שולח מתאים ל־Gmail, וכן מפתחות Cloudflare Turnstile ובדיקת אינטגרציה על עותק של הגיליון.
+* לא לכתוב סיסמאות, קודי 2FA, client secrets או refresh tokens בשיחת GitHub, בקוד או ב־.env פומבי.

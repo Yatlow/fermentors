@@ -31,7 +31,7 @@ jobs:
           SHEET: ${{ vars.QUALITY_SHEET_ID }}
           MEDIA: ${{ vars.QUALITY_MEDIA_FOLDER_ID }}
         run: |
-          test -n "$SENDER" || { echo "::error::Missing QUALITY_SENDER_EMAIL repository variable"; exit 1; }
+          SENDER="${SENDER:-brewcrew@shapirobeer.co.il}"
           test -n "$HOSTS" || { echo "::error::Missing QUALITY_ALLOWED_HOSTS repository variable"; exit 1; }
           test -n "$SHEET" || { echo "::error::Missing QUALITY_SHEET_ID repository variable"; exit 1; }
           test -n "$MEDIA" || { echo "::error::Missing QUALITY_MEDIA_FOLDER_ID repository variable"; exit 1; }
