@@ -360,7 +360,7 @@
 
 .bp-calendar-editor-backdrop {
   position: fixed;
-  z-index: 220;
+  z-index: var(--layer-modal);
   inset: 0;
   display: grid;
   place-items: center;

@@ -12,7 +12,7 @@
     "test:dashboard": "node scripts/test-dashboard.mjs",
     "test:planning-snapshots": "node scripts/test-planning-snapshots.mjs",
     "test:cellar-action-kpis": "node scripts/test-cellar-action-kpis.mjs",
-    "test": "npm run test:yesterday-actions && npm run test:cellar-action-kpis && npm run test:scheduled-date-policy && npm run test:salinity && npm run test:hydrometer && npm run test:brew-material-sheet-rows && npm run test:hop-volume && npm run test:packaging-print-text && npm run test:planning && npm run test:dashboard && npm run test:planning-snapshots && npm run test:server-regressions && npm run test:packaging-pallets && npm run test:shipment-traceability && npm run test:batch-traceability",
+    "test": "npm run test:yesterday-actions && npm run test:cellar-action-kpis && npm run test:salinity && npm run test:hydrometer && npm run test:brew-material-sheet-rows && npm run test:brew-batch-deletion && npm run test:hop-volume && npm run test:packaging-print-text && npm run test:planning && npm run test:dashboard && npm run test:overlay-stacking && npm run test:neglect-after-cooling && npm run test:scheduled-date-policy && npm run test:planning-snapshots && npm run test:server-regressions && npm run test:packaging-pallets && npm run test:shipment-traceability && npm run test:batch-traceability",
     "test:server-regressions": "node scripts/test-server-regressions.mjs",
     "test:packaging-pallets": "node scripts/test-packaging-pallet-defaults.mjs",
     "test:shipment-traceability": "node --test scripts/test-shipment-traceability.mjs",
@@ -23,6 +23,9 @@
     "test:packaging-print-text": "node scripts/test-packaging-print-text.mjs",
     "test:batch-traceability": "node --test scripts/test-batch-traceability.mjs",
     "test:brew-material-sheet-rows": "node scripts/test-brew-material-sheet-rows.mjs",
+    "test:brew-batch-deletion": "node --test scripts/test-brew-batch-deletion.mjs",
+    "test:overlay-stacking": "node --test scripts/test-overlay-stacking.mjs",
+    "test:neglect-after-cooling": "node --test scripts/test-neglect-after-cooling.mjs",
     "test:scheduled-date-policy": "node --test scripts/test-scheduled-date-policy.mjs"
   },
   "dependencies": {

@@ -3,6 +3,16 @@
    ========================================================= */
 
 :root {
+    /* Global layering: interactive navigation stays below every dialog. */
+    --layer-nav-backdrop: 290;
+    --layer-nav: 300;
+    --layer-search: 260;
+    --layer-status: 240;
+    --layer-modal: 10000;
+    --layer-elevated-modal: 12000;
+    --layer-busy: 14000;
+    --layer-permission: 16000;
+
     --bg-main: #f4f6f9;
     --bg-card: #ffffff;
     --text-main: #1a202c;
@@ -1055,7 +1065,7 @@ b {
     position: fixed;
     inset: 0;
 
-    z-index: 1000;
+    z-index: var(--layer-modal);
 
     pointer-events: auto;
 }
@@ -1912,7 +1922,7 @@ b {
     position: fixed;
     inset: 0;
 
-    z-index: 2000;
+    z-index: var(--layer-modal);
 
     display: flex;
     align-items: center;
@@ -3501,7 +3511,7 @@ b {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
+    z-index: var(--layer-modal);
 }
 
 .batch-chart-modal {
@@ -4597,7 +4607,7 @@ b {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 9999;
+    z-index: var(--layer-permission);
     padding: 20px;
 }
 
@@ -5408,7 +5418,7 @@ b {
 .beer-loader-overlay {
     position: fixed;
     inset: 0;
-    z-index: 2000;
+    z-index: var(--layer-busy);
     background: rgba(255,255,255,.72);
     backdrop-filter: blur(2px);
     display: grid;
@@ -6858,7 +6868,7 @@ b {
 }
 @media (max-width:600px){
   body{padding-bottom:calc(78px + env(safe-area-inset-bottom,0px))}
-  .views-box{position:fixed;z-index:1000;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;padding:5px 4px calc(5px + env(safe-area-inset-bottom,0px));background:#fff;border-top:1px solid #cbd5e1;box-shadow:0 -3px 14px #0f172a20}
+  .views-box{position:fixed;z-index:var(--layer-nav);bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;padding:5px 4px calc(5px + env(safe-area-inset-bottom,0px));background:#fff;border-top:1px solid #cbd5e1;box-shadow:0 -3px 14px #0f172a20}
   .views-box .views-item,.views-box .mobile-nav-more{min-width:0;min-height:54px;padding:5px 1px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;line-height:1.2;text-align:center;border-radius:8px;cursor:pointer}
   .views-box .views-item:nth-child(n+5){display:none}
   .views-box.mobile-more-open .views-item:nth-child(n+5){display:flex}
@@ -6939,9 +6949,9 @@ b {
 .mobile-nav-shell,.mobile-nav-backdrop{display:none}
 @media(max-width:600px){
  .header-brand{position:relative}
- .mobile-nav-shell{display:block;position:relative;width:100%;z-index:1102;direction:rtl}
- .mobile-nav-shell.is-open{z-index:1102}
- .mobile-nav-backdrop{display:block;position:fixed;inset:0;background:rgba(15,23,42,.12);border:0;z-index:1100;cursor:default}
+ .mobile-nav-shell{display:block;position:relative;width:100%;z-index:var(--layer-nav);direction:rtl}
+ .mobile-nav-shell.is-open{z-index:var(--layer-nav)}
+ .mobile-nav-backdrop{display:block;position:fixed;inset:0;background:rgba(15,23,42,.12);border:0;z-index:var(--layer-nav-backdrop);cursor:default}
  .mobile-area-trigger{position:relative;z-index:2;margin:4px 0 0!important;width:100%;border-radius:12px!important}
  .mobile-area-current{width:100%;justify-content:flex-start}
  .mobile-area-hint{display:none!important}
@@ -6962,16 +6972,16 @@ b {
 .dashboard-clear-filters{border:0;background:transparent;color:#2563eb;text-decoration:underline;cursor:pointer;font-size:12px;padding:5px 7px}
 
 /* Compact mobile masthead and on-demand tank search */
-.tank-search-shell{position:relative;z-index:1103}
+.tank-search-shell{position:relative;z-index:var(--layer-search)}
 .tank-search-toggle{display:flex;align-items:center;justify-content:center;width:38px;height:38px;border:1px solid #dbe4ef;border-radius:10px;background:white;color:#334155;cursor:pointer}
-.tank-search-panel{position:absolute;top:calc(100% + 5px);right:0;width:min(330px,calc(100vw - 30px));padding:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;border:1px solid #dbe4ef;border-radius:12px;background:#fff;box-shadow:0 12px 28px #0f172a26;z-index:1200}
+.tank-search-panel{position:absolute;top:calc(100% + 5px);right:0;width:min(330px,calc(100vw - 30px));padding:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;border:1px solid #dbe4ef;border-radius:12px;background:#fff;box-shadow:0 12px 28px #0f172a26;z-index:2}
 .tank-search-panel input{min-width:0;flex:1;padding:9px;border:1px solid #cbd5e1;border-radius:8px;font:inherit}
 .tank-search-panel>button{border:0;background:transparent;font-size:22px;cursor:pointer}
 .tank-search-results{width:100%;max-height:240px;overflow:auto;display:grid;gap:4px}
 .tank-search-results button{padding:10px;text-align:right;border:0;border-radius:7px;background:#f1f5f9;cursor:pointer}
 @media(max-width:600px){.header-brand{display:flex!important;align-items:center!important;gap:7px!important;flex-wrap:nowrap!important}.header-logo{width:42px!important;height:42px!important;max-width:42px!important;object-fit:contain!important;margin:0!important}.mobile-nav-shell{flex:1!important;min-width:0!important;width:auto!important}.mobile-area-trigger{margin:0!important}.tank-search-shell{order:3}}
 
-.report-success-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:1300;padding:12px 18px;border:1px solid #86cba5;border-radius:12px;background:#ecfdf5;color:#166534;font-size:14px;font-weight:600;box-shadow:0 5px 22px #0f172a24;max-width:calc(100vw - 28px);text-align:center}
+.report-success-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:var(--layer-status);padding:12px 18px;border:1px solid #86cba5;border-radius:12px;background:#ecfdf5;color:#166534;font-size:14px;font-weight:600;box-shadow:0 5px 22px #0f172a24;max-width:calc(100vw - 28px);text-align:center}
 .dashboard-tank-slot.tank-just-updated{outline:3px solid #4ade80;outline-offset:3px;border-radius:12px;transition:outline-color .4s ease}
 .health-quick-report-button{border:1px solid #93c5fd;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-weight:600;padding:7px 11px;cursor:pointer;flex-shrink:0}
 
