@@ -10,6 +10,8 @@ const emptyForm:FormFields = {customer:'',reporter:'',phone:'',beer:'',specialBe
 type Turnstile={render:(node:HTMLElement,config:Record<string,unknown>)=>string;reset:(id?:string)=>void;remove:(id:string)=>void}
 declare global { interface Window { turnstile?:Turnstile } }
 const siteKey=(import.meta.env.VITE_QUALITY_TURNSTILE_SITE_KEY || '') as string
+const apiUrl=(import.meta.env.VITE_QUALITY_API_URL ||
+  'https://europe-west1-fermenter-dashboard-bada3.cloudfunctions.net/qualityReport') as string
 const maxFile=14*1024*1024, maxTotal=22*1024*1024
 const allowedMedia = new Set(['image/jpeg','image/png','image/webp','image/heic','image/heif','video/mp4','video/quicktime','video/webm'])
 const sizeLabel=(n:number)=>n>1048576?(n/1048576).toFixed(1)+' MB':Math.round(n/1024)+' KB'
@@ -87,7 +89,7 @@ export default function ReportPage(){
       body.append('turnstileToken',captchaToken)
       body.append('submissionId',id.current)
       attachments.forEach(file=>body.append('files',file,file.name))
-      const response=await fetch('/api/quality-report',{method:'POST',body,credentials:'omit'})
+      const response=await fetch(apiUrl,{method:'POST',body,credentials:'omit'})
       const data=await response.json().catch(()=>({}))
       if(!response.ok)throw new Error(data.error||'לא הצלחנו לשלוח כרגע. אפשר לנסות שוב.')
       setResult({ticket:data.ticket,eventId:data.eventId})

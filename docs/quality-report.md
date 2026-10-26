@@ -73,3 +73,9 @@ A Google OAuth refresh token is required to use Sheets/Drive/Gmail. Use a produc
 
 Firestore stores SHA-256 of the normalized report to recognize duplicate submissions, rather than a plaintext copy of user-entered fields. Email content is kept only until it is delivered or needs retry, then deleted from the Firestore outbox. The Google Sheet remains the authoritative complaint record. Configure TTL cleanup for `qualityRateLimits.expiresAt` in Firebase, and review the organization's media retention requirements.
 The public HTTPS function must have Cloud Run invoker access for unauthenticated submitters, and request authentication comes from server-verified Turnstile plus abuse controls.
+
+### Large uploads / request timeouts
+
+The public form submits directly to `https://europe-west1-fermenter-dashboard-bada3.cloudfunctions.net/qualityReport` by default rather than through Firebase Hosting, because Hosting function rewrites impose a 60-second request timeout. The regional Cloud Function is configured for 120 seconds and validates both the request Origin and the Turnstile hostname. The Hosting rewrite remains as a compatible same-origin fallback. Override the public endpoint using `VITE_QUALITY_API_URL` only if needed.
+
+After deploying the backend, test a video upload on mobile data, including an interrupted/repeated request. If Firebase Cloud Functions' native HTTP request-size limits are exceeded, show a useful error and reduce or chunk file sizes before widening limits.

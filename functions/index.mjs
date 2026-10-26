@@ -160,12 +160,23 @@ async function sendMail(gmail,subject,textBody) {
 function sheetLink(){return 'https://docs.google.com/spreadsheets/d/'+sheetId.value()+'/edit';}
 export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
   res.set('Cache-Control','no-store');
-  if(req.method!=='POST'){res.set('Allow','POST');res.status(405).json({error:'Method not allowed'});return;}
+  // Public form calls the HTTPS Cloud Function directly to bypass Firebase
+  // Hosting's 60-second rewrite timeout on slower media uploads.
   const origin=req.get('origin');
   if(origin) {
-    let host;try{host=new URL(origin).hostname;}catch{res.status(403).json({error:'Origin rejected'});return;}
-    if(!isAllowedHost(host)){res.status(403).json({error:'Origin rejected'});return;}
+    let parsed;
+    try { parsed=new URL(origin); } catch { res.status(403).json({error:'Origin rejected'});return; }
+    if(!isAllowedHost(parsed.hostname) ||
+      (parsed.protocol!=='https:' && !(parsed.hostname==='localhost' && parsed.protocol==='http:'))) {
+      res.status(403).json({error:'Origin rejected'});return;
+    }
+    res.set('Access-Control-Allow-Origin',origin);
+    res.set('Vary','Origin');
+    res.set('Access-Control-Allow-Methods','POST, OPTIONS');
+    res.set('Access-Control-Allow-Headers','Content-Type');
   }
+  if(req.method==='OPTIONS'){res.status(204).end();return;}
+  if(req.method!=='POST'){res.set('Allow','POST, OPTIONS');res.status(405).json({error:'Method not allowed'});return;}
   let reportId;
   let ownsClaim=false;
   try{
