@@ -3077,6 +3077,7 @@ export default function BrewFormStepper({
     const writes: Array<{
       range: string;
       value: string | number | boolean | null;
+      semanticField?: "fermentation.startingPlato";
     }> = [
       {
         range: `'גיליון1'!${column}${targetSheetRow}`,
