@@ -71,7 +71,7 @@
 
 .dashboardBrewModalBackdrop {
   position: fixed;
-  z-index: 12000;
+  z-index: var(--layer-elevated-modal);
   inset: 0;
   display: flex;
   align-items: center;
@@ -82,7 +82,7 @@
 
 .dashboardBrewModal {
   position: relative;
-  z-index: 12001;
+  z-index: 1;
   width: min(1180px, calc(100vw - 36px));
   max-height: calc(100dvh - 36px);
   overflow: auto;
@@ -104,7 +104,7 @@
 
 .dashboardBrewModalClose {
   position: fixed !important;
-  z-index: 2147483000 !important;
+  z-index: 2 !important;
   top: 12px !important;
   left: 12px !important;
   right: auto !important;

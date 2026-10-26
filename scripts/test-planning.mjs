@@ -28,6 +28,7 @@ try {
     "planning-cycle-packaging-regression",
     "packaging-replan-actuals",
     "planning-dashboard-current-cycle",
+    "shipment-dispatch-variance",
     "shipment-reservation-week",
     "planning-shipment-availability",
   ];

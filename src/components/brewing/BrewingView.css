@@ -1112,7 +1112,7 @@
 .brew-modal-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 1000;
+    z-index: var(--layer-modal);
     display: grid;
     place-items: center;
     padding: 14px;
@@ -4303,7 +4303,7 @@
 .brewing-modal-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 1000;
+    z-index: var(--layer-modal);
     display: grid;
     place-items: center;
     padding: 20px;

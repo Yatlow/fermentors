@@ -1,0 +1,45 @@
+name: Deploy quality-report Cloud Functions (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deploy-quality-backend:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Validate server
+        run: |
+          node --check functions/index.mjs
+          node --test functions/tests/*.test.mjs
+          npm install --prefix functions --no-audit --no-fund --ignore-scripts
+          node --input-type=module -e "await import('./functions/index.mjs')"
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FERMENTER_DASHBOARD_BADA3 }}
+      - name: Prepare non-secret runtime configuration
+        env:
+          SENDER: ${{ vars.QUALITY_SENDER_EMAIL }}
+          HOSTS: ${{ vars.QUALITY_ALLOWED_HOSTS }}
+          SHEET: ${{ vars.QUALITY_SHEET_ID }}
+          MEDIA: ${{ vars.QUALITY_MEDIA_FOLDER_ID }}
+        run: |
+          SENDER="${SENDER:-brewcrew@shapirobeer.co.il}"
+          test -n "$HOSTS" || { echo "::error::Missing QUALITY_ALLOWED_HOSTS repository variable"; exit 1; }
+          test -n "$SHEET" || { echo "::error::Missing QUALITY_SHEET_ID repository variable"; exit 1; }
+          test -n "$MEDIA" || { echo "::error::Missing QUALITY_MEDIA_FOLDER_ID repository variable"; exit 1; }
+          {
+            printf 'QUALITY_SHEET_ID=%s\n' "$SHEET"
+            printf 'QUALITY_MEDIA_FOLDER_ID=%s\n' "$MEDIA"
+            printf 'QUALITY_SENDER_EMAIL=%s\n' "$SENDER"
+            printf 'QUALITY_ALLOWED_HOSTS=%s\n' "$HOSTS"
+          } > functions/.env.fermenter-dashboard-bada3
+      - name: Deploy backend only (does not touch Hosting)
+        run: npx --yes firebase-tools deploy --only functions:quality-reports --project fermenter-dashboard-bada3 --non-interactive
