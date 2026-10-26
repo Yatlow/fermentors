@@ -126,7 +126,7 @@ export function rowsToReports(rows) {
     packageType: String(r[23] || inferPackageType(r[6])),
     sku: String(r[24] || knownSku(r[3],String(r[23] || inferPackageType(r[6])))),
     resolved: Boolean(String(r[17] || '').trim()),
-    rowIndex: i + 5,
+    rowIndex: i + 6,
   })).filter(r => r.ticket && r.customer && r.beer);
 }
 export function relatedEvent(reports, report, now, days=90) {
