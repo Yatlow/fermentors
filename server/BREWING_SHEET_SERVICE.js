@@ -181,47 +181,50 @@ function brewingSheetMirrorFinalTankVolume_(sheet, row, col, rawValue) {
   return false;
 }
 
-function brewingSheetResolveFermentationMetadataRange_(sheet, range) {
-  // App writes historically target the Master fermentation metadata row
-  // (59/106/156). Variable mash layouts insert rows before fermentation, so
-  // resolve the real row from its visible labels instead of applying offsets.
-  if (!sheet || !range || range.getNumRows() !== 1 || range.getNumColumns() !== 1) {
-    return range;
-  }
-
-  const col = range.getColumn();
-  const row = range.getRow();
-  if ([2, 4, 7].indexOf(col) < 0) return range;
-
-  const data = sheet.getDataRange().getDisplayValues();
-  // A fixed row is the fermentation date row ONLY for its tank layout.
-  // On a triple brew B59/B106 hold grain LOTS, not dates. The previous
-  // unconditional mapping of all three fallback rows redirected Pilsner
-  // grain writes into B156, destroying an already valid brew date.
-  const blockCount = data.filter(function (cells) {
-    return String(cells[1] || "").trim() === "סוג:" &&
-           String(cells[3] || "").trim() === "אצווה:";
-  }).length;
-  const fallbackRow = blockCount === 3 ? 156 : blockCount === 2 ? 106 : blockCount === 1 ? 59 : 0;
-  // An early single-brew form version also wrote B/D/G60 after adding a
-  // third mash rest. Only recognize this alias when the real metadata row
-  // actually moved PAST row 60; on a normal sheet row 60 may be shrinkage.
-  const candidate = fallbackRow && (row === fallbackRow || (blockCount === 1 && row === 60));
-  if (!candidate) return range;
-
-  for (let r = 0; r < data.length; r++) {
-    const current = data[r] || [];
-    if (
-      /^יום\s*בישול/i.test(String(current[0] || "").trim()) &&
-      /^סוכר\s*תחילי/i.test(String(current[2] || "").trim()) &&
-      /שעת\s*הוספת\s*שמרים/i.test(String(current[4] || "").trim())
-    ) {
-      if (blockCount === 1 && row === 60 && r + 1 <= 60) return range;
-      return sheet.getRange(r + 1, col);
+// Semantic field intent is mandatory for fermentation metadata writes.
+// A1 coordinates alone are ambiguous: B59 may be a grain lot on a triple brew.
+// Do NOT guess from row numbers and do NOT redirect untagged material writes.
+function brewingSheetResolveFermentationMetadataRange_(sheet, range, semanticField) {
+  const name = String(semanticField || "").trim();
+  if (!name) return range;
+  const columns = {
+    "fermentation.style": 2,
+    "fermentation.batchNumber": 4,
+    "fermentation.tankNumber": 7,
+    "fermentation.brewDate": 2,
+    "fermentation.startingPlato": 4,
+    "fermentation.yeastPitchTime": 7
+  };
+  const col = columns[name];
+  if (!col) throw new Error("Unknown semantic fermentation field: " + name);
+  const rows = sheet.getDataRange().getDisplayValues();
+  const indexes = [];
+  if (name === "fermentation.style" || name === "fermentation.batchNumber" ||
+      name === "fermentation.tankNumber") {
+    for (let i = 1; i < rows.length; i++) {
+      const preceding = rows[i - 1] || [];
+      const row = rows[i] || [];
+      if (String(preceding[0] || "").trim() === "דף תסיסה" &&
+          /^אצווה\\s*:?$/.test(String(row[2] || "").trim()) &&
+          /^מספר\\s*מיכל\\s*:?$/.test(String(row[5] || "").trim())) {
+        indexes.push(i + 1);
+      }
+    }
+  } else {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || [];
+      if (/^יום\\s*בישול/i.test(String(row[0] || "").trim()) &&
+          /^סוכר\\s*תחילי/i.test(String(row[2] || "").trim()) &&
+          /שעת\\s*הוספת\\s*שמרים/i.test(String(row[4] || "").trim())) {
+        indexes.push(i + 1);
+      }
     }
   }
-
-  return range;
+  if (indexes.length !== 1) {
+    throw new Error("Expected exactly one fermentation metadata row for " + name +
+                    "; found " + indexes.length);
+  }
+  return sheet.getRange(indexes[0], col);
 }
 
 function brewingSheetWriteCells_(data) {
@@ -248,7 +251,7 @@ function brewingSheetWriteCells_(data) {
     const sheet = (sheetName ? ss.getSheetByName(sheetName) : null) || ss.getSheets()[0];
     if (!sheet) throw new Error("Brew Sheet has no sheets");
     let range = sheet.getRange(a1);
-    range = brewingSheetResolveFermentationMetadataRange_(sheet, range);
+    range = brewingSheetResolveFermentationMetadataRange_(sheet, range, item.semanticField);
 
     // Last line of defence: never accept a raw material lot or arbitrary text
     // as the fermentation brew date. Manual edits directly in Sheets are
@@ -448,9 +451,15 @@ function brewingSheetCreate_(data) {
 
     const writesStartedAt = Date.now();
     let writeCount = 0;
+    const deferredSemanticWrites = [];
     if (data.initialWrites && Array.isArray(data.initialWrites)) {
       const batchData = [];
       data.initialWrites.forEach(function (item) {
+        if (item.semanticField) {
+          deferredSemanticWrites.push(item);
+          writeCount++;
+          return;
+        }
         const rangeText = String(item.range || "").trim();
         if (!rangeText) return;
         batchData.push({
@@ -590,6 +599,19 @@ function brewingSheetCreate_(data) {
 
         sheet.getRange(insertAt, 4).setValue("השריה 3");
         sheet.getRange(insertAt + 2, 4).setValue("חימום 3");
+      });
+      SpreadsheetApp.flush();
+    }
+
+    // Resolve identity writes AFTER extra mash rests have shifted the geometry.
+    // No initial-writes row offsets are used for fermentation metadata.
+    if (deferredSemanticWrites.length) {
+      const sheet = ss.getSheets()[0];
+      deferredSemanticWrites.forEach(function (item) {
+        const target = brewingSheetResolveFermentationMetadataRange_(
+          sheet, sheet.getRange("A1"), item.semanticField
+        );
+        target.setValue(brewingSheetCellValue_(item.value));
       });
       SpreadsheetApp.flush();
     }
