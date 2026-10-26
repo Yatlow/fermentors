@@ -114,3 +114,26 @@ body:has(.q-site){background:#f6f0e3}
 .q-date-field{min-width:0;max-width:100%}
 @media(max-width:700px){.q-date-field input[type="date"]{width:min(100%,246px)}.q-quantity-section{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:520px){.q-two{grid-template-columns:minmax(0,1fr)}}
+
+/* Stage 3 mobile hardening: untrusted attachment names must never dictate grid width.
+   The child grid's default min-content sizing could expand the entire card. */
+.q-site{width:100%;max-width:100%;overflow-x:clip}
+.q-wrap,.q-card,.q-fields,.q-upload,.q-files,.q-review,.q-privacy,.q-preview-notice,.q-actions{min-width:0;max-width:100%}
+.q-wrap,.q-card{width:100%}
+.q-fields,.q-files{grid-template-columns:minmax(0,1fr)}
+.q-files{width:100%}
+.q-files li{width:100%;max-width:100%;min-width:0;overflow:hidden}
+.q-files li>div{flex:1 1 0;min-width:0;max-width:100%;overflow:hidden}
+.q-files li b{display:block;max-width:100%;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;direction:ltr;text-align:right}
+.q-files li button{flex:0 0 auto}
+.q-review,.q-privacy,.q-preview-notice{overflow-wrap:anywhere}
+.q-review p{max-width:100%;overflow-wrap:anywhere}
+.q-actions{width:100%;flex-wrap:wrap}
+.q-actions button{min-width:0;max-width:100%;padding-inline:16px}
+@media(max-width:520px){
+  .q-card{padding:22px 16px}
+  .q-files li{gap:8px;padding:8px 10px}
+  .q-actions button{flex:1 1 125px}
+  .q-privacy,.q-preview-notice{align-items:flex-start}
+  .q-privacy svg{flex:0 0 auto}
+}

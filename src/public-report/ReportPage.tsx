@@ -143,7 +143,7 @@ export default function ReportPage(){
           <div className="q-field"><span>סוג התקלה <i>*</i></span><div className="q-problems">{issues.map(x=><button key={x.label} type="button" aria-pressed={form.issueType===x.label} className={'q-problem '+(form.issueType===x.label?'selected':'')} onClick={()=>set('issueType',x.label)}><b>{x.icon}</b>{x.label}</button>)}</div></div>
           <label className="q-field"><span>מה קרה? <i>*</i></span><textarea value={form.description} onChange={e=>set('description',e.target.value)} maxLength={2000} rows={5} placeholder="מה קרה, מתי, ובאיזה אופן התקלה באה לידי ביטוי?"/><small>{form.description.length}/2000 תווים</small></label>
           <div className="q-two">
-            <label className="q-field"><span>מספר אצווה</span><input value={form.batch} onChange={e=>set('batch',e.target.value)} maxLength={50} placeholder="למשל 1532"/></label>
+            <label className="q-field"><span>מספר אצווה</span><input type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" value={form.batch} onChange={e=>set('batch',e.target.value.replace(/[^0-9]/g,'').slice(0,20))} maxLength={20} placeholder="למשל 1532"/></label>
             <label className="q-field q-date-field"><span>תאריך תפוגה</span><input type="date" value={form.expiry} onChange={e=>set('expiry',e.target.value)}/></label>
           </div>
           <div className="q-quantity-section">

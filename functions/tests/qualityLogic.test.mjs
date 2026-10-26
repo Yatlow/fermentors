@@ -101,3 +101,18 @@ test('public form has real bottle SVG, foam icon and clean heading',()=>{
  assert.doesNotMatch(src,/טופס דיווח<\/span>/);
  assert.match(src,/placeholder="למשל בירה שפירא, נחם"/);
 });
+
+test('mobile third-step layout prevents a long attachment name from enlarging the screen',()=>{
+ const src=readFileSync(new URL('../../src/public-report/ReportPage.css',import.meta.url),'utf8');
+ assert.match(src,/\.q-fields,\.q-files\{grid-template-columns:minmax\(0,1fr\)\}/);
+ assert.match(src,/\.q-files li>div\{flex:1 1 0;min-width:0/);
+ assert.match(src,/\.q-files li b\{[^}]*text-overflow:ellipsis/);
+ assert.match(src,/\.q-actions\{width:100%;flex-wrap:wrap\}/);
+});
+test('batch keyboard is numeric, and input normalizes digits only',()=>{
+ const src=readFileSync(new URL('../../src/public-report/ReportPage.tsx',import.meta.url),'utf8');
+ const batch=src.slice(src.indexOf('<span>מספר אצווה</span>'),src.indexOf('<span>תאריך תפוגה</span>'));
+ assert.match(batch,/inputMode="numeric"/);
+ assert.match(batch,/pattern="\[0-9\]\*"/);
+ assert.match(batch,/replace\(\/\[\^0-9\]\/g,''\)/);
+});
