@@ -10,13 +10,15 @@ import {validateReport,knownSku,skuCatalogKey} from './qualityLogic.mjs';
 initializeApp();
 const database=getFirestore();
 const turnstileSecret=defineSecret('QUALITY_TURNSTILE_SECRET');
+const dispatchSecret=defineSecret('QUALITY_WEBHOOK_SECRET');
+const appsScriptEndpoint=defineString('QUALITY_APPS_SCRIPT_URL',{default:''});
 const uploadBucket=defineString('QUALITY_UPLOAD_BUCKET',{default:'fermenter-dashboard-bada3.firebasestorage.app'});
 const allowedHosts=defineString('QUALITY_ALLOWED_HOSTS',{default:'fermenter-dashboard-bada3.web.app,fermenter-dashboard-bada3.firebaseapp.com'});
 const MAX_MEDIA_COUNT=4;
 const MAX_MEDIA_BYTES=22*1024*1024;
 const FILE_BYTES=14*1024*1024;
 const MEDIA_TYPES=new Set(['image/jpeg','image/png','image/webp','image/heic','image/heif','video/mp4','video/quicktime','video/webm']);
-const API_OPTIONS={region:'europe-west1',memory:'512MiB',timeoutSeconds:120,maxInstances:5,invoker:'public',secrets:[turnstileSecret]};
+const API_OPTIONS={region:'europe-west1',memory:'512MiB',timeoutSeconds:120,maxInstances:5,invoker:'public',secrets:[turnstileSecret,dispatchSecret]};
 
 function isAllowedHost(host) {
   return allowedHosts.value().split(',').map(s=>s.trim()).filter(Boolean).includes(host);
@@ -86,6 +88,39 @@ async function chargeLimit(ip) {
 function cleanName(value){
   return String(value||'attachment').replace(/[^\p{L}\p{N}. _-]/gu,'_').slice(0,70)||'attachment';
 }
+/**
+ * Immediate server-to-server Apps Script dispatch. No report content or media
+ * travels in this signed request: the authorized worker reads Firestore/Storage.
+ */
+async function dispatchNow(submissionId){
+  const endpoint=appsScriptEndpoint.value();
+  const secret=dispatchSecret.value();
+  if(!endpoint || !/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(endpoint) ||
+     !secret || secret.length<48){
+    console.warn('Quality immediate dispatch not configured');
+    return null;
+  }
+  const timestamp=Date.now();
+  const signature=createHmac('sha256',secret).update(timestamp+'.'+submissionId).digest('hex');
+  try{
+    const response=await fetch(endpoint,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:submissionId,timestamp,signature}),
+      signal:AbortSignal.timeout(75000)
+    });
+    if(!response.ok)throw new Error('Apps Script HTTP '+response.status);
+    const payload=await response.json();
+    if(payload?.ok && payload.queued===false && payload.ticket){
+      return {ticket:String(payload.ticket),eventId:String(payload.eventId||'')};
+    }
+    if(payload?.ok && payload.queued)return null;
+    throw new Error('Apps Script did not acknowledge processing');
+  }catch(error){
+    console.error('Quality dispatch pending recovery: '+String(error?.message||error).slice(0,120));
+    return null;
+  }
+}
+
 export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
   res.set('Cache-Control','no-store');
   const origin=req.get('origin');
@@ -113,7 +148,8 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     const prior=await idRef.get();
     if(prior.exists){
       if(prior.data()?.payloadHash!==payloadHash)throw new Error('מזהה שליחה כבר שימש לדיווח אחר.');
-      res.status(202).json({reference:submissionId.slice(0,8).toUpperCase(),queued:true,duplicate:true});return;
+      const sent=await dispatchNow(submissionId);
+      res.status(sent?201:202).json({reference:submissionId.slice(0,8).toUpperCase(),queued:!sent,duplicate:true,...(sent||{})});return;
     }
     await chargeLimit(req.ip);
     if(report.packageType==='חבית'||report.packageType==='בקבוק'){
@@ -148,7 +184,8 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
         createdAt:FieldValue.serverTimestamp(),submittedAt:new Date().toISOString()
       });
     });
-    res.status(202).json({reference:submissionId.slice(0,8).toUpperCase(),queued:true});
+    const sent=await dispatchNow(submissionId);
+    res.status(sent?201:202).json({reference:submissionId.slice(0,8).toUpperCase(),queued:!sent,...(sent||{})});
   }catch(error){
     console.error('Quality intake failed',error?.message);
     const safe=error instanceof Error&&/^(יש |סוג |קובץ |הקבצים |אפשר |ערך |מספר |תאריך |שדה |מזהה |יותר מדי |הדיווח |בדיקת)/.test(error.message);
