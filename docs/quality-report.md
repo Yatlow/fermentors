@@ -101,3 +101,11 @@ Never test on the production Sheet as a substitute for an isolated staging test.
 - כותרת: ״מבשלת שפירא — מחלקת בקרת איכות״, לוגו מקורי מ־`src/assets/shpiro.jpeg`.
 - קופי ענייני וידידותי במקום סלוגנים והומור; פלטת צבעים המבוססת על תוויות הבירה ושפת המותג של shapirobeer.co.il.
 - סוג אריזה מחייב בחירה בין **חבית** ו־**בקבוק**; גם שרת ה־API דוחה פחית, אחר, ״לא ידוע״ או ערך חסר לדיווחים חדשים. פירוש דיווחים היסטוריים בגיליון לא משתנה.
+
+### Preview readiness gate
+
+The PR Preview can display and validate the form without connecting to the backend. By default, submissions are **disabled** when `VITE_DEPLOY_ENV=preview`. This avoids raw browser `Failed to fetch` errors while the `qualityReport` Cloud Function has not been deployed.
+
+Only after the function is deployed, the preview hostname is approved both by Cloudflare Turnstile and `QUALITY_ALLOWED_HOSTS`, and a test copy of the Sheet is configured, set GitHub Actions repository variable `VITE_QUALITY_PREVIEW_SUBMISSIONS_ENABLED=true` and redeploy the preview. Remove or set it to false once testing finishes.
+
+A Cloudflare checkmark proves only bot verification in the browser; it does not mean a report was saved. A network error with no server acknowledgement is ambiguous if a function is running (the server may have written and then disconnected), so verify the Sheet before resubmitting. The UI now uses a Hebrew connectivity error instead of surfacing `Failed to fetch`.
