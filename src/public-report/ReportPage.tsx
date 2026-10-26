@@ -11,6 +11,10 @@ const emptyForm:FormFields = {customer:'',reporter:'',phone:'',beer:'',specialBe
 type Turnstile={render:(node:HTMLElement,config:Record<string,unknown>)=>string;reset:(id?:string)=>void;remove:(id:string)=>void}
 declare global { interface Window { turnstile?:Turnstile } }
 const siteKey=(import.meta.env.VITE_QUALITY_TURNSTILE_SITE_KEY || '') as string
+// PR previews are visual-only until the backend is deployed and an end-to-end
+// smoke test is explicitly enabled. Production remains independent of this flag.
+const previewSubmissionBlocked=import.meta.env.VITE_DEPLOY_ENV === 'preview' &&
+  import.meta.env.VITE_QUALITY_PREVIEW_SUBMISSIONS_ENABLED !== 'true'
 const apiUrl=(import.meta.env.VITE_QUALITY_API_URL ||
   'https://europe-west1-fermenter-dashboard-bada3.cloudfunctions.net/qualityReport') as string
 const maxFile=14*1024*1024, maxTotal=22*1024*1024
@@ -81,6 +85,7 @@ export default function ReportPage(){
   const submit=async()=>{
     const invalid=validate(0)||validate(1)
     if(invalid){setError(invalid);return}
+    if(previewSubmissionBlocked){setError('זו סביבת תצוגה בלבד. שליחת דיווחים תתאפשר לאחר הפעלת השרת ובדיקת החיבור.');return}
     if(!siteKey||!captchaToken){setError('יש להשלים את בדיקת האבטחה.');return}
     if(sending)return
     setSending(true);setError('')
@@ -96,7 +101,9 @@ export default function ReportPage(){
       if(!response.ok)throw new Error(data.error||'לא הצלחנו לשלוח כרגע. אפשר לנסות שוב.')
       setResult({ticket:data.ticket,eventId:data.eventId})
     }catch(cause){
-      setError(cause instanceof Error?cause.message:'אירעה תקלה בשליחה.')
+      setError(cause instanceof TypeError
+        ? 'אין כרגע חיבור לשרת הדיווחים. לא התקבל אישור שהפנייה נשמרה; בדיקת האבטחה לבדה אינה שולחת את הדיווח.'
+        : cause instanceof Error ? cause.message : 'אירעה תקלה בשליחה.')
       setCaptchaToken('');window.turnstile?.reset()
     }finally{setSending(false)}
   }
@@ -150,12 +157,14 @@ export default function ReportPage(){
           {attachments.length>0&&<ul className="q-files">{attachments.map((file,i)=><li key={file.name+i}>{file.type.startsWith('video')?<Camera size={19}/>:<FileImage size={19}/>}<div><b>{file.name}</b><small>{sizeLabel(file.size)}</small></div><button type="button" aria-label={'הסר '+file.name} onClick={()=>setAttachments(all=>all.filter((_,j)=>j!==i))}><X size={18}/></button></li>)}</ul>}
           <div className="q-review"><strong><CheckCircle2 size={20}/> סיכום הפנייה</strong><p>{form.customer} · {form.beer==='בירה מיוחדת'?form.specialBeer:form.beer}</p><p>{form.issueType}{form.batch?' · אצווה '+form.batch:''}</p></div>
           <div className="q-privacy"><ShieldCheck size={20}/> המדיה נשמרת בתיקיית אבטחת האיכות ונגישה לבעלי ההרשאה המתאימה.</div>
-          <Captcha onToken={onCaptcha}/>
+          {previewSubmissionBlocked&&<div className="q-preview-notice" role="status"><ShieldCheck size={18}/> סביבת תצוגה בלבד: אפשר למלא ולצרף קבצים, אך השליחה כבויה עד לפריסת השרת ובדיקת החיבור.</div>}
+          {!previewSubmissionBlocked&&<Captcha onToken={onCaptcha}/>}
+
         </div>}
         {error&&<div className="q-error" role="alert">{error}</div>}
         <div className="q-actions">
           {step>0&&<button className="q-back" type="button" disabled={sending} onClick={()=>{setStep(step-1);setError('')}}><ArrowRight size={20}/> חזרה</button>}
-          <button className="q-primary" type="button" disabled={sending||(step===2&&!siteKey)} onClick={step===2?()=>{void submit()}:goNext}>{sending?'שולחים...':step===2?'שליחת דיווח':'ממשיכים'}{step===2?<Send size={19}/>:<ArrowLeft size={19}/>}</button>
+          <button className="q-primary" type="button" disabled={sending||(step===2&&(!siteKey||previewSubmissionBlocked))} onClick={step===2?()=>{void submit()}:goNext}>{sending?'שולחים...':step===2?'שליחת דיווח':'ממשיכים'}{step===2?<Send size={19}/>:<ArrowLeft size={19}/>}</button>
         </div>
       </section>}
       <footer className="q-footer">מבשלת שפירא · מחלקת בקרת איכות</footer>
