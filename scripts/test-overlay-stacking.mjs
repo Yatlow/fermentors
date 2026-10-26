@@ -29,9 +29,9 @@ test("mobile navigation and search stay above content, below every modal", () =>
   const backdrop = styleZ("src/App.css", ".mobile-nav-backdrop");
   const nav = styleZ("src/App.css", ".mobile-nav-shell");
   const search = styleZ("src/App.css", ".tank-search-shell");
+  assert.ok(search < backdrop);
   assert.ok(backdrop < nav);
-  assert.ok(nav < search);
-  assert.ok(search < tokens["layer-modal"]);
+  assert.ok(nav < tokens["layer-modal"]);
   assert.equal(nav, tokens["layer-nav"]);
 });
 
