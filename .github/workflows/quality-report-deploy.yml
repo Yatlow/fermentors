@@ -30,6 +30,9 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FERMENTER_DASHBOARD_BADA3 }}
+      - name: Identify the deploying service account (email only)
+        run: |
+          node -e "const fs=require('node:fs'); const p=process.env.GOOGLE_APPLICATION_CREDENTIALS; const x=JSON.parse(fs.readFileSync(p,'utf8')); console.log('Deploying service account: '+x.client_email)"
       - name: Prepare non-secret runtime configuration
         env:
           SENDER: ${{ vars.QUALITY_SENDER_EMAIL }}
