@@ -184,6 +184,8 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     if(!/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(fields.submissionId||''))throw new Error('מזהה שליחה חסר.');
     reportId=fields.submissionId;
     const report=validateReport(fields);
+    await checkTurnstile(fields.turnstileToken,req.ip);
+    await chargeLimit(req.ip);
     // Resolve the real product SKU using the same editable product catalog as
     // the brewery app, with its default catalog as a fallback.
     if(report.packageType==='חבית'||report.packageType==='בקבוק'){
@@ -196,8 +198,6 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
         } else report.sku=knownSku(report.beer,report.packageType);
       }catch(error){console.warn('Product catalog lookup unavailable',error?.message);}
     }
-    await checkTurnstile(fields.turnstileToken,req.ip);
-    await chargeLimit(req.ip);
     const {sheets,drive,gmail}=clients();
     const rows=await sheetRows(sheets);
     const existing=rowsToReports(rows);
