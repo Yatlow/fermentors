@@ -208,7 +208,7 @@ function updatePackagingInfo(
     let updatedEmpty = false;
     let updatedKegs = false;
     let updatedCrates = false;
-    let updatedTotal = false;
+    const updatedTotal = false; // computed by native Sheet formulas
     const warnings = [];
 
     const boolValue =
@@ -255,37 +255,10 @@ function updatePackagingInfo(
       }
     }
 
-    if (boolValue === true && totalLiters !== undefined && totalLiters !== null) {
-      if (layout.total) {
-        requests.push(
-          packagingUpdateCellRequest_(
-            layout.sheetId,
-            layout.total,
-            roundPackagingValue_(totalLiters),
-            { type: "NUMBER", pattern: "0.00" }
-          )
-        );
-        updatedTotal = true;
-      } else {
-        warnings.push('Label "סה"כ" not found');
-      }
-
-      if (shrinkagePercent !== undefined && shrinkagePercent !== null) {
-        if (layout.shrinkage) {
-          const roundedShrinkagePercent = roundPackagingValue_(shrinkagePercent);
-          requests.push(
-            packagingUpdateCellRequest_(
-              layout.sheetId,
-              layout.shrinkage,
-              Number(roundedShrinkagePercent) / 100,
-              { type: "PERCENT", pattern: "0.00%" }
-            )
-          );
-        } else {
-          warnings.push('Label "פחת" not found');
-        }
-      }
-    }
+    // Total litres and shrinkage are already calculated by the sheet's native
+    // I-column formulas from packaged quantities. Never overwrite those
+    // formulas or write duplicate values into G (yeast pitch time).
+    // totalLiters/shrinkagePercent remain on the report payload.
 
     if (requests.length > 0) {
       Sheets.Spreadsheets.batchUpdate(
