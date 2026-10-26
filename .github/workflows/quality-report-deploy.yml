@@ -60,7 +60,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          npx --yes firebase-tools deploy --only functions:quality-reports --project fermenter-dashboard-bada3 --non-interactive 2>&1 | tee "$RUNNER_TEMP/quality-functions-deploy.log"
+          # --force configures the artifact cleanup policy in non-interactive CI (quality-reports codebase only).
+          npx --yes firebase-tools deploy --only functions:quality-reports --project fermenter-dashboard-bada3 --non-interactive --force 2>&1 | tee "$RUNNER_TEMP/quality-functions-deploy.log"
       - name: Diagnose failed Cloud Build operations
         if: ${{ failure() && steps.deploy-functions.outcome == 'failure' }}
         shell: bash
