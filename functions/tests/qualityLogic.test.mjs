@@ -62,7 +62,8 @@ test('legacy day/month dates roll to the previous calendar year in January',()=>
 });
 
 test('public API rejects bot traffic before any catalog or Sheets reads',()=>{
- const code=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
+ const source=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
+ const code=source.slice(source.indexOf('export const qualityReport=onRequest'),source.indexOf('export const qualityReportWeekly='));
  const antiBot=code.indexOf('await checkTurnstile(fields.turnstileToken,req.ip)');
  const limit=code.indexOf('await chargeLimit(req.ip)');
  const catalog=code.indexOf("database.doc('productCatalog/'+key).get()");
