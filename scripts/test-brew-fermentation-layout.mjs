@@ -78,10 +78,14 @@ for (const [header, metadata, blocks] of [[56,59,1], [60,63,1], [61,64,1], [111,
     assert.equal(mapped.getRow(), expectedRow, semantic + " exact row");
     assert.equal(mapped.getColumn(), column, semantic + " exact column");
   }
-  // Ordinary raw-material writes retain their exact A1 coordinates, even when
-  // the same row number used to be a fermentation fallback.
+  // The old untagged address must remain compatible ONLY for the one
+  // historical fermentation row belonging to this layout. In triple brews
+  // B59/B106 are real material cells and must not be redirected.
+  const legacyRow = blocks === 1 ? 59 : blocks === 2 ? 106 : 156;
   for (const column of [2, 4, 7]) {
-    assert.equal(ctx.brewingSheetResolveFermentationMetadataRange_(sheet, sheet.getRange(59, column)).getRow(), 59);
+    assert.equal(ctx.brewingSheetResolveFermentationMetadataRange_(sheet, sheet.getRange(legacyRow, column)).getRow(), metadata);
+    const materialRow = blocks === 3 ? 59 : blocks === 2 ? 59 : 45;
+    assert.equal(ctx.brewingSheetResolveFermentationMetadataRange_(sheet, sheet.getRange(materialRow, column)).getRow(), materialRow);
   }
 }
 const missingLabels = sheetWithFermentation(60, 63);
