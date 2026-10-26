@@ -1,98 +1,105 @@
-# Shapiro Quality Inbox — isolated Google Apps Script worker
+# Shapiro Quality Desk — immediate Apps Script processing
 
-This standalone script replaces the external OAuth client / refresh token entirely.
-**Do not paste Code.js into the production brewery Apps Script.** It uses its own
-five-minute clock trigger and runs as `brewcrew@shapirobeer.co.il`, with no web app
-deployment and no public `doGet`/`doPost`.
+No DNS change, no corporate subdomain and no external OAuth consent screen.
+This is an **isolated Apps Script Web App** running as
+`brewcrew@shapirobeer.co.il`. Do not add these functions to the existing
+brewery script in `server/` and do not modify its triggers.
 
-## Architecture
+## Immediate request flow
 
-1. Anonymous visitor posts to Firebase HTTPS `qualityReport`. Firebase verifies
-   Turnstile, input format, IP rate limit and the upload file signatures.
-2. Firebase stores a private `qualitySubmissions/{uuid}` document in Firestore
-   (`status: queued`). Media is staged privately in Firebase Cloud Storage,
-   bucket `fermenter-dashboard-bada3.firebasestorage.app`, prefix
-   `quality-inbox/<uuid>/`.
-3. This worker checks Firestore every five minutes as **brewcrew** using
-   `ScriptApp.getOAuthToken()`. This OAuth token belongs to the Apps Script
-   installation and is managed by Google, not by an external Google Auth
-   Platform client. The worker reads private media using the Storage JSON API,
-   copies it to the existing Drive folder, writes a single row to the
-   existing complaint spreadsheet, then sends **one email per submission**
-   using `MailApp.sendEmail`.
-4. When three or more distinct incidents exist for the same **beer + batch**,
-   include that count and warning in the ordinary email. There is no weekly
-   summary. The worker retains completed Firestore documents only as
-   idempotency receipts (without report, phone or media content).
+Anonymous visitor → Firebase HTTPS `qualityReport` (Turnstile, field/media
+validation, rate limit) → private Firestore receipt + temporary Cloud Storage
+blobs → **signed HTTP POST** to the standalone Apps Script Web App → Google
+Sheets, Drive and MailApp **immediately**.
 
-The web form receives only a **temporary reference** and the statement that
-the report has been queued. This is not a claim that it reached Sheets/Gmail.
+The Cloud Function sends only a submission UUID, a timestamp and an
+HMAC-SHA256 signature. The secret never reaches a browser or the sheet.
+The worker loads the actual report from private Firestore with its own
+Google-managed Apps Script OAuth token; it uses no external Google Auth Platform
+OAuth client and no rotating seven-day refresh token.
 
-## One-time user setup
+**Successful synchronous response** returns ticket number after the Sheet
+write and mail submission. If Apps Script cannot complete, the public
+response returns 202 (queued) with a temporary reference; the record stays
+in Firestore to be retried through `qualityRecoverQueued` by an operator.
+There is **no periodic five-minute polling trigger in the normal flow**.
+Use a recovery trigger only if later explicitly approved, not as the default.
 
-1. Confirm `brewcrew@shapirobeer.co.il` can open and edit the spreadsheet
-   `19urjK3mUk1vO1clZ2IFDq-3ORqLeX5edBLmBeDwIud4` and add files inside
-   Drive folder `1FrGg-gBKRyCSsw4EHTq8qb6zJEpWaQSn`.
-2. In Google Cloud project `fermenter-dashboard-bada3`, grant the Google user
-   `brewcrew@shapirobeer.co.il` **Firestore** role
-   `roles/datastore.user` (scope: project) and **Storage Object User**
-   `roles/storage.objectUser` scoped only to the Firebase Storage bucket.
-   The Firebase Cloud Functions runtime SA needs write permission to that
-   bucket (typically `roles/storage.objectCreator`, scoped to the bucket).
-   These IAM changes must be approved by the project security policy.
-3. Verify the bucket exists. Do **not** create a second public bucket and do
-   **not** turn on public file access.
-4. Sign into Google Apps Script / `clasp` with **brewcrew**. Create a **new,
-   standalone** Apps Script project; upload `Code.js` and `appsscript.json`
-   from this folder. Do not upload to `server/.clasp.json` (existing brewery
-   script). To use clasp, run in this folder:
-   `npx @google/clasp login`, then `npx @google/clasp create --type standalone
-   --title "Shapiro Quality Inbox"` if no project exists, and
-   `npx @google/clasp push`. Inspect the resulting `.clasp.json`: keep its
-   script ID private and out of the production server directory.
-5. In that script's editor, run `qualityInstallWorker` **as brewcrew**.
-   Approve the permissions. This confirms Sheet/Drive/Firestore and installs
-   exactly one `qualityReportWorker` clock trigger (every five minutes).
-   If the organization's Google Workspace policy blocks these scopes, stop
-   and request approved authorization; do not bypass Workspace controls.
-6. Only when the worker is active and its logs show successful execution,
-   deploy the new Firebase `functions:quality-reports` codebase and enable
-   `VITE_QUALITY_PREVIEW_SUBMISSIONS_ENABLED=true` for an authorized,
-   controlled Preview smoke test. Do not enable customer submissions until
-   a test report is seen in Sheets, Drive and the recipient's inbox.
+## Security and prerequisites
 
-## Checking progress
+1. Confirm `brewcrew@shapirobeer.co.il` can edit the Sheet
+   `19urjK3mUk1vO1clZ2IFDq-3ORqLeX5edBLmBeDwIud4`, including metadata
+   U:AD, and can create files in Drive folder
+   `1FrGg-gBKRyCSsw4EHTq8qb6zJEpWaQSn`.
+2. Have the cloud project owner (subject to the organization's security
+   policy) grant `brewcrew@shapirobeer.co.il`
+   `roles/datastore.user` for project
+   `fermenter-dashboard-bada3` and `roles/storage.objectViewer` scoped
+   to its private bucket `fermenter-dashboard-bada3.firebasestorage.app`.
+   Grant the function runtime service account permission to **create staged
+   objects** in the bucket. No anonymous read or public links.
+3. Create a standalone Apps Script project **while logged in as brewcrew**.
+   Copy files `Code.js` and `appsscript.json` from this directory (or use
+   `clasp` with a **new** script ID, never `server/.clasp.json`).
+4. Create a random 48+ character signing key. Set it **in the standalone
+   Apps Script project's Script Properties** as `QUALITY_WEBHOOK_SECRET`.
+   Do not send the key into chat, commit it or expose it in HTML.
+5. Store the **same** key in Google Secret Manager of
+   `fermenter-dashboard-bada3` as `QUALITY_WEBHOOK_SECRET`. This is
+   a new secret separate from Cloudflare Turnstile. The Cloud Functions runtime
+   account requires `roles/secretmanager.secretAccessor` on this secret,
+   and the GitHub deployment identity requires the existing narrowly scoped
+   deployment permissions. Do not grant broad admin rights.
+6. Run `qualityVerifyAndAuthorize` **as brewcrew** inside the standalone
+   script editor and approve scopes. It checks access to Sheet, Drive
+   and Firestore before accepting requests.
+7. Deploy the standalone project as a **Web app**, Execute as **Me**
+   (`brewcrew`), Who has access **Anyone**. This is not an unauthenticated
+   action: every POST is rejected without a valid timestamp-bound server
+   signature; the Web App has no read-only GET handler.
+   **Security review required:** the public endpoint can be invoked by anyone,
+   though they cannot perform an operation without the 48+ char secret.
+   Do not proceed if organizational policy forbids even a signed public Web App.
+8. Copy its `https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec`
+   URL into GitHub **Environment → production → Variables** as
+   `QUALITY_APPS_SCRIPT_URL`. Do not use the brewery production Apps Script URL.
+   Config `QUALITY_UPLOAD_BUCKET` defaults to the private Firebase bucket.
+9. After all prerequisites, deploy `functions:quality-reports` using the
+   manual workflow. It updates the `qualityReport` Cloud Function.
+   Remove old `qualityReportWeekly` and `qualityReportMailRetry`
+   at cutover (including Cloud Scheduler jobs); the old Google client
+   secrets are then no longer needed. A separate explicit cloud cleanup step
+   may be needed if the GitHub identity lacks delete permissions.
+10. Enable submissions **only in an authorized preview** and send a clearly
+    marked test report. Check the user sees the real ticket after processing,
+    the Sheet has exactly one row, media are in Drive, the recipient
+    receives exactly one notification and the third-distinct-event note is
+    correct. Only then merge/deploy public Hosting.
 
-* Apps Script → Executions / Triggers: `qualityReportWorker`, no web
-  deployment.
-* Firestore → `qualitySubmissions`: `queued`, `processing`, `completed`,
-  `dead` after 8 failures. Logs show submission ID only.
-* Sheet: row 4 headers U:AD; existing A:T unchanged; each UUID in column AA
-  appears at most once.
-* Attachments: private staging objects must be removed after successful
-  processing; if cleanup is denied, find leftover
-  `quality-inbox/` objects and grant bucket-scoped deletion rights.
-* Email: MailApp runs as the account installing the trigger. Confirm the
-  execution account before enabling customer traffic. Email delivery can be
-  delayed by the worker polling interval.
-* Worker is at-least-once: it avoids duplicate rows and Drive file names on
-  retries. An interruption in the narrow window after an email is sent but
-  before Firestore acknowledgment can lead to a duplicate email.
+## Privacy, idempotency and recovery
 
-## Cutover / decommissioning
+* A complete report is sent only to the server; the signed webhook payload
+  contains only UUID+timestamp+HMAC. Anonymous Firestore reads remain denied.
+* Each UUID is an idempotency key. One writer at a time under ScriptLock,
+  a Firestore update-time precondition, and a Sheet AA UUID check avoid
+  duplicate rows and Drive folders on retries.
+* MailApp may accept an email just before an Apps Script failure. A retry in
+  that narrow window can send a duplicate email; this requires monitoring
+  and can be hardened further before high-volume rollout.
+* Worker writes queued → processing → completed, or back to queued on
+  recoverable errors; repeated failures reach `dead`. The manual
+  `qualityRecoverQueued` function handles exceptional retries.
+* After success the worker clears sensitive Firestore fields and attempts
+  to delete staged Storage blobs. Sheet records and Drive attachments are
+  retained under existing brewery retention and sharing policies.
+* Sheet metadata lives only in U:AD; existing A:T is untouched. Warnings
+  begin with the **third distinct incident of the same beer+batch**,
+  without a separate email or weekly report.
 
-* Previous Cloud Functions `qualityReportWeekly` and
-  `qualityReportMailRetry` must be explicitly removed at cutover, along
-  with their Cloud Scheduler jobs. No residual scheduled email sender should
-  use the old refresh token.
-* Remove unused Secret Manager secrets
-  `QUALITY_GOOGLE_CLIENT_ID`, `QUALITY_GOOGLE_CLIENT_SECRET`,
-  `QUALITY_GOOGLE_REFRESH_TOKEN` **only after** the new intake and worker
-  are verified; keep `QUALITY_TURNSTILE_SECRET`.
-* If the Storage bucket does not exist or the service account lacks the
-  required permissions, the Cloud Function returns a 500 error and does
-  **not** acknowledge successful queueing. Resolve this first.
-* Keep the public form hosted by Firebase at `/report-issue`. No corporate
-  domain / DNS modification is needed. Google Auth Platform branding
-  verification for the retired external OAuth app is unnecessary for the
-  new worker architecture.
+## Important limit
+
+Apps Script Web Apps return via `ContentService` redirects; the Cloud
+Function follows them. Google quotas / execution time apply. If Google
+Workspace or corporate security blocks public Apps Script deployments,
+do not bypass that policy. In that case, an approved service-account-only
+Google API implementation is the alternative.
