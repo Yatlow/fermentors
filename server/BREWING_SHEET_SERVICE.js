@@ -186,7 +186,28 @@ function brewingSheetMirrorFinalTankVolume_(sheet, row, col, rawValue) {
 // Do NOT guess from row numbers and do NOT redirect untagged material writes.
 function brewingSheetResolveFermentationMetadataRange_(sheet, range, semanticField) {
   const name = String(semanticField || "").trim();
-  if (!name) return range;
+  if (!name) {
+    // Compatibility for already-deployed clients that still send the historical
+    // fermentation row as an untagged A1 address. Only the one legacy row for
+    // THIS tank layout may alias; e.g. triple B59/B106 are grain lots, never
+    // brew dates. New client writes always use semanticField instead.
+    if (!range || range.getNumRows() !== 1 || range.getNumColumns() !== 1 ||
+        [2, 4, 7].indexOf(range.getColumn()) < 0) return range;
+    const rows = sheet.getDataRange().getDisplayValues();
+    const blocks = rows.filter(function (r) {
+      return String(r[1] || "").trim() === "סוג:" &&
+             String(r[3] || "").trim() === "אצווה:";
+    }).length;
+    const oldRow = blocks === 1 ? 59 : blocks === 2 ? 106 : blocks === 3 ? 156 : 0;
+    if (!oldRow || range.getRow() !== oldRow) return range;
+    const indexes = [];
+    rows.forEach(function (r, i) {
+      if (/^יום\s*בישול/i.test(String(r[0] || "").trim()) &&
+          /^סוכר\s*תחילי/i.test(String(r[2] || "").trim()) &&
+          /שעת\s*הוספת\s*שמרים/i.test(String(r[4] || "").trim())) indexes.push(i + 1);
+    });
+    return indexes.length === 1 ? sheet.getRange(indexes[0], range.getColumn()) : range;
+  }
   const columns = {
     "fermentation.style": 2,
     "fermentation.batchNumber": 4,
