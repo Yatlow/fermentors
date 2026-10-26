@@ -95,3 +95,10 @@ test("both pallet transfer dialogs portal to document.body beyond local stacking
   assert.equal(bodyCount, 2);
   assert.equal((zone.match(/className="modal-overlay"/g) || []).length, 2);
 });
+
+test("shared confirmations portal above nested controls and dialogs", () => {
+  const confirmation = source("src/components/general/ConfirmModal.tsx");
+  assert.match(confirmation, /return createPortal\(/);
+  assert.match(confirmation, /document\.body,/);
+  assert.match(confirmation, /aria-modal="true"/);
+});
