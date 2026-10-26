@@ -76,8 +76,20 @@ function doPost(e) {
         ok:true,queued:false,ticket:qValue_(doc.fields.ticket),eventId:qValue_(doc.fields.eventId)
       });
       if(status!=='queued')return qOutput_({ok:true,queued:true});
-      const result=qProcess_(doc);
-      return qOutput_({ok:true,queued:false,ticket:result.ticket,eventId:result.eventId});
+      try{
+        const result=qProcess_(doc);
+        return qOutput_({ok:true,queued:false,ticket:result.ticket,eventId:result.eventId});
+      }catch(error){
+        // A write or email may fail after claiming the submission; return it
+        // to the private queue so the same ID can be retried safely.
+        console.error('Quality processing error: '+String(error.message).slice(0,180));
+        const attempts=Number(qValue_(doc.fields?.attempts)||0)+1;
+        try{qPatch_(doc.name,{
+          status:attempts>=Q_MAX_ATTEMPTS?'dead':'queued',
+          attempts,lastError:String(error.message).slice(0,180),processingAt:null
+        },null)}catch(requeue){console.error('Quality requeue failed: '+requeue.message)}
+        return qOutput_({ok:false,retry:true});
+      }
     }finally{lock.releaseLock()}
   }catch(error){
     console.error('Quality signed dispatch failed: '+String(error?.message||error).slice(0,190));
