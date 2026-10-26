@@ -24,7 +24,7 @@
 .bp-pack-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 4000;
+  z-index: var(--layer-modal);
   background: rgba(0, 0, 0, 0.34);
   display: grid;
   place-items: center;
