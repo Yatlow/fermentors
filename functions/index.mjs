@@ -283,7 +283,7 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     const subject=(escalation?'⚠️ התראת תקלות חוזרות · ':'דיווח תקלה חדש · ')+report.beer+' · פנייה #'+ticket;
     const body=['פנייה #'+ticket,'אירוע: '+claimed.eventId,
       'לקוח: '+report.customer,'בירה: '+report.beer,'אצווה: '+(report.batch||'לא ידוע'),
-      'סוג אריזה: '+report.packageType,'קטגוריה: '+report.type,'כמות: '+report.quantity,
+      'סוג אריזה: '+report.packageType,'קטגוריה: '+report.type,'כמות: '+(report.quantity ? report.quantity+' '+(report.packageType==='חבית'?'חביות':'בקבוקים') : 'לא צוין'),
       'מדווח: '+report.reporter,'טלפון: '+(report.phone||'לא סופק'),
       'תיאור: '+report.description,
       ...(escalation?['','⚠️ זוהו לפחות שלושה אירועי תקלה נפרדים באותו מק״ט ב־90 יום.']:[]),

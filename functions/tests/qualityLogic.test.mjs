@@ -2,9 +2,9 @@ import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {validateReport,relatedEvent,distinctSkuEvents,rowsToReports,createSheetRow,formatIsraeliDate,normalize,mergeSkuHistory,parseSheetDate,knownSku} from '../qualityLogic.mjs';
-const base = {customer:'החור השחור',beer:'לאגר',issueType:'הקצפת יתר',packageType:'חבית',reporter:'רון',description:'מקציף בפולסים',quantity:'3 חביות',batch:'1532',expiry:'2026-12-25'};
-test('validates and normalizes SKU while keeping quantity free text',()=>{
-  const r=validateReport(base); assert.equal(r.sku,'7009942'); assert.equal(r.quantity,'3 חביות');
+const base = {customer:'החור השחור',beer:'לאגר',issueType:'הקצפת יתר',packageType:'חבית',reporter:'רון',description:'מקציף בפולסים',quantity:'3',batch:'1532',expiry:'2026-12-25'};
+test('validates and normalizes SKU and numeric quantity',()=>{
+  const r=validateReport(base); assert.equal(r.sku,'7009942'); assert.equal(r.quantity,'3');
   assert.equal(r.phone,''); assert.throws(()=>validateReport({...base,issueType:'arbitrary'}));
   assert.throws(()=>validateReport({...base,expiry:'2026-02-30'}));
 });
@@ -25,6 +25,7 @@ test('reads original twenty columns and appends metadata without moving old colu
  const existing=rowsToReports([raw]);assert.equal(existing[0].type,'הקצפת יתר');assert.equal(existing[0].packageType,'חבית');
  assert.equal(existing[0].sku,'7009942');
  const row=createSheetRow('4','INC-3',validateReport(base),['https://drive.google.com/file/d/example/view'],new Date('2026-10-26T08:00:00Z'),'uuid');
+ assert.equal(row[6],'3 חביות');
  assert.equal(row[20],'INC-3');assert.equal(row[25].includes('drive.google.com'),true);assert.equal(row.length,30);
  assert.equal(formatIsraeliDate(new Date('2026-10-26T08:00:00Z')),'26/10/2026');
  assert.equal(normalize('חבית  /  לאגר'),'חבית לאגר');
@@ -83,4 +84,20 @@ test('preview landing page bypasses brewery login and retains private production
  const publicBranch=main.indexOf("if (/^\\/report-issue\\/?$/.test(location.pathname))");
  const privateApp=main.indexOf("import('./App')");
  assert.ok(preview>=0 && preview<redirect && redirect<publicBranch && publicBranch<privateApp);
+});
+
+test('quantity must be a numeric count and sheet retains Hebrew units',()=>{
+ for(const q of ['3 חביות','3.5','-1','abc','0','1000000'])assert.throws(()=>validateReport({...base,quantity:q}),undefined,q);
+ assert.equal(validateReport({...base,quantity:'00003'}).quantity,'3');
+ assert.equal(validateReport({...base,quantity:''}).quantity,'');
+ const bottles=validateReport({...base,quantity:'12',packageType:'בקבוק'});
+ assert.equal(createSheetRow('5','INC-5',bottles,[],new Date('2026-10-26'),'uuid')[6],'12 בקבוקים');
+});
+test('public form has real bottle SVG, foam icon and clean heading',()=>{
+ const src=readFileSync(new URL('../../src/public-report/ReportPage.tsx',import.meta.url),'utf8');
+ assert.match(src,/<BottleWine size=\{21\}/);
+ assert.match(src,/<Bubbles size=\{24\}/);
+ assert.doesNotMatch(src,/SHAPIRO · QUALITY CONTROL|<div className="q-overline">/);
+ assert.doesNotMatch(src,/טופס דיווח<\/span>/);
+ assert.match(src,/placeholder="למשל בירה שפירא, נחם"/);
 });

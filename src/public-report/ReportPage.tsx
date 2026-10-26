@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
-import { ArrowLeft, ArrowRight, Beer, CheckCircle2, Camera, FileImage, Package, Send, ShieldCheck, UploadCloud, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Beer, CheckCircle2, Camera, FileImage, BottleWine, Bubbles, Send, ShieldCheck, UploadCloud, X } from 'lucide-react'
 import './ReportPage.css'
 import shapiroLogo from '../assets/shpiro.jpeg'
 
 const styles = ['IPA', 'פייל אייל', 'לאגר', 'הופי לאגר', 'חיטה', 'סטאוט', 'בירה מיוחדת']
-const issues = [{label:'הקצפת יתר',icon:'🫧'}, {label:'טעם חריג',icon:'👅'}, {label:'ריח חריג',icon:'👃'}, {label:'בעיה באריזה',icon:'📦'}, {label:'משקעים / עכירות',icon:'🔍'}, {label:'אחר',icon:'⋯'}]
+const issues = [{label:'הקצפת יתר',icon:<Bubbles size={24} aria-hidden="true"/>}, {label:'טעם חריג',icon:'👅'}, {label:'ריח חריג',icon:'👃'}, {label:'בעיה באריזה',icon:'📦'}, {label:'משקעים / עכירות',icon:'🔍'}, {label:'אחר',icon:'⋯'}]
 const packages = ['חבית','בקבוק'] as const
 type FormFields = { customer:string; reporter:string; phone:string; beer:string; specialBeer:string; issueType:string; description:string; batch:string; expiry:string; quantity:string; packageType:string }
 const emptyForm:FormFields = {customer:'',reporter:'',phone:'',beer:'',specialBeer:'',issueType:'',description:'',batch:'',expiry:'',quantity:'',packageType:''}
@@ -65,6 +65,7 @@ export default function ReportPage(){
     }
     if(index===1&&!form.issueType) return 'יש לבחור את סוג התקלה.'
     if(index===1&&!form.packageType) return 'יש לבחור סוג אריזה: חבית או בקבוק.'
+    if(index===1&&form.quantity&&(!/^[0-9]{1,6}$/.test(form.quantity)||Number(form.quantity)===0)) return 'יש להזין כמות מספרית חיובית.'
     if(index===1&&!form.description.trim())return 'יש לתאר את התקלה.'
     return ''
   }
@@ -110,11 +111,10 @@ export default function ReportPage(){
   const reset=()=>{id.current=crypto.randomUUID();setForm(emptyForm);setStep(0);setAttachments([]);setError('');setCaptchaToken('');setResult(null)}
   return <div className="q-site" dir="rtl">
     <div className="q-glow q-glow-a"/><div className="q-glow q-glow-b"/>
-    <header className="q-top"><div className="q-top-inner"><div className="q-logo"><span className="q-logo-image"><img src={shapiroLogo} alt="לוגו מבשלת שפירא"/></span><div className="q-brand-title">מבשלת שפירא <span aria-hidden="true">—</span> <strong>מחלקת בקרת איכות</strong></div></div><span className="q-safe"><ShieldCheck size={17}/> טופס דיווח</span></div></header>
+    <header className="q-top"><div className="q-top-inner"><div className="q-logo"><span className="q-logo-image"><img src={shapiroLogo} alt="לוגו מבשלת שפירא"/></span><div className="q-brand-title">מבשלת שפירא <span aria-hidden="true">—</span> <strong>מחלקת בקרת איכות</strong></div></div></div></header>
     <main className="q-wrap">
       <section className="q-hero">
-        <div className="q-overline">SHAPIRO · QUALITY CONTROL</div>
-        <h1>דיווח על <strong>תקלה בבירה</strong></h1>
+        <h1>דיווח על תקלה בבירה</h1>
         <p>נתקלתם בתקלה באחד ממוצרי שפירא? מלאו את פרטי המקרה כדי שנוכל לבדוק ולטפל בו.</p>
         <div className="q-mini"><span/> הדיווח מועבר לצוות בקרת האיכות · ללא התחברות</div>
       </section>
@@ -130,7 +130,7 @@ export default function ReportPage(){
         <div className="q-progress" role="progressbar" aria-valuemin={1} aria-valuemax={3} aria-valuenow={step+1}><div style={{width:((step+1)/3*100)+'%'}}/></div>
         {step===0&&<div className="q-fields">
           <div className="q-section"><span>01</span><div><h3>פרטי הפנייה</h3><p>פרטי העסק, המדווח והמוצר</p></div></div>
-          <label className="q-field"><span>שם הלקוח / העסק <i>*</i></span><input required value={form.customer} onChange={e=>set('customer',e.target.value)} maxLength={120} autoComplete="organization" placeholder="למשל: החור השחור, כפר חרוב"/></label>
+          <label className="q-field"><span>שם הלקוח / העסק <i>*</i></span><input required value={form.customer} onChange={e=>set('customer',e.target.value)} maxLength={120} autoComplete="organization" placeholder="למשל בירה שפירא, נחם"/></label>
           <div className="q-two">
             <label className="q-field"><span>מי מדווח? <i>*</i></span><input value={form.reporter} onChange={e=>set('reporter',e.target.value)} maxLength={120} placeholder="השם שלך" autoComplete="name"/></label>
             <label className="q-field"><span>טלפון <em>לא חובה</em></span><input value={form.phone} onChange={e=>set('phone',e.target.value)} maxLength={30} placeholder="שנוכל לחזור אליכם" inputMode="tel" autoComplete="tel"/></label>
@@ -144,11 +144,11 @@ export default function ReportPage(){
           <label className="q-field"><span>מה קרה? <i>*</i></span><textarea value={form.description} onChange={e=>set('description',e.target.value)} maxLength={2000} rows={5} placeholder="מה קרה, מתי, ובאיזה אופן התקלה באה לידי ביטוי?"/><small>{form.description.length}/2000 תווים</small></label>
           <div className="q-two">
             <label className="q-field"><span>מספר אצווה</span><input value={form.batch} onChange={e=>set('batch',e.target.value)} maxLength={50} placeholder="למשל 1532"/></label>
-            <label className="q-field"><span>תאריך תפוגה</span><input type="date" value={form.expiry} onChange={e=>set('expiry',e.target.value)}/></label>
+            <label className="q-field q-date-field"><span>תאריך תפוגה</span><input type="date" value={form.expiry} onChange={e=>set('expiry',e.target.value)}/></label>
           </div>
-          <div className="q-two">
-            <label className="q-field"><span>כמות בירה תקולה</span><input value={form.quantity} onChange={e=>set('quantity',e.target.value)} maxLength={120} placeholder="למשל 3 חביות"/></label>
-            <div className="q-field"><span>סוג האריזה <i>*</i></span><div className="q-packages" role="group" aria-label="סוג האריזה">{packages.map(p=><button type="button" key={p} className={'q-package '+(form.packageType===p?'selected':'')} aria-pressed={form.packageType===p} onClick={()=>set('packageType',p)}>{p==='חבית'?<Beer size={21}/>:<Package size={21}/>}<span>{p}</span></button>)}</div></div>
+          <div className="q-quantity-section">
+            <label className="q-field"><span>כמות בירה תקולה (ביחידות)</span><input type="text" inputMode="numeric" pattern="[0-9]*" value={form.quantity} onChange={e=>set('quantity',e.target.value.replace(/[^0-9]/g,'').slice(0,6))} maxLength={6} placeholder="למשל 3" autoComplete="off"/></label>
+            <div className="q-field"><span>סוג האריזה <i>*</i></span><div className="q-packages" role="group" aria-label="סוג האריזה">{packages.map(p=><button type="button" key={p} className={'q-package '+(form.packageType===p?'selected':'')} aria-pressed={form.packageType===p} onClick={()=>set('packageType',p)}>{p==='חבית'?<Beer size={21}/>:<BottleWine size={21}/>}<span>{p}</span></button>)}</div></div>
           </div>
         </div>}
         {step===2&&<div className="q-fields">

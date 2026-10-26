@@ -65,7 +65,10 @@ export function validateReport(data) {
   if (!PACKAGES.includes(packageType)) throw new Error('סוג אריזה לא מוכר.');
   const reporter = required(data.reporter, 120, 'שם המדווח');
   const description = required(data.description, 2000, 'תיאור התקלה');
-  const quantity = optional(data.quantity, 120, 'כמות');
+  const rawQuantity = optional(data.quantity, 6, 'כמות');
+  if (rawQuantity && (!/^[0-9]{1,6}$/.test(rawQuantity) || Number(rawQuantity)===0))
+    throw new Error('כמות חייבת להיות מספר שלם חיובי.');
+  const quantity = rawQuantity ? String(Number(rawQuantity)) : '';
   const batch = optional(data.batch, 50, 'מספר אצווה');
   const expiry = optional(data.expiry, 10, 'תאריך תפוגה');
   if (expiry && !validIsoDate(expiry)) throw new Error('תאריך תפוגה לא תקין.');
@@ -153,7 +156,7 @@ export function createSheetRow(ticket, eventId, report, mediaUrls, timestamp, su
   const row = new Array(30).fill('');
   row[0] = ticket; row[2] = report.customer; row[3] = report.beer; row[4] = report.batch;
   row[5] = report.expiry ? formatIsraeliDate(new Date(report.expiry + 'T12:00:00Z')) : '';
-  row[6] = report.quantity; row[7] = formatIsraeliDate(timestamp);
+  row[6] = report.quantity ? report.quantity+' '+(report.packageType==='חבית'?'חביות':'בקבוקים') : ''; row[7] = formatIsraeliDate(timestamp);
   row[8] = report.reporter; row[9] = report.description;
   row[20] = eventId; row[21] = report.type; row[22] = report.phone;
   row[23] = report.packageType; row[24] = report.sku;

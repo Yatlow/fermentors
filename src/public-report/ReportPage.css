@@ -101,3 +101,16 @@ body:has(.q-site){background:#f6f0e3}
 /* The PR preview is non-operational until an end-to-end backend test is approved. */
 .q-preview-notice{display:flex;gap:10px;align-items:flex-start;border:1px solid #e7ce9f;background:#fff4de;border-radius:12px;padding:13px 15px;color:#754d27;font-weight:700;font-size:14px}
 .q-preview-notice svg{flex-shrink:0}
+
+/* Final usability pass: consistent brand headline, reliable icon and narrow mobile date. */
+.q-hero h1{letter-spacing:-1.2px;color:var(--ink)}
+.q-hero h1 strong{color:inherit}
+.q-hero h1 strong::after{display:none}
+.q-problem b{display:inline-flex;align-items:center;justify-content:center;line-height:1}
+.q-problem b svg{display:block;stroke:currentColor}
+.q-quantity-section{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:end}
+.q-quantity-section>*,.q-two>*{min-width:0}
+.q-field input[type="date"]{min-width:0;max-width:100%;width:100%;box-sizing:border-box;direction:ltr;text-align:right}
+.q-date-field{min-width:0;max-width:100%}
+@media(max-width:700px){.q-date-field input[type="date"]{width:min(100%,246px)}.q-quantity-section{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:520px){.q-two{grid-template-columns:minmax(0,1fr)}}
