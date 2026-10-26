@@ -51,5 +51,31 @@ jobs:
             printf 'QUALITY_SENDER_EMAIL=%s\n' "$SENDER"
             printf 'QUALITY_ALLOWED_HOSTS=%s\n' "$HOSTS"
           } > functions/.env.fermenter-dashboard-bada3
+      - name: Install gcloud for deployment diagnostics
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: fermenter-dashboard-bada3
       - name: Deploy backend only (does not touch Hosting)
-        run: npx --yes firebase-tools deploy --only functions:quality-reports --project fermenter-dashboard-bada3 --non-interactive
+        id: deploy-functions
+        shell: bash
+        run: |
+          set -o pipefail
+          npx --yes firebase-tools deploy --only functions:quality-reports --project fermenter-dashboard-bada3 --non-interactive 2>&1 | tee "$RUNNER_TEMP/quality-functions-deploy.log"
+      - name: Diagnose failed Cloud Build operations
+        if: ${{ failure() && steps.deploy-functions.outcome == 'failure' }}
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/quality-functions-deploy.log"
+          test -f "$LOG" || exit 0
+          mapfile -t BUILD_IDS < <(grep -oE 'cloud-build/builds;region=europe-west1/[0-9a-f-]{36}' "$LOG" | sed 's#.*/##' | sort -u || true)
+          if [ "${#BUILD_IDS[@]}" -eq 0 ]; then
+            echo "::notice::No Cloud Build ID in deploy output; inspect Firebase IAM or Artifact Registry failure above."
+          fi
+          for ID in "${BUILD_IDS[@]}"; do
+            echo "::group::Cloud Build $ID status and error"
+            gcloud builds describe "$ID" --region=europe-west1 --project=fermenter-dashboard-bada3 --format='yaml(id,status,statusDetail,failureInfo)' || true
+            echo "::endgroup::"
+            echo "::group::Cloud Build $ID last 120 log lines"
+            gcloud builds log "$ID" --region=europe-west1 --project=fermenter-dashboard-bada3 2>&1 | tail -n 120 || true
+            echo "::endgroup::"
+          done
