@@ -43,5 +43,6 @@ test('Firestore document decoder supports maps and media arrays without public a
  assert.equal(obj.beer,'IPA');assert.equal(obj.quantity,3);
  assert.equal(vmContext.qTyped_(null).nullValue,null);
  assert.match(source,/currentDocument.updateTime/);
- assert.doesNotMatch(source,/function doPost\\(|function doGet\\(/);
+ assert.equal(source.includes('function doPost('),false);
+ assert.equal(source.includes('function doGet('),false);
 });
