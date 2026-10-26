@@ -88,3 +88,12 @@ body:has(.q-site){background:#f6f0e3}
 .q-footer{direction:rtl;letter-spacing:0;color:#7d6957;font:600 13px Assistant,Arial,sans-serif}
 @media(max-width:700px){.q-top-inner{padding:10px 15px;min-height:80px}.q-logo{gap:11px;font-size:15px}.q-logo-image{height:56px;width:58px}.q-safe{font-size:11px;padding:6px 8px}.q-hero{padding-top:34px}}
 @media(max-width:430px){.q-brand-title{font-size:13px}.q-logo-image{height:50px;width:52px}.q-safe{display:none}.q-hero h1{font-size:clamp(30px,8vw,38px)}.q-overline{font-size:10px}.q-packages{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Safari/iOS date inputs have a large intrinsic minimum width. Keep the expiry
+   field inside the same responsive column boundaries as the batch input. */
+.q-two,.q-two>.q-field{min-width:0}
+.q-field input[type="date"]{display:block;box-sizing:border-box;width:100%;max-width:100%;min-width:0}
+@media(max-width:430px){
+  .q-two{grid-template-columns:minmax(0,1fr)}
+  .q-two>.q-field{width:100%;max-width:100%;min-width:0}
+}
