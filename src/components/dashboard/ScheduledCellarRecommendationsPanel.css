@@ -61,6 +61,12 @@
 .scheduled-cellar-form input:nth-of-type(2),
 .scheduled-cellar-form textarea { grid-column: 1 / -1; }
 .scheduled-cellar-form textarea { resize: vertical; font: inherit; min-height: 74px; }
+.scheduled-cellar-date-error {
+  grid-column: 1 / -1;
+  color: #b91c1c;
+  font-size: .74rem;
+  line-height: 1.4;
+}
 
 .scheduled-cellar-heading button,
 .scheduled-cellar-actions button,
