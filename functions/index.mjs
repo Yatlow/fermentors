@@ -6,9 +6,9 @@ import {getFirestore} from 'firebase-admin/firestore';
 import {google} from 'googleapis';
 import Busboy from 'busboy';
 import {Readable} from 'node:stream';
-import {createHmac} from 'node:crypto';
+import {createHmac,createHash} from 'node:crypto';
 import {
-  validateReport,HEADERS,rowsToReports,relatedEvent,distinctSkuEvents,
+  validateReport,HEADERS,rowsToReports,relatedEvent,
   createSheetRow,normalize,formatIsraeliDate,knownSku,skuCatalogKey
 } from './qualityLogic.mjs';
 
@@ -107,7 +107,7 @@ async function sheetRows(sheets) {
 async function ensureHeaders(sheets) {
   const response=await sheets.spreadsheets.values.get({spreadsheetId:sheetId.value(),range:"'גיליון1'!U4:AD4"});
   const current=response.data.values?.[0]||[];
-  if(current.some(v=>v && !HEADERS.includes(v))) throw new Error('עמודות התוספת בגיליון כבר בשימוש. לא בוצעה כתיבה.');
+  if(current.some((v,i)=>v && v!==HEADERS[i])) throw new Error('עמודות התוספת בגיליון כבר בשימוש. לא בוצעה כתיבה.');
   if(HEADERS.every((v,i)=>current[i]===v))return;
   await sheets.spreadsheets.values.update({
     spreadsheetId:sheetId.value(),range:"'גיליון1'!U4:AD4",valueInputOption:'RAW',
@@ -167,6 +167,7 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     if(!isAllowedHost(host)){res.status(403).json({error:'Origin rejected'});return;}
   }
   let reportId;
+  let ownsClaim=false;
   try{
     const {fields,files}=await parseSubmission(req);
     if(!/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(fields.submissionId||''))throw new Error('מזהה שליחה חסר.');
@@ -191,32 +192,71 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     const existing=rowsToReports(rows);
     const now=new Date();
     const related=relatedEvent(existing,report,now);
-    const earlierEvents=distinctSkuEvents(existing,report,now);
     const highestTicket=Math.max(0,...existing.map(x=>Number(x.ticket)||0));
     const highestEvent=Math.max(highestTicket,...existing.map(x=>Number(x.eventId.match(/\d+$/)?.[0]||0)));
+
     const idRef=database.doc('qualitySubmissions/'+reportId);
     const counterRef=database.doc('qualityReportMeta/counters');
+    const groupSignature=report.batch ? [report.customer,report.beer,report.batch,report.type].map(normalize).join('|') : '';
+    const groupRef=groupSignature
+      ? database.doc('qualityEventGroups/'+createHash('sha256').update(groupSignature).digest('hex'))
+      : null;
+    const skuRef=report.sku ? database.doc('qualitySkuHistory/'+report.sku) : null;
+    const cutoff=now.valueOf()-90*86400_000;
+    const fromSheet=existing.filter(r=>r.sku===report.sku && r.date && r.date.valueOf()>=cutoff)
+      .map(r=>({id:r.eventId,at:r.date.toISOString()}));
     const key=JSON.stringify(report);
     const claimed=await database.runTransaction(async tx=>{
-      const [prior,counter]=await Promise.all([tx.get(idRef),tx.get(counterRef)]);
+      const [prior,counter,groupSnapshot,skuSnapshot]=await Promise.all([
+        tx.get(idRef),tx.get(counterRef),
+        groupRef?tx.get(groupRef):Promise.resolve(null),
+        skuRef?tx.get(skuRef):Promise.resolve(null)
+      ]);
       if(prior.exists){
         if(prior.data()?.payload!==key)throw new Error('מזהה שליחה כבר שימש לדיווח אחר.');
         if(prior.data()?.status==='completed')return {...prior.data(),completed:true};
         const last=prior.data()?.processingAt?.toMillis?.()||0;
-        if(prior.data()?.status==='processing' && Date.now()-last<180000)throw new Error('הדיווח כבר נמצא בטיפול. יש לנסות שוב בעוד מספר דקות.');
+        if(prior.data()?.status==='processing' && Date.now()-last<180000)
+          throw new Error('הדיווח כבר נמצא בטיפול. יש לנסות שוב בעוד מספר דקות.');
         tx.update(idRef,{status:'processing',processingAt:new Date()});
         return {...prior.data(),completed:false};
       }
+      const recentGroup=groupSnapshot?.exists && (
+        Number(groupSnapshot.data()?.lastEventAt?.toMillis?.()||0)>=cutoff
+      );
+      const relatedEventId=(recentGroup && groupSnapshot.data()?.eventId) || related?.eventId;
       const nextTicket=Math.max(Number(counter.data()?.nextTicket||0),highestTicket)+1;
-      const newEvent=!related;
+      const newEvent=!relatedEventId;
       const nextEvent=Math.max(Number(counter.data()?.nextEvent||0),highestEvent)+(newEvent?1:0);
-      const eventId=related?.eventId||'INC-'+String(nextEvent).padStart(4,'0');
-      const claim={ticket:nextTicket,eventId,payload:key,status:'processing',processingAt:new Date(),createdAt:now,sku:report.sku,client:report.customer};
+      const eventId=relatedEventId||'INC-'+String(nextEvent).padStart(4,'0');
+
+      // Merge the authoritative Sheet history and concurrent in-flight claims.
+      // This makes the exact third distinct incident trigger atomic.
+      const history=new Map();
+      const historyRows=[...fromSheet,...(skuSnapshot?.data()?.events||[])];
+      for(const event of historyRows){
+        const when=Date.parse(String(event?.at||''));
+        if(event?.id && Number.isFinite(when) && when>=cutoff)
+          history.set(String(event.id),{id:String(event.id),at:new Date(when).toISOString()});
+      }
+      const before=history.size;
+      if(skuRef && !history.has(eventId))history.set(eventId,{id:eventId,at:now.toISOString()});
+      const escalation=Boolean(skuRef && newEvent && before<3 && history.size>=3);
+      const claim={
+        ticket:nextTicket,eventId,payload:key,status:'processing',processingAt:new Date(),
+        createdAt:now,sku:report.sku,client:report.customer,escalation
+      };
       tx.set(idRef,claim);
       tx.set(counterRef,{nextTicket,nextEvent},{merge:true});
+      if(groupRef)tx.set(groupRef,{
+        eventId,lastEventAt:now,customer:report.customer,beer:report.beer,
+        batch:report.batch,type:report.type
+      });
+      if(skuRef)tx.set(skuRef,{events:[...history.values()],updatedAt:now});
       return {...claim,completed:false};
     });
     if(claimed.completed){res.status(200).json({ticket:claimed.ticket,eventId:claimed.eventId,duplicate:true});return;}
+    ownsClaim=true;
     const ticket=claimed.ticket;
     // Persist folder ID first so an interrupted retry can reuse the same folder.
     let folderId=claimed.folderId||'';
@@ -228,9 +268,7 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     const media=await saveMedia(drive,ticket,files,folderId);
     await ensureHeaders(sheets);
     if(!await existingSubmission(sheets,reportId)){
-      const distinct=distinctSkuEvents(existing,report,now);
-      const escalation=report.sku && !related && distinct.size===2;
-      const row=createSheetRow(String(ticket),claimed.eventId,report,media.links,now,reportId,escalation?'הסלמה: אירוע שלישי':'');
+      const row=createSheetRow(String(ticket),claimed.eventId,report,media.links,now,reportId,claimed.escalation?'הסלמה: אירוע שלישי':'');
       await sheets.spreadsheets.values.append({
         spreadsheetId:sheetId.value(),range:"'גיליון1'!A:AD",
         valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}
@@ -238,7 +276,7 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     }
     // Successful Sheets persistence is the completion boundary. Email is retried independently on failure.
 
-    const escalation=Boolean(report.sku&&!related&&earlierEvents.size===2);
+    const escalation=Boolean(claimed.escalation);
     const subject=(escalation?'⚠️ התראת תקלות חוזרות · ':'דיווח תקלה חדש · ')+report.beer+' · פנייה #'+ticket;
     const body=['פנייה #'+ticket,'אירוע: '+claimed.eventId,
       'לקוח: '+report.customer,'בירה: '+report.beer,'אצווה: '+(report.batch||'לא ידוע'),
@@ -261,7 +299,7 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     res.status(201).json({ticket,eventId:claimed.eventId});
   }catch(error){
     console.error('quality report processing error',error?.message);
-    if(reportId){
+    if(reportId && ownsClaim){
       const ref=database.doc('qualitySubmissions/'+reportId);
       try{const snap=await ref.get();if(snap.exists&&snap.data().status==='processing')await ref.update({status:'failed'});}catch{/* Preserve primary failure */ }
     }
@@ -279,7 +317,7 @@ export const qualityReportWeekly=onSchedule({
   const recent=rows.filter(r=>r.date&&r.date.valueOf()>=cutoff);
   const map=new Map();
   for(const r of recent){
-    const sku=r.sku||(r.packageType==='לא ידוע'?'':normalize(r.beer)+' / '+r.packageType);
+    const sku=r.sku||knownSku(r.beer,r.packageType);
     if(!sku)continue;
     if(!map.has(sku))map.set(sku,new Set());
     map.get(sku).add(r.eventId);
