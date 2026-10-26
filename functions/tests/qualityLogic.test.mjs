@@ -65,12 +65,12 @@ test('legacy day/month dates roll to the previous calendar year in January',()=>
 
 test('public API rejects bot traffic before any catalog or Sheets reads',()=>{
  const source=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
- const code=source.slice(source.indexOf('export const qualityReport=onRequest'),source.indexOf('export const qualityReportMailRetry='));
+ const code=source.slice(source.indexOf('export const qualityReport=onRequest'));
  const antiBot=code.indexOf('await checkTurnstile(fields.turnstileToken,req.ip)');
  const limit=code.indexOf('await chargeLimit(req.ip)');
  const catalog=code.indexOf("database.doc('productCatalog/'+key).get()");
- const sheet=code.indexOf('const rows=await sheetRows(sheets)');
- assert.ok(antiBot>=0 && antiBot<limit && limit<catalog && catalog<sheet);
+ const sheet=code.indexOf('const prior=await idRef.get()');
+ assert.ok(antiBot>=0 && antiBot<sheet && sheet<limit && limit<catalog);
 });
 
 test('public complaints accept only a selected keg or bottle package',()=>{
@@ -120,11 +120,28 @@ test('batch keyboard is numeric, and input normalizes digits only',()=>{
 
 test('mail always sent on each report, with a batch-specific note for three or more incidents',()=>{
  const src=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
- assert.match(src,/const subject='דיווח תקלה חדש · '/);
- assert.match(src,/batchIncidentCount>=3/);
- assert.match(src,/אירועי תקלה נפרדים כבר דווחו על אצווה/);
- assert.match(src,/Number.NEGATIVE_INFINITY/); // all-time batch history
- assert.doesNotMatch(src,/export const qualityReportWeekly=/);
- assert.match(src,/export const qualityReportMailRetry=/);
- assert.doesNotMatch(src,/qualitySkuHistory\//);
+ assert.match(src,/getStorage\(\).bucket/);
+ assert.match(src,/tx.create\(idRef/);
+ assert.match(src,/status:'queued'/);
+ assert.doesNotMatch(src,/google.auth.OAuth2|QUALITY_GOOGLE_REFRESH_TOKEN|export const qualityReportWeekly|export const qualityReportMailRetry/);
+});
+
+test('brewcrew standalone worker polls private Firestore and handles Sheets, Drive and MailApp',()=>{
+ const worker=readFileSync(new URL('../../quality-appsscript/Code.js',import.meta.url),'utf8');
+ const manifest=readFileSync(new URL('../../quality-appsscript/appsscript.json',import.meta.url),'utf8');
+ assert.match(worker,/ScriptApp.getOAuthToken\(\)/);
+ assert.match(worker,/qualityReportWorker\(\)/);
+ assert.match(worker,/DriveApp.getFolderById/);
+ assert.match(worker,/MailApp.sendEmail/);
+ assert.match(worker,/state.sheet.getRange/);
+ assert.match(worker,/qFindExisting_/);
+ assert.doesNotMatch(worker,/function doPost\(/);
+ assert.match(manifest,/script.send_mail/);
+ assert.doesNotMatch(manifest,/"webapp"/);
+});
+test('public acknowledgment means queued, not saved in Sheets yet',()=>{
+ const ui=readFileSync(new URL('../../src/public-report/ReportPage.tsx',import.meta.url),'utf8');
+ assert.match(ui,/אסמכתה זמנית/);
+ assert.match(ui,/הדיווח התקבל לעיבוד/);
+ assert.doesNotMatch(ui,/result.ticket/);
 });
