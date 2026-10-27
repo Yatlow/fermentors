@@ -13,14 +13,17 @@ const Q_MAX_PER_RUN = 8;
 const Q_MAX_ATTEMPTS = 8;
 
 /**
- * Web App executes as brewcrew, but authorization is NEVER anonymous.
+ * Web App executes as its deployed-by account (USER_DEPLOYING).
+ * The email sender is that deployment account, not the current editor user.
  * Calls must be HMAC-signed by the Firebase Cloud Function with a fresh
  * timestamp and a UUID. The signing key is only in Apps Script Properties
  * and Firebase Secret Manager, not in browser code.
  */
 
 function qualityVerifyCurrentProject() {
-  const who=Session.getEffectiveUser().getEmail();
+  // Verify resources with the CURRENT manual execution credentials.
+  // Run as the Web App's actual deploying account before deployment.
+  // Avoid Session.getEffectiveUser(): it needs the unrelated userinfo.email scope.
   const secret=PropertiesService.getScriptProperties().getProperty('QUALITY_WEBHOOK_SECRET');
   if(!secret||secret.length<48)throw new Error('QUALITY_WEBHOOK_SECRET must be at least 48 characters');
   const sheet=SpreadsheetApp.openById(Q_SHEET_ID).getSheetByName(Q_SHEET_NAME);
@@ -28,7 +31,7 @@ function qualityVerifyCurrentProject() {
   sheet.getRange('A4').getValue();
   DriveApp.getFolderById(Q_MEDIA_ROOT).getName();
   qQuery_('queued',1);
-  console.log('Quality access verified as '+who);
+  console.log('Quality resource access verified for the account running this check. Verify the Web App deployment owner separately before sending mail.');
 }
 function qHex_(bytes){
   return bytes.map(x=>('0'+(x<0?x+256:x).toString(16)).slice(-2)).join('');
