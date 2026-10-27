@@ -120,7 +120,8 @@ test('batch keyboard is numeric, and input normalizes digits only',()=>{
 
 test('mail remains disabled during no-email intake while secure queue remains active',()=>{
  const src=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
- assert.match(src,/getStorage\(\).bucket/);
+ assert.doesNotMatch(src,/getStorage\(\).bucket/);
+ assert.match(src,/const media=\[\]/);
  assert.match(src,/tx.create\(idRef/);
  assert.match(src,/status:'queued'/);
  assert.doesNotMatch(src,/google.auth.OAuth2|QUALITY_GOOGLE_REFRESH_TOKEN|export const qualityReportWeekly|export const qualityReportMailRetry/);
