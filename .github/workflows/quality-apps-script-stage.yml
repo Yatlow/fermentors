@@ -1,4 +1,4 @@
-# Stage verified signed direct-to-Drive quality worker in existing script HEAD only; no live deployment.
+# Stage incident identity keyed by SKU + batch into the existing Apps Script HEAD only; live deployment unchanged.
 # Quality worker staged without email; does not redeploy the live Web App.
 # Re-stage PR #252 worker with temporary QA recipient; production Web App version remains untouched.
 # Re-stage scope-free quality verification before operational authorization test.
