@@ -118,7 +118,7 @@ test('batch keyboard is numeric, and input normalizes digits only',()=>{
  assert.match(batch,/replace\(\/\[\^0-9\]\/g,''\)/);
 });
 
-test('mail always sent on each report, with a batch-specific note for three or more incidents',()=>{
+test('mail remains disabled during no-email intake while secure queue remains active',()=>{
  const src=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
  assert.match(src,/getStorage\(\).bucket/);
  assert.match(src,/tx.create\(idRef/);
@@ -126,17 +126,18 @@ test('mail always sent on each report, with a batch-specific note for three or m
  assert.doesNotMatch(src,/google.auth.OAuth2|QUALITY_GOOGLE_REFRESH_TOKEN|export const qualityReportWeekly|export const qualityReportMailRetry/);
 });
 
-test('brewcrew standalone worker handles signed immediate dispatch to Sheets, Drive and MailApp',()=>{
+test('existing Apps Script worker handles signed dispatch to Sheets and Drive without email',()=>{
  const worker=readFileSync(new URL('../../server/QUALITY_REPORT_SERVICE.js',import.meta.url),'utf8');
  const manifest=readFileSync(new URL('../../server/appsscript.json',import.meta.url),'utf8');
  assert.match(worker,/ScriptApp.getOAuthToken\(\)/);
  assert.match(worker,/function qualityHandleSignedDispatch_\(body\)/);
  assert.match(worker,/DriveApp.getFolderById/);
- assert.match(worker,/MailApp.sendEmail/);
+ assert.doesNotMatch(worker,/MailApp\.sendEmail|GmailApp\.sendEmail/);
+ assert.match(worker,/notificationStatus:'disabled'/);
  assert.match(worker,/state.sheet.getRange/);
  assert.match(worker,/qFindExisting_/);
  assert.match(worker,/qConstantTimeEqual_/);
- assert.match(manifest,/script.send_mail/);
+ assert.doesNotMatch(manifest,/script\.send_mail/);
  assert.match(manifest,/"webapp"/);
 });
 test('public acknowledgment distinguishes immediately saved reports from queued fallback',()=>{
