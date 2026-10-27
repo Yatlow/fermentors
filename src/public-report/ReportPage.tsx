@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
-import { ArrowLeft, ArrowRight, Beer, CalendarDays, CheckCircle2, Camera, FileImage, BottleWine, Bubbles, Send, ShieldCheck, UploadCloud, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Beer, CheckCircle2, Camera, FileImage, BottleWine, Bubbles, Send, ShieldCheck, UploadCloud, X } from 'lucide-react'
 import './ReportPage.css'
 import BeerLoader from '../components/general/Loading'
 import shapiroLogo from '../assets/shpiro.jpeg'
@@ -156,7 +156,7 @@ export default function ReportPage(){
           <label className="q-field"><span>מה קרה? <i>*</i></span><textarea value={form.description} onChange={e=>set('description',e.target.value)} maxLength={2000} rows={5} placeholder="מה קרה, מתי, ובאיזה אופן התקלה באה לידי ביטוי?"/><small>{form.description.length}/2000 תווים</small></label>
           <div className="q-two">
             <label className="q-field"><span>מספר אצווה</span><input type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" value={form.batch} onChange={e=>set('batch',e.target.value.replace(/[^0-9]/g,'').slice(0,20))} maxLength={20} placeholder="למשל 1532"/></label>
-            <div className="q-field q-date-field"><label htmlFor="q-expiry-text">תאריך תפוגה</label><div className="q-expiry-combo"><input id="q-expiry-text" type="text" inputMode="numeric" autoComplete="off" value={form.expiry} onChange={e=>set('expiry',e.target.value.replace(/[^0-9./-]/g,'').slice(0,10))} placeholder="DD/MM/YYYY" aria-label="תאריך תפוגה בפורמט יום חודש שנה"/><label className="q-expiry-calendar" aria-label="בחירת תאריך בלוח שנה"><CalendarDays size={20}/><input type="date" tabIndex={0} aria-label="בחירת תאריך תפוגה" value={parseExpiry(form.expiry)||''} onChange={e=>{const [y,m,d]=e.target.value.split('-');if(y&&m&&d)set('expiry',d+'/'+m+'/'+y)}}/></label></div></div>
+            <label className="q-field q-date-field"><span>תאריך תפוגה</span><input type="date" lang="he-IL" value={parseExpiry(form.expiry)||''} onChange={e=>{const [y,m,d]=e.target.value.split('-');set('expiry',y&&m&&d?d+'/'+m+'/'+y:'')}} aria-label="בחר תאריך תפוגה"/></label>
           </div>
           <div className="q-quantity-section">
             <label className="q-field"><span>כמות בירה תקולה (ביחידות)</span><input type="text" inputMode="numeric" pattern="[0-9]*" value={form.quantity} onChange={e=>set('quantity',e.target.value.replace(/[^0-9]/g,'').slice(0,6))} maxLength={6} placeholder="למשל 3" autoComplete="off"/></label>
