@@ -1,4 +1,4 @@
-# Stage the quality dispatch diagnostics and EmailJS worker into existing Apps Script HEAD.
+# Stage the updated quality worker with readable EmailJS text and separate styled HTML message.
 # This does NOT update the active Web App deployment version.
 name: Stage quality module in existing Apps Script (no live deployment)
 on:
