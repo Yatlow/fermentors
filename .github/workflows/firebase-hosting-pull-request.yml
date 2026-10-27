@@ -29,7 +29,7 @@ jobs:
         env:
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
           VITE_QUALITY_TURNSTILE_SITE_KEY: ${{ vars.VITE_QUALITY_TURNSTILE_SITE_KEY }}
-          VITE_QUALITY_PREVIEW_SUBMISSIONS_ENABLED: ${{ vars.VITE_QUALITY_PREVIEW_SUBMISSIONS_ENABLED }}
+          VITE_QUALITY_PREVIEW_SUBMISSIONS_ENABLED: ${{ github.event.pull_request.number == 252 && 'true' || vars.VITE_QUALITY_PREVIEW_SUBMISSIONS_ENABLED }}
           VITE_APP_VERSION: ${{ github.sha }}
           VITE_DEPLOY_ENV: preview
       - uses: FirebaseExtended/action-hosting-deploy@v0
