@@ -4,8 +4,8 @@ const Q_PROJECT = 'fermenter-dashboard-bada3';
 const Q_SHEET_ID = '19urjK3mUk1vO1clZ2IFDq-3ORqLeX5edBLmBeDwIud4';
 const Q_MEDIA_ROOT = '1FrGg-gBKRyCSsw4EHTq8qb6zJEpWaQSn';
 const Q_SHEET_NAME = 'גיליון1';
-// TEMPORARY FOR PR #252 VALIDATION. Restore yochai@shapirobeer.co.il before production cutover.
-const Q_MAIL_TO = 'yisrael@atlow.co.il';
+// Email notifications disabled until a standalone mail gateway is commissioned.
+// Never auto-backfill notifications for reports received while disabled.
 const Q_HEADERS = ['מספר אירוע','סוג התקלה','טלפון המדווח','סוג האריזה','מק"ט',
   'קישורים למדיה','מזהה שליחה','תאריך ושעת דיווח','סטטוס התראה','מקור הדיווח'];
 const Q_FIELDS = 'https://firestore.googleapis.com/v1/projects/'+Q_PROJECT+'/databases/(default)/documents';
@@ -14,7 +14,7 @@ const Q_MAX_ATTEMPTS = 8;
 
 /**
  * Web App executes as its deployed-by account (USER_DEPLOYING).
- * The email sender is that deployment account, not the current editor user.
+ * Email is deliberately not sent by this worker.
  * Calls must be HMAC-signed by the Firebase Cloud Function with a fresh
  * timestamp and a UUID. The signing key is only in Apps Script Properties
  * and Firebase Secret Manager, not in browser code.
@@ -31,7 +31,7 @@ function qualityVerifyCurrentProject() {
   sheet.getRange('A4').getValue();
   DriveApp.getFolderById(Q_MEDIA_ROOT).getName();
   qQuery_('queued',1);
-  console.log('Quality resource access verified for the account running this check. Verify the Web App deployment owner separately before sending mail.');
+  console.log('Quality resource access verified; mail notifications are disabled.');
 }
 function qHex_(bytes){
   return bytes.map(x=>('0'+(x<0?x+256:x).toString(16)).slice(-2)).join('');
@@ -76,7 +76,7 @@ function qualityHandleSignedDispatch_(body) {
         const result=qProcess_(doc);
         return ({ok:true,queued:false,ticket:result.ticket,eventId:result.eventId});
       }catch(error){
-        // A write or email may fail after claiming the submission; return it
+        // A write or file transfer may fail after claiming the submission; return it
         // to the private queue so the same ID can be retried safely.
         console.error('Quality processing error: '+String(error.message).slice(0,180));
         const attempts=Number(qValue_(doc.fields?.attempts)||0)+1;
@@ -287,27 +287,18 @@ function qProcess_(doc) {
     newRow[20]=eventId;newRow[21]=report.type;newRow[22]=report.phone||'';
     newRow[23]=report.packageType;newRow[24]=report.sku||'';
     newRow[25]=links.join('\n');newRow[26]=id;
-    newRow[27]=data.submittedAt||'';newRow[28]=incidents>=3?'3+ תקלות באצווה ('+incidents+')':'';
+    newRow[27]=data.submittedAt||'';
+    newRow[28]='מייל מושבת'+(incidents>=3?' · 3+ תקלות באצווה ('+incidents+')':'');
     newRow[29]='טופס אינטרנטי';
     state.sheet.getRange(Math.max(6,state.last+1),1,1,30).setValues([newRow]);
     SpreadsheetApp.flush();
   }
-  const countWarning=incidents>=3?'\n\n⚠️ '+incidents+' אירועי תקלה נפרדים דווחו על בירה '+report.beer+
-    ' מאצווה '+report.batch+', כולל דיווח זה.':'';
-  const body=['דיווח תקלה חדש · פנייה #'+number,'אירוע: '+eventId,
-    'לקוח: '+report.customer,'בירה: '+report.beer,'אצווה: '+(report.batch||'לא ידועה'),
-    'סוג אריזה: '+report.packageType,'סוג תקלה: '+report.type,
-    'כמות: '+(report.quantity||'לא צוינה'),
-    'מדווח: '+report.reporter,'טלפון: '+(report.phone||'לא סופק'),
-    'תיאור: '+report.description,countWarning,
-    ...links.map(url=>'מדיה: '+url),
-    'גיליון: https://docs.google.com/spreadsheets/d/'+Q_SHEET_ID+'/edit'].join('\n');
-  MailApp.sendEmail({to:Q_MAIL_TO,subject:'דיווח תקלה חדש · '+report.beer+' · פנייה #'+number,body});
-  // Acknowledge only after the email has been accepted by MailApp.
-  // Store no report/contact content permanently in the idempotency record.
+  // Mail notifications are disabled: completion depends on durable Sheets/Drive storage only.
+  // The later standalone gateway must opt in new submissions explicitly, not replay history.
   qPatch_(doc.name,{status:'completed',processingAt:null,completedAt:new Date().toISOString(),
-    ticket:number,eventId,batchIncidentCount:incidents,report:null,media:null,lastError:null},null);
-  // Best-effort cleanup of staged objects AFTER email + sheet persistence.
+    ticket:number,eventId,batchIncidentCount:incidents,notificationStatus:'disabled',
+    report:null,media:null,lastError:null},null);
+  // Best-effort staged-object cleanup after Sheets/Drive persistence.
   (data.media||[]).forEach(file=>{
     try{
       const url='https://storage.googleapis.com/storage/v1/b/'+encodeURIComponent(data.bucket)+

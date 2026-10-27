@@ -122,7 +122,7 @@ export default function ReportPage(){
         <div className="q-done-icon"><CheckCircle2 size={45}/></div>
         <div className="q-pill">הדיווח התקבל</div>
         <h2>{result.queued?'תודה, הדיווח התקבל לעיבוד':'תודה, הדיווח נרשם בהצלחה'}</h2>
-        <p>{result.queued?'הדיווח נקלט בתור המאובטח, אך העיבוד עוד לא הושלם. נמשיך לטפל בו מתוך התור.':'הדיווח נרשם בגיליון בקרת האיכות ונשלחה הודעה לצוות.'}</p>
+        <p>{result.queued?'הדיווח נקלט בתור המאובטח, אך העיבוד עוד לא הושלם. נמשיך לטפל בו מתוך התור.':'הדיווח נרשם בגיליון בקרת האיכות. בשלב זה לא נשלחת הודעה בדוא״ל.'}</p>
         <div className="q-ticket"><small>{result.ticket?'מספר הפנייה':'אסמכתה זמנית'}</small><b>{result.ticket?'#'+result.ticket:result.reference}</b><span>כדאי לשמור למעקב</span></div>
         <button className="q-primary" type="button" onClick={reset}>דיווח נוסף <ArrowLeft size={20}/></button>
       </section>:<section className="q-card">

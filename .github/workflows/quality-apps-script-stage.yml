@@ -1,3 +1,4 @@
+# Quality worker staged without email; does not redeploy the live Web App.
 # Re-stage PR #252 worker with temporary QA recipient; production Web App version remains untouched.
 # Re-stage scope-free quality verification before operational authorization test.
 name: Stage quality module in existing Apps Script (no live deployment)
