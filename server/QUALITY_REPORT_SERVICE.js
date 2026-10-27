@@ -228,33 +228,27 @@ function qFindExisting_(rows,id) {
   return rows.find(row=>String(row[26]||'').trim()===id)||null;
 }
 function qIdentifyEvent_(rows,report) {
-  const now=Date.now(), cutoff=now-90*86400000;
-  for(let i=rows.length-1;i>=0;i--){
-    const row=rows[i],when=qParseDate_(row[7]);
-    if(!when||when.getTime()<cutoff)continue;
-    if(qNormalize_(row[2])!==qNormalize_(report.customer)||
-       qNormalize_(row[3])!==qNormalize_(report.beer)||
-       qNormalize_(row[4])!==qNormalize_(report.batch)||!report.batch)continue;
-    if(String(row[9]||qInferIssue_(row[10]))!==report.type)continue;
-    return String(row[23]||('LEGACY-'+row[0]));
+  // Only exact SKU + batch matches identify the same incident, regardless of
+  // customer, issue type or reporting date. Never merge missing SKU/batch.
+  const sku=qNormalize_(report.sku), batch=qNormalize_(report.batch);
+  if(sku&&batch){
+    for(let i=rows.length-1;i>=0;i--){
+      const row=rows[i];
+      if(qNormalize_(row[12])===sku && qNormalize_(row[4])===batch)
+        return String(row[23]||('LEGACY-'+row[0]));
+    }
   }
   const maxEvent=rows.reduce((max,row)=>{
-    const m=String(row[23]||'').match(/^INC-(\d+)$/);
+    const m=String(row[23]||'').match(/^INC-(\\d+)$/);
     return Math.max(max,m?Number(m[1]):0);
   },0);
   return 'INC-'+String(maxEvent+1).padStart(4,'0');
 }
 function qBatchIncidents_(rows,report,eventId) {
-  if(!report.batch)return 0;
-  const events=new Set([eventId]);
-  rows.forEach(row=>{
-    if(!row[0]||!row[2]||!row[3])return;
-    if(qNormalize_(row[3])===qNormalize_(report.beer) &&
-       qNormalize_(row[4])===qNormalize_(report.batch)){
-      events.add(String(row[23]||('LEGACY-'+row[0])));
-    }
-  });
-  return events.size;
+  const sku=qNormalize_(report.sku),batch=qNormalize_(report.batch);
+  if(!sku||!batch)return 0;
+  const matching=rows.filter(row=>row[0]&&qNormalize_(row[12])===sku&&qNormalize_(row[4])===batch);
+  return matching.length+1;
 }
 function qMedia_(jobId,data) {
   if(!data.media||!data.media.length)return [];
