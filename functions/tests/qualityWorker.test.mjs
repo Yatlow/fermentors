@@ -126,7 +126,8 @@ test('worker and UI have no active email sending, no mail scope and accurate con
  const manifest=readFileSync(new URL('../../server/appsscript.json',import.meta.url),'utf8');
  assert.doesNotMatch(manifest,/script\.send_mail|mail\.google\.com/);
  const ui=readFileSync(new URL('../../src/public-report/ReportPage.tsx',import.meta.url),'utf8');
- assert.match(ui,/לא נשלחת הודעה בדוא״ל/);
+ assert.doesNotMatch(ui,/לא נשלחת הודעה בדוא״ל/);
+  assert.match(ui,/disabled=\{sending\|\|\(step===2&&\(!siteKey\|\|previewSubmissionBlocked\|\|!captchaToken\)\)\}/);
  assert.doesNotMatch(ui,/ונשלחה הודעה לצוות/);
 });
 
