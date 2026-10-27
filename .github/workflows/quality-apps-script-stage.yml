@@ -1,4 +1,4 @@
-# Stage the updated quality worker with readable EmailJS text and separate styled HTML message.
+# Stage the updated quality worker with correct brewery sender and reply-to identity.
 # This does NOT update the active Web App deployment version.
 name: Stage quality module in existing Apps Script (no live deployment)
 on:
