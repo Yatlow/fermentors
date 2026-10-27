@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { ArrowLeft, ArrowRight, Beer, CheckCircle2, Camera, FileImage, BottleWine, Bubbles, Send, ShieldCheck, UploadCloud, X } from 'lucide-react'
 import './ReportPage.css'
+import BeerLoader from '../components/general/Loading'
 import shapiroLogo from '../assets/shpiro.jpeg'
 
 const styles = ['IPA', 'פייל אייל', 'לאגר', 'הופי לאגר', 'חיטה', 'סטאוט', 'בירה מיוחדת']
@@ -111,6 +112,7 @@ export default function ReportPage(){
   }
   const reset=()=>{id.current=crypto.randomUUID();setForm(emptyForm);setStep(0);setAttachments([]);setError('');setCaptchaToken('');setResult(null)}
   return <div className="q-site" dir="rtl">
+    {sending&&<BeerLoader overlay size="large" message="הדיווח נשלח ונשמר במערכת…"/>}
     <div className="q-glow q-glow-a"/><div className="q-glow q-glow-b"/>
     <header className="q-top"><div className="q-top-inner"><div className="q-logo"><span className="q-logo-image"><img src={shapiroLogo} alt="לוגו מבשלת שפירא"/></span><div className="q-brand-title">מבשלת שפירא <span aria-hidden="true">—</span> <strong>מחלקת בקרת איכות</strong></div></div></div></header>
     <main className="q-wrap">
