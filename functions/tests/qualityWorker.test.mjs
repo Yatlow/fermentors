@@ -7,31 +7,33 @@ const source=readFileSync(new URL('../../server/QUALITY_REPORT_SERVICE.js',impor
 const vmContext={console,Date,JSON,Math,Number,String,RegExp,Set,Array,Object,encodeURIComponent};
 runInNewContext(source,vmContext,{filename:'Code.js',timeout:3000});
 
-function report(beer='לאגר',batch='1532',customer='נחם',type='הקצפת יתר'){
- return {beer,batch,customer,type};
+function report(beer='לאגר',batch='1532',customer='נחם',type='הקצפת יתר',sku='SKU-123'){
+ return {beer,batch,customer,type,sku};
 }
-function row({ticket,event,customer='נחם',beer='לאגר',batch='1532',type='הקצפת יתר',date='25/10/2026'}){
+function row({ticket,event,customer='נחם',beer='לאגר',batch='1532',type='הקצפת יתר',sku='SKU-123',date='25/10/2026'}){
  const r=new Array(30).fill('');
- r[0]=String(ticket);r[2]=customer;r[3]=beer;r[4]=batch;r[7]=date;r[23]=event||'';r[9]=type;
+ r[0]=String(ticket);r[2]=customer;r[3]=beer;r[4]=batch;r[7]=date;r[23]=event||'';r[9]=type;r[12]=sku;
  return r;
 }
-test('third distinct complaint in same beer and batch is flagged regardless of packaging',()=>{
- const rows=[row({ticket:1,event:'INC-1'}),row({ticket:2,event:'INC-1'}),
-   row({ticket:3,event:'INC-2'})];
- assert.equal(vmContext.qBatchIncidents_(rows,report(),'INC-3'),3);
- assert.equal(vmContext.qBatchIncidents_(rows,report(),'INC-2'),2);
- assert.equal(vmContext.qBatchIncidents_(rows,report('IPA'),'INC-3'),1);
- assert.equal(vmContext.qBatchIncidents_(rows,report('לאגר','1533'),'INC-3'),1);
- assert.equal(vmContext.qBatchIncidents_(rows,report('לאגר',''),'INC-3'),0);
+test('complaints count includes all reports for matching SKU and batch',()=>{
+ const rows=[row({ticket:1,event:'INC-1'}),row({ticket:2,event:'INC-1',customer:'אחר'}),
+   row({ticket:3,event:'INC-1',type:'טעם חריג'})];
+ assert.equal(vmContext.qBatchIncidents_(rows,report(),'INC-1'),4);
+ assert.equal(vmContext.qBatchIncidents_(rows,report('IPA','1533'),'INC-2'),1);
+ assert.equal(vmContext.qBatchIncidents_(rows,report('IPA',''),'INC-2'),0);
+ assert.equal(vmContext.qBatchIncidents_(rows,report('IPA','1532','X','Y','')) ,0);
 });
-test('same customer issue links existing event; another issue creates new event',()=>{
- const rows=[row({ticket:1,event:'INC-1'}),row({ticket:2,event:'INC-2',type:'טעם חריג'})];
- assert.equal(vmContext.qIdentifyEvent_(rows,report()),'INC-1');
- assert.equal(vmContext.qIdentifyEvent_(rows,report('לאגר','1532','נחם','ריח חריג')),'INC-0003');
+test('same SKU and batch is same event regardless of reporter, beer and issue',()=>{
+ const rows=[row({ticket:1,event:'INC-1'}),row({ticket:2,event:'INC-2',sku:'SKU-555'})];
+ assert.equal(vmContext.qIdentifyEvent_(rows,report('IPA','1532','אחר','טעם חריג')),'INC-1');
+ assert.equal(vmContext.qIdentifyEvent_(rows,report('לאגר','1532','אחר','טעם חריג','SKU-555')),'INC-2');
+ assert.equal(vmContext.qIdentifyEvent_(rows,report('לאגר','1532','נחם','ריח חריג','SKU-999')),'INC-0003');
+ assert.equal(vmContext.qIdentifyEvent_(rows,report('לאגר','1533','נחם','ריח חריג')),'INC-0003');
 });
-test('legacy rows with no event id are distinct by ticket',()=>{
- const rows=[row({ticket:7}),row({ticket:8})];
- assert.equal(vmContext.qBatchIncidents_(rows,report(),'INC-1'),3);
+test('missing SKU or batch never merges incidents automatically',()=>{
+ const rows=[row({ticket:7,sku:''}),row({ticket:8,sku:''})];
+ assert.equal(vmContext.qBatchIncidents_(rows,report('לאגר','1532','נחם','אחר',''),'INC-1'),0);
+ assert.equal(vmContext.qIdentifyEvent_(rows,report('לאגר','1532','נחם','אחר','')),'INC-0001');
 });
 test('idempotency match uses submission ID, not reporter or description',()=>{
  const r=row({ticket:1,event:'INC-1'});r[26]='submission-abc';
