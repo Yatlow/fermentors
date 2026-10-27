@@ -124,7 +124,7 @@ export default function ReportPage(){
         <div className="q-done-icon"><CheckCircle2 size={45}/></div>
         <div className="q-pill">הדיווח התקבל</div>
         <h2>{result.queued?'תודה, הדיווח התקבל לעיבוד':'תודה, הדיווח נרשם בהצלחה'}</h2>
-        <p>{result.queued?'הדיווח נקלט בתור המאובטח, אך העיבוד עוד לא הושלם. נמשיך לטפל בו מתוך התור.':'הדיווח נרשם בגיליון בקרת האיכות. בשלב זה לא נשלחת הודעה בדוא״ל.'}</p>
+        <p>{result.queued?'הדיווח נקלט בתור המאובטח, אך העיבוד עוד לא הושלם. נמשיך לטפל בו מתוך התור.' :'הדיווח נרשם בגיליון בקרת האיכות.'}</p>
         <div className="q-ticket"><small>{result.ticket?'מספר הפנייה':'אסמכתה זמנית'}</small><b>{result.ticket?'#'+result.ticket:result.reference}</b><span>כדאי לשמור למעקב</span></div>
         <button className="q-primary" type="button" onClick={reset}>דיווח נוסף <ArrowLeft size={20}/></button>
       </section>:<section className="q-card">
@@ -158,7 +158,7 @@ export default function ReportPage(){
           <label className="q-upload"><UploadCloud size={35}/><b>צרפו תמונה או וידאו</b><span>אפשר גם לצלם ישירות מהטלפון</span><small>עד 4 קבצים · 14MB לקובץ · 22MB סה״כ</small><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm" multiple onChange={selectFiles}/></label>
           {attachments.length>0&&<ul className="q-files">{attachments.map((file,i)=><li key={file.name+i}>{file.type.startsWith('video')?<Camera size={19}/>:<FileImage size={19}/>}<div><b>{file.name}</b><small>{sizeLabel(file.size)}</small></div><button type="button" aria-label={'הסר '+file.name} onClick={()=>setAttachments(all=>all.filter((_,j)=>j!==i))}><X size={18}/></button></li>)}</ul>}
           <div className="q-review"><strong><CheckCircle2 size={20}/> סיכום הפנייה</strong><p>{form.customer} · {form.beer==='בירה מיוחדת'?form.specialBeer:form.beer}</p><p>{form.issueType}{form.batch?' · אצווה '+form.batch:''}</p></div>
-          <div className="q-privacy"><ShieldCheck size={20}/> המדיה נשמרת בתיקיית אבטחת האיכות ונגישה לבעלי ההרשאה המתאימה. לפרטים: <a href="/report-issue/privacy.html" target="_blank" rel="noopener noreferrer">מדיניות הפרטיות</a>.</div>
+
           {previewSubmissionBlocked&&<div className="q-preview-notice" role="status"><ShieldCheck size={18}/> סביבת תצוגה בלבד: השליחה כבויה עד להפעלת התור ולבדיקת החיבור.</div>}
           {!previewSubmissionBlocked&&<Captcha onToken={onCaptcha}/>}
 
@@ -166,7 +166,7 @@ export default function ReportPage(){
         {error&&<div className="q-error" role="alert">{error}</div>}
         <div className="q-actions">
           {step>0&&<button className="q-back" type="button" disabled={sending} onClick={()=>{setStep(step-1);setError('')}}><ArrowRight size={20}/> חזרה</button>}
-          <button className="q-primary" type="button" disabled={sending||(step===2&&(!siteKey||previewSubmissionBlocked))} onClick={step===2?()=>{void submit()}:goNext}>{sending?'שולחים...':step===2?'שליחת דיווח':'ממשיכים'}{step===2?<Send size={19}/>:<ArrowLeft size={19}/>}</button>
+          <button className="q-primary" type="button" disabled={sending||(step===2&&(!siteKey||previewSubmissionBlocked||!captchaToken))} onClick={step===2?()=>{void submit()}:goNext}>{sending?'שולחים...':step===2?'שליחת דיווח':'ממשיכים'}{step===2?<Send size={19}/>:<ArrowLeft size={19}/>}</button>
         </div>
       </section>}
       <footer className="q-footer">מבשלת שפירא · מחלקת בקרת איכות <span aria-hidden="true">·</span> <a href="/report-issue/privacy.html">מדיניות פרטיות</a> <span aria-hidden="true">·</span> <a href="/report-issue/terms.html">תנאי שימוש</a></footer>
