@@ -303,28 +303,56 @@ function qNotifyNewReport_(docName,rowNumber,report,mediaLinks,ticket,eventId,in
   if(/^מייל (נשלח|בשליחה|כשל|דורש בדיקה)/.test(present))return;
   statusCell.setValue('מייל בשליחה');
   SpreadsheetApp.flush();
-  const html='<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.7">'+
-    '<h2>פניית בקרת איכות #'+qEscapeHtml_(ticket)+'</h2>'+
-    '<p><b>אירוע:</b> '+qEscapeHtml_(eventId)+'</p>'+
-    (incidents>=3?'<p style="color:#b91c1c;font-weight:bold">התראה: '+incidents+' פניות מאותו מק״ט ואצווה</p>':'')+
-    '<p><b>לקוח:</b> '+qEscapeHtml_(report.customer)+'</p>'+
-    '<p><b>מדווח:</b> '+qEscapeHtml_(report.reporter)+'</p>'+
-    '<p><b>טלפון:</b> '+qEscapeHtml_(report.phone||'—')+'</p>'+
-    '<p><b>בירה:</b> '+qEscapeHtml_(report.beer)+'</p>'+
-    '<p><b>אריזה:</b> '+qEscapeHtml_(report.packageType)+'</p>'+
-    '<p><b>מק״ט:</b> '+qEscapeHtml_(report.sku||'—')+'</p>'+
-    '<p><b>אצווה:</b> '+qEscapeHtml_(report.batch||'—')+'</p>'+
-    '<p><b>סוג תקלה:</b> '+qEscapeHtml_(report.type)+'</p>'+
-    '<p><b>תיאור:</b> '+qEscapeHtml_(report.description).replace(/\n/g,'<br>')+'</p>'+
-    (mediaLinks.length?'<p><b>קבצים:</b></p><ul>'+mediaLinks.map((url,i)=>
-      '<li><a href="'+qEscapeHtml_(url)+'">מדיה '+(i+1)+'</a></li>').join('')+'</ul>':'')+
-    '</div>';
+  // Keep the existing {{message}} template readable even before the dedicated
+  // {{{htmlMessage}}} HTML template is configured in EmailJS.
+  const ticketLabel='#'+String(ticket);
+  const warning=incidents>=3?'⚠️ התראת אצווה: '+incidents+' פניות מאותו מק״ט ואצווה':'';
+  const fields=[
+    ['מספר פנייה',ticketLabel],
+    ['מספר אירוע',eventId],
+    ['לקוח',report.customer],
+    ['מדווח',report.reporter],
+    ['טלפון',report.phone||'—'],
+    ['בירה',report.beer],
+    ['סוג אריזה',report.packageType],
+    ['מק״ט',report.sku||'—'],
+    ['מספר אצווה',report.batch||'—'],
+    ['תאריך תפוגה',report.expiry?String(report.expiry).split('-').reverse().join('/'):'—'],
+    ['כמות',report.quantity||'—'],
+    ['סוג תקלה',report.type],
+    ['תיאור התקלה',report.description]
+  ];
+  const plain=[
+    'מבשלת שפירא | בקרת איכות',
+    'התקבלה פנייה חדשה '+ticketLabel,
+    ...(warning?[warning]:[]),
+    '',
+    ...fields.map(([label,value])=>label+': '+String(value===null||value===undefined?'':value)),
+    ...(mediaLinks.length?['','קבצים מצורפים (קישורים ל־Drive):',...mediaLinks.map((url,i)=>(i+1)+'. '+url)]:[])
+  ].join('\n');
+  const fieldRows=fields.map(([label,value])=>
+    '<tr><td style="border-bottom:1px solid #eee2d5;padding:10px 12px;color:#806a5b;vertical-align:top;white-space:nowrap">'+qEscapeHtml_(label)+'</td>'+
+    '<td style="border-bottom:1px solid #eee2d5;padding:10px 12px;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere">'+qEscapeHtml_(value)+'</td></tr>'
+  ).join('');
+  const links=mediaLinks.map((url,i)=>
+    '<li style="margin:6px 0"><a style="color:#a4432f" href="'+qEscapeHtml_(url)+'">פתיחת קובץ '+(i+1)+' ב־Google Drive</a></li>'
+  ).join('');
+  const html='<div dir="rtl" style="background:#faf6ef;padding:24px;font-family:Arial,sans-serif;color:#382b25;line-height:1.7">'+
+    '<div style="max-width:640px;margin:auto;background:#fff;border:1px solid #e6d6bf;border-radius:14px;overflow:hidden">'+
+    '<div style="background:#332a24;color:#fff;padding:23px">'+
+    '<div style="font-size:14px;color:#f3d3a6">מבשלת שפירא | בקרת איכות</div>'+
+    '<h2 style="margin:6px 0 0;font-size:22px;color:#fff">פנייה חדשה '+qEscapeHtml_(ticketLabel)+'</h2></div>'+
+    (warning?'<div style="background:#fff0e9;color:#a32c19;padding:16px 22px;font-weight:bold">'+qEscapeHtml_(warning)+'</div>':'')+
+    '<table role="presentation" dir="rtl" style="border-collapse:collapse;width:100%;font-size:14px">'+fieldRows+'</table>'+
+    (links?'<div style="padding:14px 22px"><b>קבצים ותמונות</b><ul style="padding-right:18px">'+links+'</ul></div>':'')+
+    '<div style="padding:15px 22px;background:#f8efe2;color:#786352;font-size:12px">התראה אוטומטית ממערכת בקרת האיכות • אין להשיב למייל זה</div>'+
+    '</div></div>';
   const payload={
     service_id:Q_EMAILJS_SERVICE,template_id:Q_EMAILJS_TEMPLATE,user_id:Q_EMAILJS_PUBLIC,
     accessToken:key,template_params:{
       toEmail:Q_NOTIFY_TO,email:Q_NOTIFY_TO,resEmail:Q_NOTIFY_TO,
-      title:'דיווח איכות #'+ticket+' | '+String(report.beer||'').slice(0,80),
-      message:html
+      title:(warning?'⚠️ ':'')+'דיווח איכות '+ticketLabel+' | '+String(report.beer||'').slice(0,80),
+      message:plain,htmlMessage:html
     }
   };
   try{
