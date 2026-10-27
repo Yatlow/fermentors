@@ -114,7 +114,8 @@ async function dispatchNow(submissionId,files=[]){
       return {ticket:String(payload.ticket),eventId:String(payload.eventId||'')};
     }
     if(payload?.ok && payload.queued)return null;
-    throw new Error('Apps Script did not acknowledge processing');
+    const code=typeof payload?.code==='string' && /^[a-z_]{3,40}$/.test(payload.code)?payload.code:'no_ack';
+    throw new Error('Apps Script did not acknowledge processing: '+code);
   }catch(error){
     console.error('Quality dispatch pending recovery: '+String(error?.message||error).slice(0,120));
     return null;
