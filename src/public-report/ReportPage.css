@@ -140,3 +140,5 @@ body:has(.q-site){background:#f6f0e3}
 
 /* Standalone quality page does not load the dashboard's layer tokens. */
 .q-site{--layer-busy:10000}
+
+.q-expiry-combo{display:flex;align-items:stretch;gap:8px;min-width:0}.q-expiry-combo>input{flex:1;min-width:0}.q-expiry-calendar{position:relative;width:52px;min-width:52px;border:1.5px solid #dee7df;background:#fafdF9;border-radius:13px;display:grid;place-items:center;color:#008a74;cursor:pointer;overflow:hidden}.q-expiry-calendar input[type=date]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}.q-expiry-calendar:focus-within{outline:2px solid #008a74;outline-offset:2px}
