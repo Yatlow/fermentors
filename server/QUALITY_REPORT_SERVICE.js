@@ -4,7 +4,8 @@ const Q_PROJECT = 'fermenter-dashboard-bada3';
 const Q_SHEET_ID = '19urjK3mUk1vO1clZ2IFDq-3ORqLeX5edBLmBeDwIud4';
 const Q_MEDIA_ROOT = '1FrGg-gBKRyCSsw4EHTq8qb6zJEpWaQSn';
 const Q_SHEET_NAME = 'גיליון1';
-const Q_MAIL_TO = 'yochai@shapirobeer.co.il';
+// TEMPORARY FOR PR #252 VALIDATION. Restore yochai@shapirobeer.co.il before production cutover.
+const Q_MAIL_TO = 'yisrael@atlow.co.il';
 const Q_HEADERS = ['מספר אירוע','סוג התקלה','טלפון המדווח','סוג האריזה','מק"ט',
   'קישורים למדיה','מזהה שליחה','תאריך ושעת דיווח','סטטוס התראה','מקור הדיווח'];
 const Q_FIELDS = 'https://firestore.googleapis.com/v1/projects/'+Q_PROJECT+'/databases/(default)/documents';
