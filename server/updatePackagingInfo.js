@@ -3,6 +3,8 @@
 // ============================================================
 
 const PACKAGING_LAYOUT_CACHE_SECONDS = 21600; // 6 hours
+// Layout v2 fixes total/shrinkage coordinates. Do not reuse cached v1 G-column positions.
+const PACKAGING_LAYOUT_CACHE_PREFIX = "packaging_layout:v2:";
 
 function roundPackagingValue_(value) {
   const numeric = Number(value);
@@ -66,9 +68,10 @@ function packagingTargetBelowLabel_(pos) {
 }
 
 function packagingTargetLeftOfLabel_(pos) {
-  // Existing sheet convention: value is one displayed cell to the left in RTL,
-  // which is the same 1-based column number as the label's zero-based col.
-  return pos ? { row: pos.row + 1, col: pos.col } : null;
+  // For the RTL packaging summary, the value sits one logical column AFTER
+  // the label (H -> I). pos.col is zero-based: target 1-based = pos.col + 2.
+  // The former pos.col wrote into G and could overwrite yeast pitch time.
+  return pos ? { row: pos.row + 1, col: pos.col + 2 } : null;
 }
 
 function discoverPackagingLayout_(sheet, spreadsheetId) {
@@ -98,7 +101,7 @@ function discoverPackagingLayout_(sheet, spreadsheetId) {
   };
 
   CacheService.getScriptCache().put(
-    "packaging_layout:" + spreadsheetId,
+    PACKAGING_LAYOUT_CACHE_PREFIX + spreadsheetId,
     JSON.stringify(layout),
     PACKAGING_LAYOUT_CACHE_SECONDS
   );
@@ -108,7 +111,7 @@ function discoverPackagingLayout_(sheet, spreadsheetId) {
 
 function getPackagingLayout_(spreadsheetId) {
   const cache = CacheService.getScriptCache();
-  const key = "packaging_layout:" + spreadsheetId;
+  const key = PACKAGING_LAYOUT_CACHE_PREFIX + spreadsheetId;
   const cached = cache.get(key);
 
   if (cached) {
@@ -205,7 +208,7 @@ function updatePackagingInfo(
     let updatedEmpty = false;
     let updatedKegs = false;
     let updatedCrates = false;
-    let updatedTotal = false;
+    const updatedTotal = false; // computed by native Sheet formulas
     const warnings = [];
 
     const boolValue =
@@ -252,37 +255,10 @@ function updatePackagingInfo(
       }
     }
 
-    if (boolValue === true && totalLiters !== undefined && totalLiters !== null) {
-      if (layout.total) {
-        requests.push(
-          packagingUpdateCellRequest_(
-            layout.sheetId,
-            layout.total,
-            roundPackagingValue_(totalLiters),
-            { type: "NUMBER", pattern: "0.00" }
-          )
-        );
-        updatedTotal = true;
-      } else {
-        warnings.push('Label "סה"כ" not found');
-      }
-
-      if (shrinkagePercent !== undefined && shrinkagePercent !== null) {
-        if (layout.shrinkage) {
-          const roundedShrinkagePercent = roundPackagingValue_(shrinkagePercent);
-          requests.push(
-            packagingUpdateCellRequest_(
-              layout.sheetId,
-              layout.shrinkage,
-              Number(roundedShrinkagePercent) / 100,
-              { type: "PERCENT", pattern: "0.00%" }
-            )
-          );
-        } else {
-          warnings.push('Label "פחת" not found');
-        }
-      }
-    }
+    // Total litres and shrinkage are already calculated by the sheet's native
+    // I-column formulas from packaged quantities. Never overwrite those
+    // formulas or write duplicate values into G (yeast pitch time).
+    // totalLiters/shrinkagePercent remain on the report payload.
 
     if (requests.length > 0) {
       Sheets.Spreadsheets.batchUpdate(

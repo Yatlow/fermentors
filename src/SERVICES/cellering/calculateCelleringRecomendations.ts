@@ -6,6 +6,7 @@ import type { TankStageInfo } from "../dashboard/tankstage";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
 import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshold";
 import { shouldShowNeglectedTank } from "./neglectWeekday";
+import { evaluateColdTankNeglect } from "./neglectAfterCooling";
 import { hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext } from "./carbonationRetestPolicy";
 import { hasStablePlatoForCooling } from "./coolingPlatoStability";
@@ -1095,176 +1096,19 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         reason: `מומלץ לבצע מנוחת דיאציטיל (סוכר ${lastMeasurement?.plato})`,
         importance: 1
     }
-    function formatMeasurementDate(
-        id: string | number | null | undefined
-    ): string | null {
-
-        if (id === null || id === undefined) {
-            return null;
-        }
-
-        const match = String(id).match(
-            /^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})$/
-        );
-
-        if (!match) {
-            return null;
-        }
-
-        const [, year, month, day, hour, minute] = match;
-
-        return `${day}/${month}/${year} בשעה ${hour}:${minute}`;
-    }
-
-
-    const lastYeast = sortedMeasurements.findLast(
-        measurement =>
-            String(measurement.notes ?? "").includes("שמרים")
-    );
-
-    const lastCarb = sortedMeasurements.findLast(
-        measurement =>
-            measurement.carbonation !== null &&
-            measurement.carbonation !== undefined &&
-            Number.isFinite(Number(measurement.carbonation))
-    );
-    const lastCarbDate =
-        formatMeasurementDate(lastCarb?.id);
-
-    const lastYeastDate =
-        formatMeasurementDate(lastYeast?.id);
-    const neglected = () => {
-        // Cellar-wide Sunday checks typically reset the neglect clock.
-        // Surface neglect only Monday–Thursday, never Fri/Sat/Sun.
-        if (!shouldShowNeglectedTank(today)) {
-            return { display: false, req: false, importance: 0, reason: "" };
-        }
-
-
-        // ============================================================
-        // HOT TANK
-        // ============================================================
-
-        // If the beer was never cooled,
-        // neglect logic does not apply.
-        if (CoolAge === null || stage.name === "בתסיסה") {
-            return {
-                display: false,
-                req: false,
-                importance: 0,
-                reason: ""
-            };
-        }
-
-
-        // ============================================================
-        // LAST RELEVANT ACTION
-        // ============================================================
-
-        const carbDate =
-            getMeasurementDate(lastCarb?.id);
-
-        const yeastDate =
-            getMeasurementDate(lastYeast?.id);
-
-
-        const carbAge =
-            carbDate !== null
-                ? getDaysSinceDate(carbDate)
-                : null;
-
-        const yeastAge =
-            yeastDate !== null
-                ? getDaysSinceDate(yeastDate)
-                : null;
-
-
-        // ============================================================
-        // COLD TANK - NO CARB + NO YEAST
-        // ============================================================
-
-        if (
-            carbAge === null &&
-            yeastAge === null &&
-            CoolAge > 5
-        ) {
-
-            return {
-                display: true,
-                req: true,
-                importance: 3,
-                reason: ""
-            };
-        }
-
-        // ============================================================
-        // LAST ACTION RESETS THE CLOCK
-        // ============================================================
-
-        const daysSinceLastAction =
-            Math.min(
-                carbAge ?? Infinity,
-                yeastAge ?? Infinity
-            );
-
-
-        // ============================================================
-        // NEGLECT LEVEL
-        // ============================================================
-
-        let importance = 0;
-
-        if (
-            daysSinceLastAction >= 5 &&
-            daysSinceLastAction <= 7
-        ) {
-            importance = 2;
-        }
-
-        else if (
-            daysSinceLastAction > 7
-        ) {
-            importance = 3;
-        }
-
-
-        return {
-            req: importance > 0,
-            display: importance > 0,
-            importance,
-            reason: ""
-        };
-    };
-
-
-    const neglectedStatus = neglected();
-
-
-    // ============================================================
-    // NEGLECT MESSAGE
-    // ============================================================
-
-    let neglectedMsg = "⚠️ המיכל דורש תשומת לב.";
-
-    if (neglectedStatus.req) {
-        const relevantDates = [lastCarbDate, lastYeastDate].filter(
-            (value): value is string => Boolean(value)
-        );
-        const lastRelevantDate = relevantDates.length
-            ? relevantDates.reduce((latest, date) => {
-                const parse = (value: string) => {
-                    const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
-                    return match ? `${match[3]}-${match[2]}-${match[1]}` : value;
-                };
-                return parse(date) > parse(latest) ? date : latest;
-            })
+    // Start the five-day cold neglect clock at the latest ACTUAL cooling.
+    // Older fermentation actions must not make a newly cooled tank look neglected.
+    // A completed yeast drop or carbonation test after cooling resets this clock.
+    const coldNeglect =
+        stage.name === "קר" && shouldShowNeglectedTank(today)
+            ? evaluateColdTankNeglect(sortedMeasurements)
             : null;
-        neglectedMsg += lastRelevantDate
-            ? ` הפעולה המתועדת האחרונה הייתה ב-${lastRelevantDate}.`
-            : " לא נמצאה פעולה רלוונטית מתועדת.";
-        neglectedMsg += " מומלץ לבדוק צורך בבדיקת גיזוז ובהורדת שמרים.";
-    }
-    neglectedStatus.reason = neglectedMsg
+    const neglectedStatus = {
+        display: coldNeglect !== null,
+        req: coldNeglect !== null,
+        importance: coldNeglect?.importance ?? 0,
+        reason: coldNeglect?.reason ?? "",
+    };
     const readyToCoolDown = (
         hasStablePlatoForCooling(sortedMeasurements) &&
         stage.name === "בתסיסה" && yeastDroppedOnce

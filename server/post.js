@@ -128,8 +128,7 @@ const POST_MUTATION_ACTIONS = {
   // brewingSheetWriteCells_. Keeping them in the long-lived generic
   // idempotency cache can strand the UI behind an "in_progress" record after
   // a lost ContentService response. Let each debounced batch execute normally.
-  BrewSheetTrash: true,
-  BrewSheetRenameBatch: true
+  BrewSheetTrash: true
 };
 
 function postIdempotencyKey_(action, requestId) {
@@ -674,14 +673,6 @@ function executePostAction_(data) {
       success: true,
       action: "BrewSheetTrash",
       result: brewingSheetTrash_(data)
-    };
-  }
-
-  if (data.action === "BrewSheetRenameBatch") {
-    return {
-      success: true,
-      action: "BrewSheetRenameBatch",
-      result: brewingSheetRenameBatch_(data)
     };
   }
 

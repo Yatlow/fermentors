@@ -181,44 +181,52 @@ function brewingSheetMirrorFinalTankVolume_(sheet, row, col, rawValue) {
   return false;
 }
 
-function brewingSheetResolveFermentationMetadataRange_(sheet, range) {
-  // App writes historically target the Master fermentation metadata row
-  // (59/106/156). Variable mash layouts insert rows before fermentation, so
-  // resolve the real row from its visible labels instead of applying offsets.
-  if (!sheet || !range || range.getNumRows() !== 1 || range.getNumColumns() !== 1) {
-    return range;
-  }
-
-  const col = range.getColumn();
-  const row = range.getRow();
-  if ([2, 4, 7].indexOf(col) < 0 || [59, 106, 156].indexOf(row) < 0) {
-    return range;
-  }
-
-  const data = sheet.getDataRange().getDisplayValues();
-  // A fixed row is the fermentation date row ONLY for its tank layout.
-  // On a triple brew B59/B106 hold grain LOTS, not dates. The previous
-  // unconditional mapping of all three fallback rows redirected Pilsner
-  // grain writes into B156, destroying an already valid brew date.
-  const blockCount = data.filter(function (cells) {
-    return String(cells[1] || "").trim() === "סוג:" &&
-           String(cells[3] || "").trim() === "אצווה:";
-  }).length;
-  const fallbackRow = blockCount === 3 ? 156 : blockCount === 2 ? 106 : blockCount === 1 ? 59 : 0;
-  if (!fallbackRow || row !== fallbackRow) return range;
-
-  for (let r = 0; r < data.length; r++) {
-    const current = data[r] || [];
-    if (
-      /^יום\s*בישול/i.test(String(current[0] || "").trim()) &&
-      /^סוכר\s*תחילי/i.test(String(current[2] || "").trim()) &&
-      /שעת\s*הוספת\s*שמרים/i.test(String(current[4] || "").trim())
-    ) {
-      return sheet.getRange(r + 1, col);
+// Semantic field intent is mandatory for fermentation metadata writes.
+// A1 coordinates alone are ambiguous: B59 may be a grain lot on a triple brew.
+// Do NOT guess from row numbers and do NOT redirect untagged material writes.
+function brewingSheetResolveFermentationMetadataRange_(sheet, range, semanticField) {
+  const name = String(semanticField || "").trim();
+  // Untagged writes belong to their original A1 coordinates. They may hold
+  // grain lots or other fields and must never be reinterpreted as metadata.
+  if (!name) return range;
+  const columns = {
+    "fermentation.style": 2,
+    "fermentation.batchNumber": 4,
+    "fermentation.tankNumber": 7,
+    "fermentation.brewDate": 2,
+    "fermentation.startingPlato": 4,
+    "fermentation.yeastPitchTime": 7
+  };
+  const col = columns[name];
+  if (!col) throw new Error("Unknown semantic fermentation field: " + name);
+  const rows = sheet.getDataRange().getDisplayValues();
+  const indexes = [];
+  if (name === "fermentation.style" || name === "fermentation.batchNumber" ||
+      name === "fermentation.tankNumber") {
+    for (let i = 1; i < rows.length; i++) {
+      const preceding = rows[i - 1] || [];
+      const row = rows[i] || [];
+      if (String(preceding[0] || "").trim() === "דף תסיסה" &&
+          /^אצווה\s*:?$/.test(String(row[2] || "").trim()) &&
+          /^מספר\s*מיכל\s*:?$/.test(String(row[5] || "").trim())) {
+        indexes.push(i + 1);
+      }
+    }
+  } else {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || [];
+      if (/^יום\s*בישול/i.test(String(row[0] || "").trim()) &&
+          /^סוכר\s*תחילי/i.test(String(row[2] || "").trim()) &&
+          /שעת\s*הוספת\s*שמרים/i.test(String(row[4] || "").trim())) {
+        indexes.push(i + 1);
+      }
     }
   }
-
-  return range;
+  if (indexes.length !== 1) {
+    throw new Error("Expected exactly one fermentation metadata row for " + name +
+                    "; found " + indexes.length);
+  }
+  return sheet.getRange(indexes[0], col);
 }
 
 function brewingSheetWriteCells_(data) {
@@ -245,7 +253,7 @@ function brewingSheetWriteCells_(data) {
     const sheet = (sheetName ? ss.getSheetByName(sheetName) : null) || ss.getSheets()[0];
     if (!sheet) throw new Error("Brew Sheet has no sheets");
     let range = sheet.getRange(a1);
-    range = brewingSheetResolveFermentationMetadataRange_(sheet, range);
+    range = brewingSheetResolveFermentationMetadataRange_(sheet, range, item.semanticField);
 
     // Last line of defence: never accept a raw material lot or arbitrary text
     // as the fermentation brew date. Manual edits directly in Sheets are
@@ -323,6 +331,42 @@ function brewingSheetTemplateForType_(tankType) {
     templateId: templateId,
     tankType: type
   };
+}
+
+
+// Repair the missing empty-tank control in older single-brew Masters, and
+// defend every newly copied Sheet (including three-rest layouts) regardless
+// of which template ID is configured in Apps Script properties.
+// This never inserts rows or changes brew/fermentation coordinate mappings.
+function brewingSheetEnsureEmptyCheckbox_(sheet) {
+  const values = sheet.getDataRange().getDisplayValues();
+  const headerIndex = values.findIndex(function (row) {
+    return String(row[0] || "").trim() === "דף תסיסה" &&
+           String(row[7] || "").trim() === "סיכום אריזה";
+  });
+  if (headerIndex < 1) throw new Error("Missing fermentation/packaging header in new brew Sheet");
+  const controlRow = headerIndex; // previous row, 1-based
+  const label = sheet.getRange(controlRow, 8);
+  const checkbox = sheet.getRange(controlRow, 9);
+  const labelText = String(label.getDisplayValue() || "").trim();
+  const current = String(checkbox.getDisplayValue() || "").trim().toUpperCase();
+  if (labelText && !/^ריק\s*\??\s*:??$/.test(labelText)) {
+    throw new Error("Unsafe empty-tank control location: H" + controlRow);
+  }
+  if (current && current !== "TRUE" && current !== "FALSE") {
+    throw new Error("Unsafe checkbox location: I" + controlRow);
+  }
+  if (!labelText || !checkbox.getDataValidation() ||
+      checkbox.getDataValidation().getCriteriaType() !== SpreadsheetApp.DataValidationCriteria.CHECKBOX) {
+    // Use the packaging summary's border/typography without altering rows.
+    sheet.getRange(headerIndex + 1, 8, 1, 2)
+      .copyFormatToRange(sheet, 8, 9, controlRow, controlRow);
+    label.setValue("ריק?:");
+    checkbox.insertCheckboxes();
+    checkbox.setValue(current === "TRUE");
+    return true;
+  }
+  return false;
 }
 
 function brewingSheetCreate_(data) {
@@ -409,9 +453,15 @@ function brewingSheetCreate_(data) {
 
     const writesStartedAt = Date.now();
     let writeCount = 0;
+    const deferredSemanticWrites = [];
     if (data.initialWrites && Array.isArray(data.initialWrites)) {
       const batchData = [];
       data.initialWrites.forEach(function (item) {
+        if (item.semanticField) {
+          deferredSemanticWrites.push(item);
+          writeCount++;
+          return;
+        }
         const rangeText = String(item.range || "").trim();
         if (!rangeText) return;
         batchData.push({
@@ -554,6 +604,23 @@ function brewingSheetCreate_(data) {
       });
       SpreadsheetApp.flush();
     }
+
+    // Resolve identity writes AFTER extra mash rests have shifted the geometry.
+    // No initial-writes row offsets are used for fermentation metadata.
+    if (deferredSemanticWrites.length) {
+      const sheet = ss.getSheets()[0];
+      deferredSemanticWrites.forEach(function (item) {
+        const target = brewingSheetResolveFermentationMetadataRange_(
+          sheet, sheet.getRange("A1"), item.semanticField
+        );
+        target.setValue(brewingSheetCellValue_(item.value));
+      });
+      SpreadsheetApp.flush();
+    }
+
+    // Validate/restore the empty-tank control on the final shifted layout.
+    // This is after variable mash row insertions, before publishing the file.
+    brewingSheetEnsureEmptyCheckbox_(ss.getSheets()[0]);
 
     // Keep the out-to-boil pH unit consistent across all Master variants. Wheat
     // inserts extra mash rows and its Master can be missing the visible pH label,
@@ -974,64 +1041,6 @@ function brewingSheetTrash_(data) {
     spreadsheetId: fileId,
     trashed: true
   };
-}
-
-function brewingSheetRenameBatch_(data) {
-  const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
-  const oldBatch = String(data.oldBatchNumber || "").replace("#", "").trim();
-  const newBatch = String(data.newBatchNumber || "").replace("#", "").trim();
-  const style = String(data.style || "").trim();
-  if (!/^\d+$/.test(newBatch)) throw new Error("Invalid newBatchNumber");
-
-  const file = DriveApp.getFileById(fileId);
-
-  if (newBatch !== oldBatch) {
-    const folderId = brewingSheetConfig_().folderId;
-    const folder = DriveApp.getFolderById(folderId);
-    const duplicateFiles = folder.searchFiles(
-      "trashed = false and title contains '" + newBatch.replace(/'/g, "\\'") + "'"
-    );
-    while (duplicateFiles.hasNext()) {
-      const candidate = duplicateFiles.next();
-      if (candidate.getId() === fileId) continue;
-      const parsed = brewingSheetBatchFromName_(candidate.getName());
-      if (String(parsed || "").replace("#", "").trim() === newBatch) {
-        throw new Error("Batch " + newBatch + " already exists.");
-      }
-    }
-  }
-
-  const ss = SpreadsheetApp.openById(fileId);
-  const sheet = ss.getSheets()[0];
-  const values = sheet.getDataRange().getDisplayValues();
-  const starts = findBrewBlockStarts(values);
-
-  sheet.getRange("B1").setValue(style);
-  sheet.getRange("F1").setValue(newBatch);
-  starts.forEach(function (start, index) {
-    const headerRow = start - 5;
-    if (headerRow >= 1) {
-      sheet.getRange(headerRow, 3).setValue(style);
-      sheet.getRange(headerRow, 5).setValue(newBatch + ["A", "B", "C"][index]);
-    }
-  });
-
-  const fermentationHeaderRow =
-    starts.length >= 3 ? 154 : starts.length === 2 ? 104 : 57;
-  sheet.getRange(fermentationHeaderRow, 2).setValue(
-    starts.length === 1 ? style : style + " " + (starts.length === 2 ? "כפול" : "משולש")
-  );
-  sheet.getRange(fermentationHeaderRow, 4).setValue(newBatch);
-
-  const currentName = file.getName();
-  const replaced = oldBatch
-    ? currentName.replace(new RegExp("#?" + oldBatch + "#?"), newBatch + "#")
-    : currentName;
-  if (replaced !== currentName) file.setName(replaced);
-  SpreadsheetApp.flush();
-  brewingSheetInvalidateHistoryCache_();
-
-  return { spreadsheetId: fileId, batchNumber: newBatch, style: style, name: file.getName() };
 }
 
 function brewingSheetNumber_(value) {

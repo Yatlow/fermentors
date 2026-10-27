@@ -211,7 +211,7 @@
     left: 12px;
     right: 12px;
     bottom: 14px;
-    z-index: 500;
+    z-index: var(--layer-status);
     display: flex;
     align-items: center;
     gap: 9px;
@@ -1168,7 +1168,7 @@
 .modal-overlay {
     position: fixed;
     inset: 0;
-    z-index: 1000;
+    z-index: var(--layer-modal);
     display: flex;
     align-items: flex-end;
     justify-content: center;

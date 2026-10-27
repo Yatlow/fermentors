@@ -129,7 +129,11 @@ export function buildBrewSheetInitialWrites(input: {
       ? input.style
       : input.style + " " + tankLabel(input.tankType);
   const suffixes = ["A", "B", "C"];
-  const writes: Array<{ range: string; value: string | number | boolean | null }> = [
+  const writes: Array<{
+    range: string;
+    value: string | number | boolean | null;
+    semanticField?: "fermentation.style" | "fermentation.batchNumber" | "fermentation.tankNumber";
+  }> = [
     { range: "'גיליון1'!B1", value: input.style },
     { range: "'גיליון1'!D1", value: input.tankNumber },
     { range: "'גיליון1'!F1", value: input.batchNumber },
@@ -149,9 +153,9 @@ export function buildBrewSheetInitialWrites(input: {
   // This keeps creation stable when rows are added/removed from a Master.
 
   writes.push(
-    { range: `'גיליון1'!B${layout.fermentationHeaderRow}`, value: styleLabel },
-    { range: `'גיליון1'!D${layout.fermentationHeaderRow}`, value: input.batchNumber },
-    { range: `'גיליון1'!G${layout.fermentationHeaderRow}`, value: input.tankNumber },
+    { range: `'גיליון1'!B${layout.fermentationHeaderRow}`, value: styleLabel, semanticField: "fermentation.style" },
+    { range: `'גיליון1'!D${layout.fermentationHeaderRow}`, value: input.batchNumber, semanticField: "fermentation.batchNumber" },
+    { range: `'גיליון1'!G${layout.fermentationHeaderRow}`, value: input.tankNumber, semanticField: "fermentation.tankNumber" },
   );
 
   return writes;
@@ -201,7 +205,12 @@ export async function readBrewSheetRange(
 }
 
 type SheetCellValue = string | number | boolean | null;
-type SheetWrite = { range: string; value: SheetCellValue; expectedValue?: SheetCellValue };
+type SheetWrite = {
+  range: string;
+  value: SheetCellValue;
+  expectedValue?: SheetCellValue;
+  semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime";
+};
 
 const sheetBaselines = new Map<string, Map<string, string>>();
 

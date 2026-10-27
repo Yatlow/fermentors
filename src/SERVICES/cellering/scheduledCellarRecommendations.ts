@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import { recordGlobalServerRead } from "../globalReadDiagnostics";
+import { scheduledDateValidationError } from "./scheduledDatePolicy";
 
 export type ScheduledCellarActionType = "carbTest" | "yeastDrop" | "pressureChange" | "bottomCarbonation" | "coolDown" | "other";
 export type PressureChangeDirection = "raise" | "lower";
@@ -294,6 +295,11 @@ export async function createScheduledCellarRecommendation(input: {
   targetPressure?: number;
   source?: "user";
 }): Promise<string> {
+  // Enforce at the shared write boundary, not only in <input type="date">:
+  // iOS date pickers, stale forms and direct callers can bypass HTML min.
+  const dateError = scheduledDateValidationError(input.dueDate, todayDateKey());
+  if (dateError) throw new Error(dateError);
+
   const user = auth.currentUser;
   if (!user?.email) throw new Error("אין משתמש מחובר");
   if (input.actionType === "other" && !input.note?.trim()) {

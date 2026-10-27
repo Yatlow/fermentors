@@ -11,6 +11,7 @@ import {
   type ScheduledCellarRecommendation,
   type ScheduledCellarEvidenceMeasurement,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
+import { scheduledDateValidationError } from "../../SERVICES/cellering/scheduledDatePolicy";
 import "./ScheduledCellarRecommendationsPanel.css";
 
 export type NaturalFutureCellarRecommendation = {
@@ -79,6 +80,7 @@ export default function ScheduledCellarRecommendationsPanel({
   );
 
   const today = todayDateKey();
+  const selectedDateError = scheduledDateValidationError(dueDate, today);
   const hasTodayPressureDecision = existing.some(
     (row) => row.actionType === "pressureChange" && row.dueDate === today
   );
@@ -117,7 +119,13 @@ export default function ScheduledCellarRecommendationsPanel({
   }, [existing, naturalFuture]);
 
   async function add() {
-    if (!dueDate) return;
+    // Recheck the clock at submission time; the form may have stayed open
+    // across midnight, and mobile date widgets don't always enforce min.
+    const dateError = scheduledDateValidationError(dueDate, todayDateKey());
+    if (dateError) {
+      setMessage(dateError);
+      return;
+    }
     if (actionType !== "other" && existing.some((row) => row.actionType === actionType && row.dueDate === dueDate)) {
       setMessage("כבר קיימת החלטת סלרינג מאותו סוג לתאריך הזה");
       return;
@@ -192,7 +200,7 @@ export default function ScheduledCellarRecommendationsPanel({
         tankNumber,
         batchNumber,
         actionType: "pressureChange",
-        dueDate: today,
+        dueDate: todayDateKey(),
         note: decisionText,
         pressureDirection,
         targetPressure: target,
@@ -237,7 +245,14 @@ export default function ScheduledCellarRecommendationsPanel({
     <section className="scheduled-cellar-panel">
       <div className="scheduled-cellar-heading">
         <strong>המלצות עתידיות</strong>
-        <button type="button" disabled={saving} onClick={() => setOpen((value) => !value)}>
+        <button type="button" disabled={saving} onClick={() => {
+          if (!open && scheduledDateValidationError(dueDate, todayDateKey())) {
+            // Do not reopen the picker with yesterday's stale saved selection.
+            setDueDate(todayDateKey());
+          }
+          setMessage("");
+          setOpen((value) => !value);
+        }}>
           {open ? "ביטול" : "+ המלצה"}
         </button>
       </div>
@@ -319,7 +334,21 @@ export default function ScheduledCellarRecommendationsPanel({
             <option value="other">אחר — הוראה חופשית</option>
             <option value="pressureChange">שינוי לחץ</option>
           </select>
-          <input type="date" min={todayDateKey()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+          <input
+            type="date"
+            min={today}
+            value={dueDate}
+            aria-invalid={Boolean(selectedDateError)}
+            onChange={(event) => {
+              setDueDate(event.target.value);
+              setMessage("");
+            }}
+          />
+          {selectedDateError && (
+            <small className="scheduled-cellar-date-error" role="alert">
+              {selectedDateError}
+            </small>
+          )}
           {actionType === "pressureChange" && (
             <>
               <select
@@ -348,7 +377,7 @@ export default function ScheduledCellarRecommendationsPanel({
           )}
           <button
             type="button"
-            disabled={saving || !dueDate || (actionType === "pressureChange" && !targetPressure) || (actionType === "other" && !note.trim())}
+            disabled={saving || Boolean(selectedDateError) || (actionType === "pressureChange" && !targetPressure) || (actionType === "other" && !note.trim())}
             onClick={() => void add()}
           >
             {saving ? "שומר…" : "שמירה"}

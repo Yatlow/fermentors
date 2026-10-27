@@ -174,7 +174,7 @@ export default function CoolerUndoControl() {
                 position: "fixed",
                 left: 14,
                 bottom: "calc(14px + env(safe-area-inset-bottom))",
-                zIndex: 10000,
+                zIndex: "var(--layer-status)",
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "flex-start",
