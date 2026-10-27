@@ -20,6 +20,15 @@ const apiUrl=(import.meta.env.VITE_QUALITY_API_URL ||
   'https://europe-west1-fermenter-dashboard-bada3.cloudfunctions.net/qualityReport') as string
 const maxFile=14*1024*1024, maxTotal=22*1024*1024
 const allowedMedia = new Set(['image/jpeg','image/png','image/webp','image/heic','image/heif','video/mp4','video/quicktime','video/webm'])
+const parseExpiry=(value:string)=>{
+  const match=value.trim().match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/)
+  if(!match)return null
+  const [,d,m,y]=match
+  const day=Number(d),month=Number(m),year=Number(y)
+  const date=new Date(Date.UTC(year,month-1,day))
+  if(date.getUTCFullYear()!==year||date.getUTCMonth()!==month-1||date.getUTCDate()!==day)return null
+  return y+'-'+m.padStart(2,'0')+'-'+d.padStart(2,'0')
+}
 const sizeLabel=(n:number)=>n>1048576?(n/1048576).toFixed(1)+' MB':Math.round(n/1024)+' KB'
 
 function Captcha({ onToken }: { onToken:(value:string)=>void }){
@@ -68,6 +77,7 @@ export default function ReportPage(){
     if(index===1&&!form.packageType) return 'יש לבחור סוג אריזה: חבית או בקבוק.'
     if(index===1&&form.quantity&&(!/^[0-9]{1,6}$/.test(form.quantity)||Number(form.quantity)===0)) return 'יש להזין כמות מספרית חיובית.'
     if(index===1&&!form.description.trim())return 'יש לתאר את התקלה.'
+    if(index===1&&form.expiry.trim()&&!parseExpiry(form.expiry))return 'תאריך התפוגה אינו תקין. יש להזין יום/חודש/שנה, למשל 25/12/2027.'
     return ''
   }
   const goNext=()=>{
@@ -93,7 +103,7 @@ export default function ReportPage(){
     setSending(true);setError('')
     try{
       const body=new FormData()
-      const values={...form,beer:form.beer==='בירה מיוחדת'?form.specialBeer:form.beer}
+      const values={...form,expiry:form.expiry.trim()?parseExpiry(form.expiry)||'':'',beer:form.beer==='בירה מיוחדת'?form.specialBeer:form.beer}
       for(const [k,v] of Object.entries(values)){if(k!=='specialBeer')body.append(k,v)}
       body.append('turnstileToken',captchaToken)
       body.append('submissionId',id.current)
@@ -146,7 +156,7 @@ export default function ReportPage(){
           <label className="q-field"><span>מה קרה? <i>*</i></span><textarea value={form.description} onChange={e=>set('description',e.target.value)} maxLength={2000} rows={5} placeholder="מה קרה, מתי, ובאיזה אופן התקלה באה לידי ביטוי?"/><small>{form.description.length}/2000 תווים</small></label>
           <div className="q-two">
             <label className="q-field"><span>מספר אצווה</span><input type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" value={form.batch} onChange={e=>set('batch',e.target.value.replace(/[^0-9]/g,'').slice(0,20))} maxLength={20} placeholder="למשל 1532"/></label>
-            <label className="q-field q-date-field"><span>תאריך תפוגה</span><input type="date" value={form.expiry} onChange={e=>set('expiry',e.target.value)}/></label>
+            <label className="q-field q-date-field"><span>תאריך תפוגה</span><input type="text" inputMode="numeric" autoComplete="off" value={form.expiry} onChange={e=>set('expiry',e.target.value.replace(/[^0-9./-]/g,'').slice(0,10))} placeholder="DD/MM/YYYY" aria-label="תאריך תפוגה בפורמט יום חודש שנה"/></label>
           </div>
           <div className="q-quantity-section">
             <label className="q-field"><span>כמות בירה תקולה (ביחידות)</span><input type="text" inputMode="numeric" pattern="[0-9]*" value={form.quantity} onChange={e=>set('quantity',e.target.value.replace(/[^0-9]/g,'').slice(0,6))} maxLength={6} placeholder="למשל 3" autoComplete="off"/></label>
