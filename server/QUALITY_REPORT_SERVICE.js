@@ -350,7 +350,7 @@ function qNotifyNewReport_(docName,rowNumber,report,mediaLinks,ticket,eventId,in
   const payload={
     service_id:Q_EMAILJS_SERVICE,template_id:Q_EMAILJS_TEMPLATE,user_id:Q_EMAILJS_PUBLIC,
     accessToken:key,template_params:{
-      toEmail:Q_NOTIFY_TO,email:Q_NOTIFY_TO,resEmail:Q_NOTIFY_TO,
+      toEmail:Q_NOTIFY_TO,email:'מבשלת שפירא | בקרת איכות',resEmail:'brewcrew@shapirobeer.co.il',
       title:(warning?'⚠️ ':'')+'דיווח איכות '+ticketLabel+' | '+String(report.beer||'').slice(0,80),
       message:plain,htmlMessage:html
     }
