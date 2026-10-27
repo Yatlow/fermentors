@@ -50,7 +50,7 @@ function qualityHandleSignedDispatch_(body) {
   // This public Web App performs no action without a valid signed payload.
   // Never log the signature, key or raw contact information.
   try{
-    if(!body || typeof body!=='object' || Object.keys(body).length>6)return {ok:false};
+    if(!body || typeof body!=='object' || Object.keys(body).length>6)return {ok:false,code:'invalid_payload'};
     const id=String(body.id||'');
     const timestamp=Number(body.timestamp);
     const signature=String(body.signature||'');
@@ -75,7 +75,7 @@ function qualityHandleSignedDispatch_(body) {
         ok:true,queued:false,ticket:qValue_(doc.fields.ticket),eventId:qValue_(doc.fields.eventId)
       });
       if(status!=='queued'&&status!=='transfer')return ({ok:true,queued:true});
-      if(status==='transfer'&&!directMedia.length)return ({ok:false,retry:true});
+      if(status==='transfer'&&!directMedia.length)return ({ok:false,retry:true,code:'missing_media'});
       try{
         const result=qProcess_(doc,directMedia);
         return ({ok:true,queued:false,ticket:result.ticket,eventId:result.eventId});
@@ -88,13 +88,13 @@ function qualityHandleSignedDispatch_(body) {
           status:attempts>=Q_MAX_ATTEMPTS?'dead':status,
           attempts,lastError:String(error.message).slice(0,180),processingAt:null
         },null)}catch(requeue){console.error('Quality requeue failed: '+requeue.message)}
-        return ({ok:false,retry:true});
+        return ({ok:false,retry:true,code:'processing_failed'});
       }
     }finally{lock.releaseLock()}
   }catch(error){
     console.error('Quality signed dispatch failed: '+String(error?.message||error).slice(0,190));
     // The Firestore claim remains queued / processing for safe recovery.
-    return ({ok:false,retry:true});
+    return ({ok:false,retry:true,code:'dispatch_failed'});
   }
 }
 
