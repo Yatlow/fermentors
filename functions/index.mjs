@@ -90,7 +90,7 @@ function cleanName(value){
  * Immediate server-to-server Apps Script dispatch. No report content or media
  * travels in this signed request: the authorized worker reads Firestore/Storage.
  */
-async function dispatchNow(submissionId){
+async function dispatchNow(submissionId,files=[]){
   const endpoint=appsScriptEndpoint.value();
   const secret=dispatchSecret.value();
   if(!endpoint || !/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(endpoint) ||
@@ -99,11 +99,13 @@ async function dispatchNow(submissionId){
     return null;
   }
   const timestamp=Date.now();
-  const signature=createHmac('sha256',secret).update(timestamp+'.'+submissionId).digest('hex');
+  const media=files.map(file=>({name:file.name,mimeType:file.mimeType,base64:file.buffer.toString('base64')}));
+  const mediaHash=media.length?createHash('sha256').update(JSON.stringify(media)).digest('hex'):'';
+  const signature=createHmac('sha256',secret).update(timestamp+'.'+submissionId+(mediaHash?'.'+mediaHash:'')).digest('hex');
   try{
     const response=await fetch(endpoint,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'QualitySignedDispatch',id:submissionId,timestamp,signature}),
+      body:JSON.stringify({action:'QualitySignedDispatch',id:submissionId,timestamp,signature,...(media.length?{media}:{} )}),
       signal:AbortSignal.timeout(75000)
     });
     if(!response.ok)throw new Error('Apps Script HTTP '+response.status);
@@ -142,14 +144,15 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     const report=validateReport(fields);
     // Free-tier intake: reject unsupported uploads BEFORE any persistent write.
     // The report remains fully operational for text submissions.
-    if(files.length)throw new Error('צירוף קבצים אינו זמין כרגע. יש לשלוח את הדיווח ללא תמונות או סרטונים.');
+    // Attachments travel only inside the authenticated server-to-server request; never stored in Firebase Storage.
     await checkTurnstile(fields.turnstileToken,req.ip);
     const idRef=database.doc('qualitySubmissions/'+submissionId);
     const payloadHash=createHash('sha256').update(JSON.stringify(report)+'|'+files.map(f=>f.name+':'+createHash('sha256').update(f.buffer).digest('hex')).join('|')).digest('hex');
     const prior=await idRef.get();
     if(prior.exists){
       if(prior.data()?.payloadHash!==payloadHash)throw new Error('מזהה שליחה כבר שימש לדיווח אחר.');
-      const sent=await dispatchNow(submissionId);
+      const sent=await dispatchNow(submissionId,files);
+      if(files.length&&!sent){res.status(502).json({error:'לא התקבל אישור שקבצי המדיה נשמרו. אפשר לנסות שוב עם אותם הקבצים.'});return;}
       res.status(sent?201:202).json({reference:submissionId.slice(0,8).toUpperCase(),queued:!sent,duplicate:true,...(sent||{})});return;
     }
     await chargeLimit(req.ip);
@@ -170,11 +173,12 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
         return;
       }
       tx.create(idRef,{
-        status:'queued',report,media,bucket:'',payloadHash,attempts:0,
+        status:files.length?'transfer':'queued',report,media,bucket:'',payloadHash,attempts:0,
         createdAt:FieldValue.serverTimestamp(),submittedAt:new Date().toISOString()
       });
     });
-    const sent=await dispatchNow(submissionId);
+    const sent=await dispatchNow(submissionId,files);
+    if(files.length&&!sent){res.status(502).json({error:'לא התקבל אישור שהקבצים נשמרו ב־Drive. אפשר לנסות שוב עם אותם הקבצים.'});return;}
     res.status(sent?201:202).json({reference:submissionId.slice(0,8).toUpperCase(),queued:!sent,...(sent||{})});
   }catch(error){
     console.error('Quality intake failed',error?.message);

@@ -137,3 +137,6 @@ body:has(.q-site){background:#f6f0e3}
   .q-privacy,.q-preview-notice{align-items:flex-start}
   .q-privacy svg{flex:0 0 auto}
 }
+
+/* Standalone quality page does not load the dashboard's layer tokens. */
+.q-site{--layer-busy:10000}

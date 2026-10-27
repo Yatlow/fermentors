@@ -64,7 +64,7 @@ test('signature validation uses a timestamp-bound HMAC and no secret in browser'
  assert.match(source,/qConstantTimeEqual_/);
  const backend=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
  assert.match(backend,/createHmac\('sha256',secret\)/);
- assert.match(backend,/dispatchNow\(submissionId\)/);
+ assert.match(backend,/dispatchNow\(submissionId,files\)/);
  assert.match(backend,/QUALITY_WEBHOOK_SECRET/);
  assert.match(backend,/AbortSignal.timeout\(75000\)/);
 });
@@ -128,11 +128,11 @@ test('worker and UI have no active email sending, no mail scope and accurate con
  assert.doesNotMatch(ui,/ונשלחה הודעה לצוות/);
 });
 
-test('text-only quality intake does not require Cloud Storage and rejects uploads before persistence',()=>{
+test('quality intake transfers attachments directly to signed Apps Script without Cloud Storage',()=>{
  const backend=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
  assert.doesNotMatch(backend,/getStorage\(|QUALITY_UPLOAD_BUCKET|bucket\.file\(/);
- const rejection=backend.indexOf('if(files.length)throw new Error(');
- const firstPersist=backend.indexOf('const idRef=database.doc(');
- assert.ok(rejection>0 && firstPersist>rejection);
+ assert.match(backend,/status:files.length\?'transfer':'queued'/);
+ assert.match(backend,/mediaHash/);
+ assert.match(backend,/body:JSON.stringify\(\{action:'QualitySignedDispatch'/);
  assert.match(backend,/const media=\[\]/);
 });

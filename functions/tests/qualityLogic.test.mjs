@@ -123,7 +123,7 @@ test('mail remains disabled during no-email intake while secure queue remains ac
  assert.doesNotMatch(src,/getStorage\(\).bucket/);
  assert.match(src,/const media=\[\]/);
  assert.match(src,/tx.create\(idRef/);
- assert.match(src,/status:'queued'/);
+ assert.match(src,/status:files.length\?'transfer':'queued'/);
  assert.doesNotMatch(src,/google.auth.OAuth2|QUALITY_GOOGLE_REFRESH_TOKEN|export const qualityReportWeekly|export const qualityReportMailRetry/);
 });
 
