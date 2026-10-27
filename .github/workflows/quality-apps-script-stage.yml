@@ -1,3 +1,4 @@
+# Re-stage PR #252 worker with temporary QA recipient; production Web App version remains untouched.
 name: Stage quality module in existing Apps Script (no live deployment)
 on:
   push:
