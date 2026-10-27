@@ -1,0 +1,32 @@
+name: Diagnose quality intake failures (read-only)
+on:
+  push:
+    branches: [feature/public-quality-issue-report]
+    paths: [.github/workflows/quality-intake-diagnose.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect-quality-errors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FERMENTER_DASHBOARD_BADA3 }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: fermenter-dashboard-bada3
+      - name: Read only recent sanitized quality errors
+        shell: bash
+        run: |
+          gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="qualityreport" AND (textPayload:"Quality intake failed" OR jsonPayload.message:"Quality intake failed")' --project fermenter-dashboard-bada3 --freshness=3h --limit=12 --format=json > "$RUNNER_TEMP/quality-errors.json"
+          node -e '
+            const fs=require("node:fs");
+            const a=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/quality-errors.json","utf8"));
+            if(!a.length)console.log("No matching quality intake log entries; check Cloud Logging permission/filter");
+            for(const x of a){
+              let s=String(x.jsonPayload?.message||x.textPayload||"");
+              s=s.replace(/[a-z0-9_.+-]+@[a-z0-9.-]+/gi,"[email]").replace(/https?:\/\/\S+/g,"[url]").slice(0,260);
+              console.log("ERROR "+(x.timestamp||"")+" "+s);
+            }
+          '
