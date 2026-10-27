@@ -77,6 +77,7 @@ export default function ReportPage(){
   const selectFiles=(event:ChangeEvent<HTMLInputElement>)=>{
     const added=Array.from(event.target.files||[])
     event.target.value=''
+    setError('צירוף קבצים אינו זמין כרגע. ניתן לשלוח דיווח טקסט בלבד.');return;
     const next=[...attachments,...added]
     if(next.length>4){setError('אפשר לצרף עד ארבעה קבצים.');return}
     if(next.some(f=>!allowedMedia.has(f.type))){setError('אפשר לצרף תמונות JPEG, PNG, WEBP, HEIC או סרטונים MP4, MOV, WEBM בלבד.');return}
@@ -126,7 +127,7 @@ export default function ReportPage(){
         <div className="q-ticket"><small>{result.ticket?'מספר הפנייה':'אסמכתה זמנית'}</small><b>{result.ticket?'#'+result.ticket:result.reference}</b><span>כדאי לשמור למעקב</span></div>
         <button className="q-primary" type="button" onClick={reset}>דיווח נוסף <ArrowLeft size={20}/></button>
       </section>:<section className="q-card">
-        <div className="q-card-top"><div><div className="q-eyebrow">פרטי הדיווח</div><h2>{['לקוח ומוצר','פרטי התקלה','צירוף מדיה ושליחה'][step]}</h2></div><span className="q-count">0{step+1} / 03</span></div>
+        <div className="q-card-top"><div><div className="q-eyebrow">פרטי הדיווח</div><h2>{['לקוח ומוצר','פרטי התקלה','שליחת דיווח'][step]}</h2></div><span className="q-count">0{step+1} / 03</span></div>
         <div className="q-progress" role="progressbar" aria-valuemin={1} aria-valuemax={3} aria-valuenow={step+1}><div style={{width:((step+1)/3*100)+'%'}}/></div>
         {step===0&&<div className="q-fields">
           <div className="q-section"><span>01</span><div><h3>פרטי הפנייה</h3><p>פרטי העסק, המדווח והמוצר</p></div></div>
@@ -153,7 +154,7 @@ export default function ReportPage(){
         </div>}
         {step===2&&<div className="q-fields">
           <div className="q-section"><span>03</span><div><h3>תמונות או סרטון</h3><p>אפשר לצרף תיעוד שיסייע בבדיקת התקלה (לא חובה)</p></div></div>
-          <label className="q-upload"><UploadCloud size={35}/><b>צרפו תמונה או וידאו</b><span>אפשר גם לצלם ישירות מהטלפון</span><small>עד 4 קבצים · 14MB לקובץ · 22MB סה״כ</small><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm" multiple onChange={selectFiles}/></label>
+          <label className="q-upload"><UploadCloud size={35}/><b>צרפו תמונה או וידאו</b><span>העלאת קבצים תיפתח בהמשך. כרגע ניתן לשלוח דיווח טקסט בלבד.</span><small>בשלב זה לא ניתן לצרף קבצים</small><input disabled type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm" multiple onChange={selectFiles}/></label>
           {attachments.length>0&&<ul className="q-files">{attachments.map((file,i)=><li key={file.name+i}>{file.type.startsWith('video')?<Camera size={19}/>:<FileImage size={19}/>}<div><b>{file.name}</b><small>{sizeLabel(file.size)}</small></div><button type="button" aria-label={'הסר '+file.name} onClick={()=>setAttachments(all=>all.filter((_,j)=>j!==i))}><X size={18}/></button></li>)}</ul>}
           <div className="q-review"><strong><CheckCircle2 size={20}/> סיכום הפנייה</strong><p>{form.customer} · {form.beer==='בירה מיוחדת'?form.specialBeer:form.beer}</p><p>{form.issueType}{form.batch?' · אצווה '+form.batch:''}</p></div>
           <div className="q-privacy"><ShieldCheck size={20}/> המדיה נשמרת בתיקיית אבטחת האיכות ונגישה לבעלי ההרשאה המתאימה. לפרטים: <a href="/report-issue/privacy.html" target="_blank" rel="noopener noreferrer">מדיניות הפרטיות</a>.</div>

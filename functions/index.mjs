@@ -2,7 +2,6 @@ import {onRequest} from 'firebase-functions/v2/https';
 import {defineSecret,defineString} from 'firebase-functions/params';
 import {initializeApp} from 'firebase-admin/app';
 import {getFirestore,FieldValue} from 'firebase-admin/firestore';
-import {getStorage} from 'firebase-admin/storage';
 import Busboy from 'busboy';
 import {createHmac,createHash} from 'node:crypto';
 import {validateReport,knownSku,skuCatalogKey} from './qualityLogic.mjs';
@@ -12,7 +11,6 @@ const database=getFirestore();
 const turnstileSecret=defineSecret('QUALITY_TURNSTILE_SECRET');
 const dispatchSecret=defineSecret('QUALITY_WEBHOOK_SECRET');
 const appsScriptEndpoint=defineString('QUALITY_APPS_SCRIPT_URL',{default:''});
-const uploadBucket=defineString('QUALITY_UPLOAD_BUCKET',{default:'fermenter-dashboard-bada3.firebasestorage.app'});
 const allowedHosts=defineString('QUALITY_ALLOWED_HOSTS',{default:'fermenter-dashboard-bada3.web.app,fermenter-dashboard-bada3.firebaseapp.com'});
 const MAX_MEDIA_COUNT=4;
 const MAX_MEDIA_BYTES=22*1024*1024;
@@ -142,6 +140,9 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     const submissionId=String(fields.submissionId||'');
     if(!/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(submissionId))throw new Error('מזהה שליחה חסר.');
     const report=validateReport(fields);
+    // Free-tier intake: reject unsupported uploads BEFORE any persistent write.
+    // The report remains fully operational for text submissions.
+    if(files.length)throw new Error('צירוף קבצים אינו זמין כרגע. יש לשלוח את הדיווח ללא תמונות או סרטונים.');
     await checkTurnstile(fields.turnstileToken,req.ip);
     const idRef=database.doc('qualitySubmissions/'+submissionId);
     const payloadHash=createHash('sha256').update(JSON.stringify(report)+'|'+files.map(f=>f.name+':'+createHash('sha256').update(f.buffer).digest('hex')).join('|')).digest('hex');
@@ -160,19 +161,8 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
         else report.sku=knownSku(report.beer,report.packageType);
       }catch(e){console.warn('Quality catalog read unavailable',e?.message)}
     }
-    // Uploaded bytes are private; no signed/public download links.
-    // An authorized Apps Script poller moves attachments into the brewery Drive.
-    const bucket=getStorage().bucket(uploadBucket.value());
+    // No Firebase Storage bucket is required for text-only reports.
     const media=[];
-    for(let i=0;i<files.length;i++){
-      const file=files[i];
-      const path='quality-inbox/'+submissionId+'/'+String(i+1).padStart(2,'0')+'-'+cleanName(file.name);
-      await bucket.file(path).save(file.buffer,{
-        resumable:false,validation:'crc32c',contentType:file.mimeType,
-        metadata:{cacheControl:'private,no-store'}
-      });
-      media.push({path,name:file.name,mimeType:file.mimeType});
-    }
     await database.runTransaction(async tx=>{
       const current=await tx.get(idRef);
       if(current.exists){
@@ -180,7 +170,7 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
         return;
       }
       tx.create(idRef,{
-        status:'queued',report,media,bucket:bucket.name,payloadHash,attempts:0,
+        status:'queued',report,media,bucket:'',payloadHash,attempts:0,
         createdAt:FieldValue.serverTimestamp(),submittedAt:new Date().toISOString()
       });
     });
@@ -188,7 +178,7 @@ export const qualityReport=onRequest(API_OPTIONS,async(req,res)=>{
     res.status(sent?201:202).json({reference:submissionId.slice(0,8).toUpperCase(),queued:!sent,...(sent||{})});
   }catch(error){
     console.error('Quality intake failed',error?.message);
-    const safe=error instanceof Error&&/^(יש |סוג |קובץ |הקבצים |אפשר |ערך |מספר |תאריך |שדה |מזהה |יותר מדי |הדיווח |בדיקת)/.test(error.message);
+    const safe=error instanceof Error&&/^(יש |סוג |קובץ |הקבצים |אפשר |ערך |מספר |תאריך |שדה |מזהה |יותר מדי |הדיווח |בדיקת |צירוף)/.test(error.message);
     res.status(safe?400:500).json({error:safe?error.message:'לא ניתן לקלוט את הדיווח כרגע. נסו שוב מאוחר יותר.'});
   }
 });

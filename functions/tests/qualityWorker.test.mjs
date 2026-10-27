@@ -127,3 +127,12 @@ test('worker and UI have no active email sending, no mail scope and accurate con
  assert.match(ui,/לא נשלחת הודעה בדוא״ל/);
  assert.doesNotMatch(ui,/ונשלחה הודעה לצוות/);
 });
+
+test('text-only quality intake does not require Cloud Storage and rejects uploads before persistence',()=>{
+ const backend=readFileSync(new URL('../index.mjs',import.meta.url),'utf8');
+ assert.doesNotMatch(backend,/getStorage\(|QUALITY_UPLOAD_BUCKET|bucket\.file\(/);
+ const rejection=backend.indexOf('if(files.length)throw new Error(');
+ const firstPersist=backend.indexOf('const idRef=database.doc(');
+ assert.ok(rejection>0 && firstPersist>rejection);
+ assert.match(backend,/const media=\[\]/);
+});
