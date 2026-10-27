@@ -1,7 +1,5 @@
-# Stage opt-in EmailJS notification worker in existing Apps Script HEAD; live deployment unchanged.
-# Quality worker staged without email; does not redeploy the live Web App.
-# Re-stage PR #252 worker with temporary QA recipient; production Web App version remains untouched.
-# Re-stage scope-free quality verification before operational authorization test.
+# Stage the quality dispatch diagnostics and EmailJS worker into existing Apps Script HEAD.
+# This does NOT update the active Web App deployment version.
 name: Stage quality module in existing Apps Script (no live deployment)
 on:
   push:
