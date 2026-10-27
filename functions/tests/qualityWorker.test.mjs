@@ -12,7 +12,7 @@ function report(beer='לאגר',batch='1532',customer='נחם',type='הקצפת 
 }
 function row({ticket,event,customer='נחם',beer='לאגר',batch='1532',type='הקצפת יתר',date='25/10/2026'}){
  const r=new Array(30).fill('');
- r[0]=String(ticket);r[2]=customer;r[3]=beer;r[4]=batch;r[7]=date;r[20]=event||'';r[21]=type;
+ r[0]=String(ticket);r[2]=customer;r[3]=beer;r[4]=batch;r[7]=date;r[23]=event||'';r[9]=type;
  return r;
 }
 test('third distinct complaint in same beer and batch is flagged regardless of packaging',()=>{
