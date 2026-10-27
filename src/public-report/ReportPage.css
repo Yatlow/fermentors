@@ -142,3 +142,27 @@ body:has(.q-site){background:#f6f0e3}
 .q-site{--layer-busy:10000}
 
 .q-expiry-combo{display:flex;align-items:stretch;gap:8px;min-width:0}.q-expiry-combo>input{flex:1;min-width:0}.q-expiry-calendar{position:relative;width:52px;min-width:52px;border:1.5px solid #dee7df;background:#fafdF9;border-radius:13px;display:grid;place-items:center;color:#008a74;cursor:pointer;overflow:hidden}.q-expiry-calendar input[type=date]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}.q-expiry-calendar:focus-within{outline:2px solid #008a74;outline-offset:2px}
+
+/* Hebrew date control: direct numeric input and calendar in the same field. */
+.q-date-field{min-width:0;max-width:100%}
+.q-expiry-control{position:relative;min-width:0;width:100%;font-weight:500}
+.q-expiry-input{display:flex;align-items:center;min-width:0;width:100%;background:#fffcf5;border:1.5px solid #dfd2bf;border-radius:13px;overflow:hidden;transition:border-color .2s,box-shadow .2s}
+.q-expiry-input:focus-within{border-color:#ae563e;box-shadow:0 0 0 4px #ae563e16}
+.q-field .q-expiry-input>input{direction:ltr;text-align:left;font-family:Arial,sans-serif;letter-spacing:.4px;background:transparent;min-width:0;min-height:48px;flex:1;border:0;box-shadow:none!important;padding:12px 13px}
+.q-expiry-trigger{display:grid;place-items:center;align-self:stretch;flex:0 0 49px;border:0;border-right:1px solid #eadcca;background:#f8efdf;color:#a94431;cursor:pointer}
+.q-expiry-trigger:hover{background:#f3e3cc}
+.q-expiry-trigger:focus-visible{outline:2px solid #a94431;outline-offset:-4px}
+.q-expiry-popover{position:absolute;top:calc(100% + 7px);right:0;width:310px;max-width:calc(100vw - 45px);padding:13px;background:#fffdfa;border:1px solid #e5d5c0;border-radius:16px;box-shadow:0 14px 34px #40352d30;z-index:45;font:600 15px Assistant,Arial,sans-serif;color:#423126}
+.q-expiry-header{display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:12px}
+.q-expiry-header>button{border:0;background:#f7ecdf;color:#865139;width:30px;height:34px;display:grid;place-items:center;border-radius:8px;cursor:pointer}
+.q-expiry-header>select{width:auto;max-width:110px;padding:5px 7px;min-height:34px;font:700 14px Assistant,Arial,sans-serif;color:#533c2b;border:1px solid #e5d5c0;border-radius:8px;background:white;cursor:pointer}
+.q-expiry-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;align-items:stretch}
+.q-expiry-weekday{display:grid;place-items:center;color:#897762;font-size:12px;min-height:30px}
+.q-expiry-grid button{min-height:36px;display:grid;place-items:center;background:transparent;color:#423126;border:0;border-radius:8px;font:700 14px Assistant,Arial,sans-serif;cursor:pointer}
+.q-expiry-grid button:hover,.q-expiry-grid button:focus-visible{background:#f8ebd4;outline:1px solid #be9272}
+.q-expiry-grid button.q-expiry-selected{background:#9f4530;color:white}
+.q-expiry-grid button.q-expiry-today:not(.q-expiry-selected){border:1px solid #ac563e}
+.q-expiry-footer{display:flex;justify-content:space-between;border-top:1px solid #eee1d2;margin-top:10px;padding-top:10px}
+.q-expiry-footer button{border:0;background:transparent;color:#944831;padding:6px 10px;font:700 13px Assistant,Arial,sans-serif;cursor:pointer}
+.q-expiry-footer button:hover{text-decoration:underline}
+@media(max-width:430px){.q-expiry-popover{max-width:calc(100vw - 62px)}}
