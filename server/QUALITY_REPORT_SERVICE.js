@@ -239,7 +239,7 @@ function qIdentifyEvent_(rows,report) {
     }
   }
   const maxEvent=rows.reduce((max,row)=>{
-    const m=String(row[23]||'').match(/^INC-(\\d+)$/);
+    const m=String(row[23]||'').match(/^INC-(\d+)$/);
     return Math.max(max,m?Number(m[1]):0);
   },0);
   return 'INC-'+String(maxEvent+1).padStart(4,'0');
