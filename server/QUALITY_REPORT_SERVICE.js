@@ -273,6 +273,75 @@ function qMedia_(jobId,data) {
   });
   return links;
 }
+
+const Q_EMAILJS_SERVICE='service_bxs22rp';
+const Q_EMAILJS_TEMPLATE='template_3suohm9';
+const Q_EMAILJS_PUBLIC='xcE_CHJqkvlh2b_S3';
+const Q_NOTIFY_TO='yisrael@atlow.co.il';
+function qEscapeHtml_(value) {
+  return String(value===null||value===undefined?'':value)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+/**
+ * Best-effort, never backfills old reports. Script Properties are private to the
+ * existing script editors, not the browser. Mark "sending" before calling EmailJS
+ * so a timeout cannot silently trigger a duplicate send on the next invocation.
+ * An ambiguous send requires manual reconciliation against EmailJS History.
+ */
+function qNotifyNewReport_(docName,rowNumber,report,mediaLinks,ticket,eventId,incidents) {
+  const sheet=SpreadsheetApp.openById(Q_SHEET_ID).getSheetByName(Q_SHEET_NAME);
+  const statusCell=sheet.getRange(rowNumber,29);
+  const props=PropertiesService.getScriptProperties();
+  const enabled=props.getProperty('QUALITY_EMAILJS_ENABLED')==='true';
+  const key=props.getProperty('QUALITY_EMAILJS_PRIVATE_KEY');
+  if(!enabled||!key){
+    statusCell.setValue('מייל מושבת'+(incidents>=3?' · 3+ פניות ('+incidents+')':''));
+    return;
+  }
+  const present=String(statusCell.getDisplayValue()||'');
+  if(/^מייל (נשלח|בשליחה|כשל|דורש בדיקה)/.test(present))return;
+  statusCell.setValue('מייל בשליחה');
+  SpreadsheetApp.flush();
+  const html='<div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.7">'+
+    '<h2>פניית בקרת איכות #'+qEscapeHtml_(ticket)+'</h2>'+
+    '<p><b>אירוע:</b> '+qEscapeHtml_(eventId)+'</p>'+
+    (incidents>=3?'<p style="color:#b91c1c;font-weight:bold">התראה: '+incidents+' פניות מאותו מק״ט ואצווה</p>':'')+
+    '<p><b>לקוח:</b> '+qEscapeHtml_(report.customer)+'</p>'+
+    '<p><b>מדווח:</b> '+qEscapeHtml_(report.reporter)+'</p>'+
+    '<p><b>טלפון:</b> '+qEscapeHtml_(report.phone||'—')+'</p>'+
+    '<p><b>בירה:</b> '+qEscapeHtml_(report.beer)+'</p>'+
+    '<p><b>אריזה:</b> '+qEscapeHtml_(report.packageType)+'</p>'+
+    '<p><b>מק״ט:</b> '+qEscapeHtml_(report.sku||'—')+'</p>'+
+    '<p><b>אצווה:</b> '+qEscapeHtml_(report.batch||'—')+'</p>'+
+    '<p><b>סוג תקלה:</b> '+qEscapeHtml_(report.type)+'</p>'+
+    '<p><b>תיאור:</b> '+qEscapeHtml_(report.description).replace(/\n/g,'<br>')+'</p>'+
+    (mediaLinks.length?'<p><b>קבצים:</b></p><ul>'+mediaLinks.map((url,i)=>
+      '<li><a href="'+qEscapeHtml_(url)+'">מדיה '+(i+1)+'</a></li>').join('')+'</ul>':'')+
+    '</div>';
+  const payload={
+    service_id:Q_EMAILJS_SERVICE,template_id:Q_EMAILJS_TEMPLATE,user_id:Q_EMAILJS_PUBLIC,
+    accessToken:key,template_params:{
+      toEmail:Q_NOTIFY_TO,email:Q_NOTIFY_TO,resEmail:Q_NOTIFY_TO,
+      title:'דיווח איכות #'+ticket+' | '+String(report.beer||'').slice(0,80),
+      message:html
+    }
+  };
+  try{
+    const response=UrlFetchApp.fetch('https://api.emailjs.com/api/v1.0/email/send',{
+      method:'post',contentType:'application/json',payload:JSON.stringify(payload),muteHttpExceptions:true
+    });
+    if(response.getResponseCode()!==200)throw new Error('EmailJS HTTP '+response.getResponseCode());
+    statusCell.setValue('מייל נשלח'+(incidents>=3?' · 3+ פניות ('+incidents+')':''));
+    qPatch_(docName,{notificationStatus:'sent',notifiedAt:new Date().toISOString()},null);
+    console.log('Quality email delivered for ticket #'+ticket);
+  }catch(e){
+    // Delivery may have happened before a timeout. Never automatically replay.
+    statusCell.setValue('מייל דורש בדיקה');
+    try{qPatch_(docName,{notificationStatus:'uncertain'},null)}catch(ignored){}
+    console.error('Quality EmailJS status uncertain for ticket #'+ticket+': '+String(e.message).slice(0,100));
+  }
+}
 function qProcess_(doc,inlineMedia) {
   const id=doc.name.split('/').pop();
   // Optimistic claim guarantees only one processor can enter a document.
@@ -283,12 +352,13 @@ function qProcess_(doc,inlineMedia) {
   if(!report||!report.customer||!report.beer)throw new Error('Malformed queued report');
   const state=qReadSheet_();
   let row=qFindExisting_(state.rows,id);
-  let eventId,number,incidents,links=[];
+  let eventId,number,incidents,links=[],createdNew=false;
   if(row){
     eventId=String(row[23]);number=String(row[0]);
     incidents=qBatchIncidents_(state.rows.filter(x=>x!==row),report,eventId);
     links=String(row[25]||'').split('\n').filter(Boolean);
   }else{
+    createdNew=true;
     // Google Drive is idempotent by stable folder + filename.
     links=qMedia_(id,data);
     number=String(state.rows.reduce((mx,r)=>Math.max(mx,Number(r[0])||0),0)+1);
@@ -314,6 +384,10 @@ function qProcess_(doc,inlineMedia) {
   qPatch_(doc.name,{status:'completed',processingAt:null,completedAt:new Date().toISOString(),
     ticket:number,eventId,batchIncidentCount:incidents,notificationStatus:'disabled',
     report:null,media:null,lastError:null},null);
+  if(createdNew){
+    try{qNotifyNewReport_(doc.name,Math.max(6,state.last+1),report,links,number,eventId,incidents)}
+    catch(error){console.error('Quality notification failed after completed report: '+String(error.message).slice(0,120))}
+  }
   console.log('Completed quality report '+id+' / ticket #'+number);
   return {ticket:number,eventId};
 }
