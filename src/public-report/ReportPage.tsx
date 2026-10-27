@@ -1,0 +1,186 @@
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { ArrowLeft, ArrowRight, Beer, CheckCircle2, Camera, FileImage, BottleWine, Bubbles, Send, ShieldCheck, UploadCloud, X } from 'lucide-react'
+import './ReportPage.css'
+import ExpiryDatePicker from './ExpiryDatePicker'
+import BeerLoader from '../components/general/Loading'
+import shapiroLogo from '../assets/shpiro.jpeg'
+
+const styles = ['IPA', 'פייל אייל', 'לאגר', 'הופי לאגר', 'חיטה', 'סטאוט', 'בירה מיוחדת']
+const issues = [{label:'הקצפת יתר',icon:<Bubbles size={24} aria-hidden="true"/>}, {label:'טעם חריג',icon:'👅'}, {label:'ריח חריג',icon:'👃'}, {label:'בעיה באריזה',icon:'📦'}, {label:'משקעים / עכירות',icon:'🔍'}, {label:'אחר',icon:'⋯'}]
+const packages = ['חבית','בקבוק'] as const
+type FormFields = { customer:string; reporter:string; phone:string; beer:string; specialBeer:string; issueType:string; description:string; batch:string; expiry:string; quantity:string; packageType:string }
+const emptyForm:FormFields = {customer:'',reporter:'',phone:'',beer:'',specialBeer:'',issueType:'',description:'',batch:'',expiry:'',quantity:'',packageType:''}
+type Turnstile={render:(node:HTMLElement,config:Record<string,unknown>)=>string;reset:(id?:string)=>void;remove:(id:string)=>void}
+declare global { interface Window { turnstile?:Turnstile } }
+const siteKey=(import.meta.env.VITE_QUALITY_TURNSTILE_SITE_KEY || '') as string
+// PR previews are visual-only until the backend is deployed and an end-to-end
+// smoke test is explicitly enabled. Production remains independent of this flag.
+const previewSubmissionBlocked=import.meta.env.VITE_DEPLOY_ENV === 'preview' &&
+  import.meta.env.VITE_QUALITY_PREVIEW_SUBMISSIONS_ENABLED !== 'true'
+const apiUrl=(import.meta.env.VITE_QUALITY_API_URL ||
+  'https://europe-west1-fermenter-dashboard-bada3.cloudfunctions.net/qualityReport') as string
+const maxFile=14*1024*1024, maxTotal=22*1024*1024
+const allowedMedia = new Set(['image/jpeg','image/png','image/webp','image/heic','image/heif','video/mp4','video/quicktime','video/webm'])
+const parseExpiry=(value:string)=>{
+  const match=value.trim().match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/)
+  if(!match)return null
+  const [,d,m,y]=match
+  const day=Number(d),month=Number(m),year=Number(y)
+  const date=new Date(Date.UTC(year,month-1,day))
+  if(date.getUTCFullYear()!==year||date.getUTCMonth()!==month-1||date.getUTCDate()!==day)return null
+  return y+'-'+m.padStart(2,'0')+'-'+d.padStart(2,'0')
+}
+const sizeLabel=(n:number)=>n>1048576?(n/1048576).toFixed(1)+' MB':Math.round(n/1024)+' KB'
+
+function Captcha({ onToken }: { onToken:(value:string)=>void }){
+  const element=useRef<HTMLDivElement>(null)
+  useEffect(()=>{
+    if(!siteKey)return
+    let widget:string|undefined
+    let cancelled=false
+    let script:HTMLScriptElement|null=null
+    const show=()=>{
+      if(cancelled||!element.current||!window.turnstile)return
+      widget=window.turnstile.render(element.current,{sitekey:siteKey,language:'he',action:'quality-report',theme:'light',
+        callback:(value:unknown)=>onToken(String(value)),
+        'expired-callback':()=>onToken(''),
+        'error-callback':()=>onToken('')})
+    }
+    if(window.turnstile) show()
+    else {
+      script=document.querySelector<HTMLScriptElement>('script[data-quality-turnstile]')
+      if(!script){script=document.createElement('script');script.dataset.qualityTurnstile='yes';script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';script.async=true;document.head.appendChild(script)}
+      script.addEventListener('load',show)
+    }
+    return()=>{cancelled=true;script?.removeEventListener('load',show);if(widget)window.turnstile?.remove(widget)}
+  },[onToken])
+  return siteKey?<div className="q-turnstile" ref={element}/>:<p className="q-error">אימות האבטחה טרם הוגדר, ולכן שליחת הדיווח אינה זמינה.</p>
+}
+
+export default function ReportPage(){
+  const [form,setForm]=useState<FormFields>(emptyForm)
+  const [step,setStep]=useState(0)
+  const [attachments,setAttachments]=useState<File[]>([])
+  const [captchaToken,setCaptchaToken]=useState('')
+  const [error,setError]=useState('')
+  const [sending,setSending]=useState(false)
+  const [result,setResult]=useState<{reference:string;ticket?:string;queued:boolean}|null>(null)
+  const id=useRef(crypto.randomUUID())
+  const onCaptcha=useCallback((token:string)=>setCaptchaToken(token),[])
+  const set=(key:keyof FormFields,value:string)=>{setForm(f=>({...f,[key]:value}));setError('')}
+  useEffect(()=>{document.title='דיווח תקלה | שפירא - Shapiro'},[])
+  const validate=(index:number)=>{
+    if(index===0){
+      if(!form.customer.trim()||!form.reporter.trim()||!form.beer||(form.beer==='בירה מיוחדת'&&!form.specialBeer.trim())) return 'צריך למלא את שם הלקוח, שם המדווח והבירה.'
+      if(form.phone.trim()&&!/^[+0-9()\s-]{6,30}$/.test(form.phone.trim())) return 'מספר הטלפון אינו תקין.'
+    }
+    if(index===1&&!form.issueType) return 'יש לבחור את סוג התקלה.'
+    if(index===1&&!form.packageType) return 'יש לבחור סוג אריזה: חבית או בקבוק.'
+    if(index===1&&form.quantity&&(!/^[0-9]{1,6}$/.test(form.quantity)||Number(form.quantity)===0)) return 'יש להזין כמות מספרית חיובית.'
+    if(index===1&&!form.description.trim())return 'יש לתאר את התקלה.'
+    if(index===1&&form.expiry.trim()&&!parseExpiry(form.expiry))return 'תאריך התפוגה אינו תקין. יש להזין יום/חודש/שנה, למשל 25/12/2027.'
+    return ''
+  }
+  const goNext=()=>{
+    const issue=validate(step)
+    if(issue){setError(issue);return}
+    setStep(Math.min(2,step+1));setError('');window.scrollTo({top:0,behavior:'smooth'})
+  }
+  const selectFiles=(event:ChangeEvent<HTMLInputElement>)=>{
+    const added=Array.from(event.target.files||[])
+    event.target.value=''
+    const next=[...attachments,...added]
+    if(next.length>4){setError('אפשר לצרף עד ארבעה קבצים.');return}
+    if(next.some(f=>!allowedMedia.has(f.type))){setError('אפשר לצרף תמונות JPEG, PNG, WEBP, HEIC או סרטונים MP4, MOV, WEBM בלבד.');return}
+    if(next.some(f=>f.size>maxFile)||next.reduce((sum,f)=>sum+f.size,0)>maxTotal){setError('עד 14MB לקובץ ו־22MB לכל הדיווח.');return}
+    setAttachments(next);setError('')
+  }
+  const submit=async()=>{
+    const invalid=validate(0)||validate(1)
+    if(invalid){setError(invalid);return}
+    if(previewSubmissionBlocked){setError('זו סביבת תצוגה בלבד. שליחת דיווחים תתאפשר לאחר הפעלת התור ובדיקת החיבור.');return}
+    if(!siteKey||!captchaToken){setError('יש להשלים את בדיקת האבטחה.');return}
+    if(sending)return
+    setSending(true);setError('')
+    try{
+      const body=new FormData()
+      const values={...form,expiry:form.expiry.trim()?parseExpiry(form.expiry)||'':'',beer:form.beer==='בירה מיוחדת'?form.specialBeer:form.beer}
+      for(const [k,v] of Object.entries(values)){if(k!=='specialBeer')body.append(k,v)}
+      body.append('turnstileToken',captchaToken)
+      body.append('submissionId',id.current)
+      attachments.forEach(file=>body.append('files',file,file.name))
+      const response=await fetch(apiUrl,{method:'POST',body,credentials:'omit'})
+      const data=await response.json().catch(()=>({}))
+      if(!response.ok)throw new Error(data.error||'לא הצלחנו לשלוח כרגע. אפשר לנסות שוב.')
+      setResult({reference:String(data.reference||''),ticket:data.ticket?String(data.ticket):undefined,queued:Boolean(data.queued)})
+    }catch(cause){
+      setError(cause instanceof TypeError
+        ? 'אין כרגע חיבור לשרת הדיווחים. לא התקבל אישור שהפנייה נשמרה; בדיקת האבטחה לבדה אינה שולחת את הדיווח.'
+        : cause instanceof Error ? cause.message : 'אירעה תקלה בשליחה.')
+      setCaptchaToken('');window.turnstile?.reset()
+    }finally{setSending(false)}
+  }
+  const reset=()=>{id.current=crypto.randomUUID();setForm(emptyForm);setStep(0);setAttachments([]);setError('');setCaptchaToken('');setResult(null)}
+  return <div className="q-site" dir="rtl">
+    {sending&&<BeerLoader overlay size="large" message="הדיווח נשלח ונשמר במערכת…"/>}
+    <div className="q-glow q-glow-a"/><div className="q-glow q-glow-b"/>
+    <header className="q-top"><div className="q-top-inner"><div className="q-logo"><span className="q-logo-image"><img src={shapiroLogo} alt="לוגו מבשלת שפירא"/></span><div className="q-brand-title">מבשלת שפירא <span aria-hidden="true">—</span> <strong>מחלקת בקרת איכות</strong></div></div></div></header>
+    <main className="q-wrap">
+      <section className="q-hero">
+        <h1>דיווח על תקלה בבירה</h1>
+        <p>נתקלתם בתקלה באחד ממוצרי שפירא? מלאו את פרטי המקרה כדי שנוכל לבדוק ולטפל בו.</p>
+        <div className="q-mini"><span/> הדיווח מועבר לצוות בקרת האיכות · ללא התחברות</div>
+      </section>
+      {result?<section className="q-card q-done" aria-live="polite">
+        <div className="q-done-icon"><CheckCircle2 size={45}/></div>
+        <div className="q-pill">הדיווח התקבל</div>
+        <h2>{result.queued?'תודה, הדיווח התקבל לעיבוד':'תודה, הדיווח נרשם בהצלחה'}</h2>
+        <p>{result.queued?'הדיווח נקלט בתור המאובטח, אך העיבוד עוד לא הושלם. נמשיך לטפל בו מתוך התור.' :'הדיווח נרשם בגיליון בקרת האיכות.'}</p>
+        <div className="q-ticket"><small>{result.ticket?'מספר הפנייה':'אסמכתה זמנית'}</small><b>{result.ticket?'#'+result.ticket:result.reference}</b><span>כדאי לשמור למעקב</span></div>
+        <button className="q-primary" type="button" onClick={reset}>דיווח נוסף <ArrowLeft size={20}/></button>
+      </section>:<section className="q-card">
+        <div className="q-card-top"><div><div className="q-eyebrow">פרטי הדיווח</div><h2>{['לקוח ומוצר','פרטי התקלה','שליחת דיווח'][step]}</h2></div><span className="q-count">0{step+1} / 03</span></div>
+        <div className="q-progress" role="progressbar" aria-valuemin={1} aria-valuemax={3} aria-valuenow={step+1}><div style={{width:((step+1)/3*100)+'%'}}/></div>
+        {step===0&&<div className="q-fields">
+          <div className="q-section"><span>01</span><div><h3>פרטי הפנייה</h3><p>פרטי העסק, המדווח והמוצר</p></div></div>
+          <label className="q-field"><span>שם הלקוח / העסק <i>*</i></span><input required value={form.customer} onChange={e=>set('customer',e.target.value)} maxLength={120} autoComplete="organization" placeholder="למשל בירה שפירא, נחם"/></label>
+          <div className="q-two">
+            <label className="q-field"><span>מי מדווח? <i>*</i></span><input value={form.reporter} onChange={e=>set('reporter',e.target.value)} maxLength={120} placeholder="השם שלך" autoComplete="name"/></label>
+            <label className="q-field"><span>טלפון <em>לא חובה</em></span><input value={form.phone} onChange={e=>set('phone',e.target.value)} maxLength={30} placeholder="שנוכל לחזור אליכם" inputMode="tel" autoComplete="tel"/></label>
+          </div>
+          <div className="q-field"><span>באיזו בירה מדובר? <i>*</i></span><div className="q-beers">{styles.map(beer=><button key={beer} type="button" aria-pressed={form.beer===beer} className={'q-option '+(form.beer===beer?'selected':'')} onClick={()=>set('beer',beer)}><Beer size={19}/>{beer}</button>)}</div></div>
+          {form.beer==='בירה מיוחדת'&&<label className="q-field"><span>שם הבירה המיוחדת <i>*</i></span><input value={form.specialBeer} onChange={e=>set('specialBeer',e.target.value)} placeholder="מה שם הבירה?" maxLength={80}/></label>}
+        </div>}
+        {step===1&&<div className="q-fields">
+          <div className="q-section"><span>02</span><div><h3>מה התקלה?</h3><p>המידע יסייע לצוות להבין את המקרה</p></div></div>
+          <div className="q-field"><span>סוג התקלה <i>*</i></span><div className="q-problems">{issues.map(x=><button key={x.label} type="button" aria-pressed={form.issueType===x.label} className={'q-problem '+(form.issueType===x.label?'selected':'')} onClick={()=>set('issueType',x.label)}><b>{x.icon}</b>{x.label}</button>)}</div></div>
+          <label className="q-field"><span>מה קרה? <i>*</i></span><textarea value={form.description} onChange={e=>set('description',e.target.value)} maxLength={2000} rows={5} placeholder="מה קרה, מתי, ובאיזה אופן התקלה באה לידי ביטוי?"/><small>{form.description.length}/2000 תווים</small></label>
+          <div className="q-two">
+            <label className="q-field"><span>מספר אצווה</span><input type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" value={form.batch} onChange={e=>set('batch',e.target.value.replace(/[^0-9]/g,'').slice(0,20))} maxLength={20} placeholder="למשל 1532"/></label>
+            <div className="q-field q-date-field"><label htmlFor="q-expiry">תאריך תפוגה</label><ExpiryDatePicker value={form.expiry} onChange={value=>set('expiry',value)}/></div>
+          </div>
+          <div className="q-quantity-section">
+            <label className="q-field"><span>כמות בירה תקולה (ביחידות)</span><input type="text" inputMode="numeric" pattern="[0-9]*" value={form.quantity} onChange={e=>set('quantity',e.target.value.replace(/[^0-9]/g,'').slice(0,6))} maxLength={6} placeholder="למשל 3" autoComplete="off"/></label>
+            <div className="q-field"><span>סוג האריזה <i>*</i></span><div className="q-packages" role="group" aria-label="סוג האריזה">{packages.map(p=><button type="button" key={p} className={'q-package '+(form.packageType===p?'selected':'')} aria-pressed={form.packageType===p} onClick={()=>set('packageType',p)}>{p==='חבית'?<Beer size={21}/>:<BottleWine size={21}/>}<span>{p}</span></button>)}</div></div>
+          </div>
+        </div>}
+        {step===2&&<div className="q-fields">
+          <div className="q-section"><span>03</span><div><h3>תמונות או סרטון</h3><p>אפשר לצרף תיעוד שיסייע בבדיקת התקלה (לא חובה)</p></div></div>
+          <label className="q-upload"><UploadCloud size={35}/><b>צרפו תמונה או וידאו</b><span>אפשר גם לצלם ישירות מהטלפון</span><small>עד 4 קבצים · 14MB לקובץ · 22MB סה״כ</small><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm" multiple onChange={selectFiles}/></label>
+          {attachments.length>0&&<ul className="q-files">{attachments.map((file,i)=><li key={file.name+i}>{file.type.startsWith('video')?<Camera size={19}/>:<FileImage size={19}/>}<div><b>{file.name}</b><small>{sizeLabel(file.size)}</small></div><button type="button" aria-label={'הסר '+file.name} onClick={()=>setAttachments(all=>all.filter((_,j)=>j!==i))}><X size={18}/></button></li>)}</ul>}
+          <div className="q-review"><strong><CheckCircle2 size={20}/> סיכום הפנייה</strong><p>{form.customer} · {form.beer==='בירה מיוחדת'?form.specialBeer:form.beer}</p><p>{form.issueType}{form.batch?' · אצווה '+form.batch:''}</p></div>
+
+          {previewSubmissionBlocked&&<div className="q-preview-notice" role="status"><ShieldCheck size={18}/> סביבת תצוגה בלבד: השליחה כבויה עד להפעלת התור ולבדיקת החיבור.</div>}
+          {!previewSubmissionBlocked&&<Captcha onToken={onCaptcha}/>}
+
+        </div>}
+        {error&&<div className="q-error" role="alert">{error}</div>}
+        <div className="q-actions">
+          {step>0&&<button className="q-back" type="button" disabled={sending} onClick={()=>{setStep(step-1);setError('')}}><ArrowRight size={20}/> חזרה</button>}
+          <button className="q-primary" type="button" disabled={sending||(step===2&&(!siteKey||previewSubmissionBlocked||!captchaToken))} onClick={step===2?()=>{void submit()}:goNext}>{sending?'שולחים...':step===2?'שליחת דיווח':'ממשיכים'}{step===2?<Send size={19}/>:<ArrowLeft size={19}/>}</button>
+        </div>
+      </section>}
+      <footer className="q-footer">מבשלת שפירא · מחלקת בקרת איכות <span aria-hidden="true">·</span> <a href="/report-issue/privacy.html">מדיניות פרטיות</a> <span aria-hidden="true">·</span> <a href="/report-issue/terms.html">תנאי שימוש</a></footer>
+    </main>
+  </div>
+}

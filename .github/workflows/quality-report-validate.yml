@@ -1,0 +1,27 @@
+name: Validate public quality report
+on:
+  pull_request:
+    paths:
+      - 'functions/**'
+      - 'server/QUALITY_REPORT_SERVICE.js'
+      - 'server/post.js'
+      - 'server/appsscript.json'
+      - 'src/public-report/**'
+      - 'src/main.tsx'
+      - 'firebase.json'
+      - '.github/workflows/quality-report-validate.yml'
+  workflow_dispatch:
+jobs:
+  validate-quality-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: node --check functions/index.mjs && node --check functions/qualityLogic.mjs && node --check server/QUALITY_REPORT_SERVICE.js
+      - run: node --test functions/tests/*.test.mjs
+      - name: Install and load backend dependencies
+        run: npm install --prefix functions --no-audit --no-fund --ignore-scripts && node --input-type=module -e "await import('./functions/index.mjs')"
+      - run: npm ci && npm run lint && npm run build

@@ -29,6 +29,7 @@ jobs:
         env:
           VITE_APP_VERSION: ${{ github.sha }}
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
+          VITE_QUALITY_TURNSTILE_SITE_KEY: ${{ vars.VITE_QUALITY_TURNSTILE_SITE_KEY }}
 
       # Keep rules and frontend deployment ordered. This matters for features
       # such as sheetSyncJobs: the new client must never go live before the rules

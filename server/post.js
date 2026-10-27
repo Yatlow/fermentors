@@ -353,6 +353,12 @@ function doPost(e) {
 
     const data = JSON.parse(e.postData.contents);
 
+    // A single signed action from Firebase Quality intake. Do not bypass the
+    // Firebase ID-token check below for any other action.
+    if (data.action === "QualitySignedDispatch") {
+      return jsonResponse(qualityHandleSignedDispatch_(data));
+    }
+
     const authStartedAt = Date.now();
     const authenticatedUser = authenticateFirebaseRequest_(data.idToken);
     const authMs = Date.now() - authStartedAt;

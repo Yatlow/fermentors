@@ -1,0 +1,18 @@
+{
+  "name": "fermentors-quality-reports",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "22"
+  },
+  "main": "index.mjs",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check index.mjs && node --check qualityLogic.mjs && npm test"
+  },
+  "dependencies": {
+    "busboy": "^1.6.0",
+    "firebase-admin": "^13.4.0",
+    "firebase-functions": "^6.4.0"
+  }
+}

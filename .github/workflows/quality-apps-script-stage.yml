@@ -1,0 +1,46 @@
+# Stage the updated quality worker with correct brewery sender and reply-to identity.
+# This does NOT update the active Web App deployment version.
+name: Stage quality module in existing Apps Script (no live deployment)
+on:
+  push:
+    branches: [feature/public-quality-issue-report]
+    paths: [.github/workflows/quality-apps-script-stage.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: apps-script-production
+  cancel-in-progress: false
+jobs:
+  stage-existing-script:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[quality-script-stage]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Build shared shipment picker (match existing deployment)
+        run: |
+          npm ci
+          npx --yes esbuild src/SERVICES/planning/shipmentDecisionPicking.ts --bundle --platform=neutral --format=iife --global-name=SharedShipmentPicking --target=es2020 --outfile=server/sharedShipmentPicking.generated.js
+      - name: Install clasp
+        run: npm install --global @google/clasp
+      - name: Restore authorized clasp credentials
+        working-directory: server
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          test -n "$CLASPRC_JSON" || { echo "::error::CLASPRC_JSON not set"; exit 1; }
+          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
+      - name: Validate existing Apps Script project
+        run: |
+          for file in server/*.js; do node --check "$file"; done
+          node .github/scripts/validate-apps-script-runtime.mjs
+          node --test functions/tests/*.test.mjs
+      - name: Stage source code to existing script without updating live Web App
+        working-directory: server
+        run: |
+          clasp push --force
+          echo "::notice::Only project HEAD has been updated. The existing production Web App deployment version is unchanged."

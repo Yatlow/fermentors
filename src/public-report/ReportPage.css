@@ -1,0 +1,168 @@
+@import url('https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700;800;900&family=Rubik:wght@400;500;600;700;800;900&display=swap');
+:root{color-scheme:light}
+body:has(.q-site){margin:0;background:#f8f7ec}
+.q-site,.q-site *{box-sizing:border-box}
+.q-site{--ink:#153440;--teal:#008a74;--muted:#677e7a;min-height:100vh;background:linear-gradient(155deg,#fcf7e9,#f5faf3 53%,#e4f3e9);color:var(--ink);font-family:Assistant,Arial,sans-serif;position:relative;overflow:hidden}
+.q-glow{position:absolute;border-radius:100%;filter:blur(15px);pointer-events:none}.q-glow-a{top:5%;left:-210px;height:440px;width:440px;background:#f9db7960}.q-glow-b{top:38%;right:-270px;height:600px;width:600px;background:#9fe3ca65}
+.q-top{background:#102f3a;color:white;position:relative;z-index:1}.q-top-inner{max-width:860px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:17px 25px}
+.q-logo{direction:ltr;display:flex;align-items:center;gap:12px;font:900 21px Rubik,Arial;letter-spacing:2px}.q-logo small{display:block;font:800 10px Rubik,Arial;color:#b7d8d4;letter-spacing:2.5px;margin-top:4px}
+.q-logo-icon{height:44px;width:44px;display:grid;place-items:center;color:#17323d;background:#ffd15a;border-radius:14px;transform:rotate(-7deg)}
+.q-safe{display:flex;align-items:center;gap:6px;font-size:13px;color:#d7ede5;font-weight:800}
+.q-wrap{max-width:780px;margin:auto;padding:0 18px 35px;position:relative;z-index:1}.q-hero{text-align:center;padding:51px 10px 32px}
+.q-overline{display:inline-flex;gap:7px;align-items:center;direction:ltr;background:#ffffffbc;color:#048571;border:1px solid #b0d5c5;border-radius:70px;padding:8px 16px;font:800 12px Rubik,Arial;letter-spacing:1px}
+.q-hero h1{font:900 clamp(32px,6vw,55px)/1.22 Rubik,Arial;letter-spacing:-2px;margin:22px 0 15px}.q-hero h1 strong{color:var(--teal);position:relative;white-space:nowrap}.q-hero h1 strong:after{content:'';position:absolute;bottom:-9px;right:0;left:0;border-bottom:5px solid #ffca45;border-radius:60%;transform:rotate(-4deg)}.q-hero h1 span{font-size:29px}
+.q-hero p{font-size:19px;color:#536d69;margin:0 auto 15px;max-width:550px}.q-mini{display:inline-flex;gap:9px;align-items:center;font-weight:800;font-size:14px;color:#4d7b6b}.q-mini span{width:8px;height:8px;background:#18b58d;box-shadow:0 0 0 4px #18b58d25;border-radius:50%}
+.q-card{background:white;border:1px solid #e4e9df;border-radius:26px;padding:35px 43px;box-shadow:0 18px 62px #13443c1a,0 5px 0 #eddfa9}.q-card-top{display:flex;justify-content:space-between;align-items:start;gap:10px}.q-eyebrow{font:800 11px Rubik,Arial;color:var(--teal);letter-spacing:2px}.q-card h2{font:900 27px Rubik,Arial;letter-spacing:-.6px;margin:7px 0 19px}.q-count{direction:ltr;white-space:nowrap;font:800 13px Rubik,Arial;color:#70857c;background:#f1f6ef;border-radius:40px;padding:9px 13px}
+.q-progress{height:8px;border-radius:50px;background:#ebefeb;overflow:hidden;margin-bottom:30px}.q-progress div{height:100%;border-radius:50px;background:linear-gradient(90deg,#22ac91,#f6c349);transition:width .2s}
+.q-fields{display:grid;gap:22px}.q-section{display:flex;align-items:center;gap:13px}.q-section>span{display:grid;place-items:center;width:45px;height:45px;flex-shrink:0;border-radius:15px;background:#dff6e8;color:#007f68;font:900 16px Rubik,Arial}.q-section h3{font:800 19px Rubik,Arial;margin:0 0 4px}.q-section p{color:var(--muted);margin:0;font-size:14px}
+.q-field{display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:800}.q-field>span i{font-style:normal;color:#d5634a}.q-field>span em{font-style:normal;color:#98a7a0;margin-right:6px;font-size:12px;font-weight:500}.q-field input,.q-field select,.q-field textarea{width:100%;border-radius:13px;border:1.5px solid #dee7df;background:#fafdF9;font:500 16px Assistant,Arial;color:var(--ink);padding:13px 15px;outline:none;min-height:51px;transition:box-shadow .2s,border-color .2s}.q-field textarea{min-height:127px;resize:vertical}.q-field input:focus,.q-field select:focus,.q-field textarea:focus{border-color:var(--teal);box-shadow:0 0 0 4px #0f9a7e19}.q-field input::placeholder,.q-field textarea::placeholder{color:#9aa9a1}.q-field small{font-size:12px;color:#8a9a91;text-align:left}
+.q-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.q-beers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.q-option{min-height:73px;border:1.5px solid #e0e9e1;border-radius:14px;background:#fafcf9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;font:800 13px Assistant,Arial;color:#3f5754;cursor:pointer}.q-option svg{color:#078675}.q-option.selected,.q-problem.selected{background:#e6f8eb;border-color:#008e78;box-shadow:0 0 0 2px #008e7820;color:#006c60}.q-option:hover,.q-problem:hover{border-color:#00a187;transform:translateY(-1px)}
+.q-problems{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.q-problem{display:flex;align-items:center;justify-content:center;gap:8px;min-height:69px;border-radius:13px;border:1.5px solid #e0e9e1;background:#fafcf9;font:800 13px Assistant,Arial;color:#3f5754;cursor:pointer}.q-problem b{font-size:25px}
+.q-upload{position:relative;display:flex;align-items:center;flex-direction:column;gap:9px;padding:34px 14px;border:2px dashed #9ccdb4;border-radius:18px;background:#f1fbf3;text-align:center;color:#087a62;cursor:pointer}.q-upload>svg{box-sizing:content-box;border-radius:16px;background:white;padding:12px}.q-upload b{font-size:19px}.q-upload span{color:#567f73}.q-upload small{color:#82958a}.q-upload input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}.q-files{list-style:none;margin:0;padding:0;display:grid;gap:9px}.q-files li{display:flex;align-items:center;gap:12px;padding:10px 13px;border:1px solid #e6eee4;border-radius:12px;background:#f8faf7}.q-files li>svg{color:#1b8977;flex-shrink:0}.q-files li>div{flex:1;min-width:0}.q-files b{display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.q-files small{display:block;color:#738982}.q-files button{background:transparent;border:0;color:#788b85;cursor:pointer;padding:8px}
+.q-review{background:#fff7dd;border:1px solid #f5dfa1;border-radius:17px;padding:19px}.q-review strong{display:flex;align-items:center;gap:8px;color:#836106;font:800 16px Rubik,Arial}.q-review p{color:#776a3f;margin:5px 0}.q-privacy{display:flex;align-items:center;gap:10px;color:#56816e;font-size:14px}.q-turnstile{min-height:66px;display:flex;justify-content:center}
+.q-error{background:#fff0ee;color:#b43b2b;border:1px solid #f3c4ba;border-radius:12px;padding:13px 15px;margin:12px 0;font-weight:800}
+.q-actions{display:flex;gap:12px;margin-top:31px;justify-content:flex-end}.q-actions button,.q-done button{border:0;border-radius:14px;display:flex;align-items:center;justify-content:center;gap:13px;padding:16px 28px;min-width:140px;font:900 17px Assistant,Arial;cursor:pointer;transition:transform .2s,box-shadow .2s}.q-actions button:hover:not(:disabled),.q-done button:hover:not(:disabled){transform:translateY(-2px)}.q-actions button:disabled{opacity:.56;cursor:not-allowed}.q-primary{background:#ffcb4e;color:#1d3b3a;box-shadow:0 4px 0 #dfa82f}.q-back{background:#eef2ed;color:#385552}
+.q-done{text-align:center;padding:48px 20px}.q-done-icon{width:83px;height:83px;border-radius:50%;display:grid;place-items:center;background:#e0f6e6;color:#0b8c72;margin:0 auto 17px}.q-pill{display:inline-block;color:#008169;background:#dff4e7;border-radius:30px;padding:6px 17px;font-weight:800}.q-done h2{font-size:32px}.q-done>p{font-size:18px;color:#5e7972}.q-ticket{border:1px solid #f3de9b;background:#fffaeb;padding:19px;border-radius:17px;display:grid;gap:3px;max-width:320px;margin:25px auto}.q-ticket b{direction:ltr;font:900 44px Rubik,Arial}.q-ticket small,.q-ticket span{color:#856e43}.q-done .q-primary{margin:auto}
+.q-footer{color:#638676;opacity:.8;font:700 11px Rubik,Arial;letter-spacing:.5px;display:flex;align-items:center;justify-content:center;gap:9px;padding:32px 0 0;direction:ltr}
+@media(max-width:700px){.q-top-inner{padding:13px 20px}.q-logo{font-size:16px}.q-logo-icon{height:37px;width:37px}.q-safe{font-size:12px}.q-wrap{padding:0 13px 24px}.q-hero{padding:39px 4px 25px}.q-hero p{font-size:16px}.q-card{padding:24px 19px;border-radius:21px}.q-card h2{font-size:23px}.q-beers{grid-template-columns:repeat(3,minmax(0,1fr))}.q-problems{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:430px){.q-hero h1{letter-spacing:-1px}.q-two{grid-template-columns:1fr}.q-option{font-size:12px}.q-actions button.q-primary{flex:1}}
+@media(prefers-reduced-motion:reduce){.q-site *{transition:none!important;animation:none!important}}
+
+/* Shapiro brand alignment: warm label-paper, dark ink, amber and ale-red. */
+body:has(.q-site){background:#f6f0e3}
+.q-site{--ink:#332821;--teal:#a94431;--muted:#75685a;background:linear-gradient(160deg,#fbf8f0 0%,#f3ecdb 57%,#f8efdf 100%);}
+.q-glow-a{background:#f2c7744d}
+.q-glow-b{background:#e1ae8f36}
+.q-top{background:#292420;border-bottom:4px solid #ba613e}
+.q-top-inner{max-width:940px;padding:13px 23px;min-height:94px}
+.q-logo{direction:rtl;gap:17px;letter-spacing:0;font:800 20px Rubik,Arial,sans-serif}
+.q-logo-image{width:70px;height:66px;flex-shrink:0;display:grid;place-items:center;background:#fffaf0;border:1px solid #ebd5b5;border-radius:12px;padding:5px;overflow:hidden}
+.q-logo-image img{display:block;max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain}
+.q-brand-title{line-height:1.35;max-width:440px}
+.q-brand-title strong{color:#f0cb8d}
+.q-brand-title>span{color:#f2d4a5;margin:0 3px}
+.q-safe{font-weight:600;color:#f2e7d8;border:1px solid #ffffff36;padding:7px 12px;border-radius:50px;white-space:nowrap}
+.q-wrap{max-width:790px}
+.q-overline{direction:ltr;background:#fff5e5;border-color:#ead4b6;color:#965037;font:800 11px Rubik,Arial,sans-serif;letter-spacing:1.8px}
+.q-hero{padding-top:46px}
+.q-hero h1{letter-spacing:-1.5px}
+.q-hero h1 strong{color:#a94431}
+.q-hero h1 strong:after{border-bottom-color:#e1ae58}
+.q-hero p{color:#6b5d51}
+.q-mini{color:#6d6255}
+.q-mini span{background:#a94431;box-shadow:0 0 0 4px #a9443120}
+.q-card{background:#fffdfa;border:1px solid #e8decc;border-radius:18px;box-shadow:0 15px 42px #54412d17,0 4px 0 #dfbd89}
+.q-eyebrow{color:#a94431;letter-spacing:.5px;font:700 12px Rubik,Arial,sans-serif}
+.q-count{background:#f3ecdf;color:#816d59}
+.q-progress{background:#f0e8d9}
+.q-progress div{background:linear-gradient(90deg,#b84d35,#e3b45d)}
+.q-section>span{background:#f9e8cf;color:#a34431;border-radius:12px}
+.q-field>span i{color:#bb442a}
+.q-field>span em{color:#988a7e}
+.q-field input,.q-field select,.q-field textarea{background:#fffcf5;border-color:#dfd2bf;color:#342b25}
+.q-field input:focus,.q-field select:focus,.q-field textarea:focus{border-color:#ae563e;box-shadow:0 0 0 4px #ae563e16}
+.q-field input::placeholder,.q-field textarea::placeholder{color:#a59789}
+.q-option,.q-problem,.q-package{background:#fffbf4;border-color:#e6dac8;color:#594c40}
+.q-option svg{color:#b25a36}
+.q-option.selected,.q-problem.selected,.q-package.selected{background:#fff0d9;border-color:#b44f35;box-shadow:0 0 0 2px #bb61321a;color:#833421}
+.q-option:hover,.q-problem:hover,.q-package:hover{border-color:#b44f35}
+.q-problem b{font-size:21px}
+.q-packages{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.q-package{display:flex;align-items:center;justify-content:center;gap:9px;min-height:51px;padding:8px 12px;border:1.5px solid #e6dac8;border-radius:12px;font:800 15px Assistant,Arial,sans-serif;cursor:pointer;transition:background .2s,border-color .2s}
+.q-package svg{color:#a94431}
+.q-upload{background:#fbf2e3;border-color:#d8b990;color:#98502f}
+.q-upload>svg{background:#fffdfa}
+.q-upload span{color:#7e6652}
+.q-upload small{color:#95806d}
+.q-files li{background:#fffaf1;border-color:#e6d9c6}
+.q-files li>svg{color:#b35a3a}
+.q-review{background:#fff5e2;border-color:#e7cd9f}
+.q-review strong{color:#8b5930}
+.q-review p{color:#75604a}
+.q-privacy{color:#7e6b5a}
+.q-primary{background:#ebbf69;color:#30271e;box-shadow:0 4px 0 #bf8e40}
+.q-back{background:#f0e7d9;color:#554738}
+.q-done-icon{background:#f9ead5;color:#a94431}
+.q-pill{background:#f6e6d4;color:#91422e}
+.q-ticket{background:#fffaed;border-color:#ead3a8}
+.q-footer{direction:rtl;letter-spacing:0;color:#7d6957;font:600 13px Assistant,Arial,sans-serif}
+@media(max-width:700px){.q-top-inner{padding:10px 15px;min-height:80px}.q-logo{gap:11px;font-size:15px}.q-logo-image{height:56px;width:58px}.q-safe{font-size:11px;padding:6px 8px}.q-hero{padding-top:34px}}
+@media(max-width:430px){.q-brand-title{font-size:13px}.q-logo-image{height:50px;width:52px}.q-safe{display:none}.q-hero h1{font-size:clamp(30px,8vw,38px)}.q-overline{font-size:10px}.q-packages{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Safari/iOS date inputs have a large intrinsic minimum width. Keep the expiry
+   field inside the same responsive column boundaries as the batch input. */
+.q-two,.q-two>.q-field{min-width:0}
+.q-field input[type="date"]{display:block;box-sizing:border-box;width:100%;max-width:100%;min-width:0}
+@media(max-width:430px){
+  .q-two{grid-template-columns:minmax(0,1fr)}
+  .q-two>.q-field{width:100%;max-width:100%;min-width:0}
+}
+
+/* The PR preview is non-operational until an end-to-end backend test is approved. */
+.q-preview-notice{display:flex;gap:10px;align-items:flex-start;border:1px solid #e7ce9f;background:#fff4de;border-radius:12px;padding:13px 15px;color:#754d27;font-weight:700;font-size:14px}
+.q-preview-notice svg{flex-shrink:0}
+
+/* Final usability pass: consistent brand headline, reliable icon and narrow mobile date. */
+.q-hero h1{letter-spacing:-1.2px;color:var(--ink)}
+.q-hero h1 strong{color:inherit}
+.q-hero h1 strong::after{display:none}
+.q-problem b{display:inline-flex;align-items:center;justify-content:center;line-height:1}
+.q-problem b svg{display:block;stroke:currentColor}
+.q-quantity-section{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:end}
+.q-quantity-section>*,.q-two>*{min-width:0}
+.q-field input[type="date"]{min-width:0;max-width:100%;width:100%;box-sizing:border-box;direction:ltr;text-align:right}
+.q-date-field{min-width:0;max-width:100%}
+@media(max-width:700px){.q-date-field input[type="date"]{width:min(100%,246px)}.q-quantity-section{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:520px){.q-two{grid-template-columns:minmax(0,1fr)}}
+
+/* Stage 3 mobile hardening: untrusted attachment names must never dictate grid width.
+   The child grid's default min-content sizing could expand the entire card. */
+.q-site{width:100%;max-width:100%;overflow-x:clip}
+.q-wrap,.q-card,.q-fields,.q-upload,.q-files,.q-review,.q-privacy,.q-preview-notice,.q-actions{min-width:0;max-width:100%}
+.q-wrap,.q-card{width:100%}
+.q-fields,.q-files{grid-template-columns:minmax(0,1fr)}
+.q-files{width:100%}
+.q-files li{width:100%;max-width:100%;min-width:0;overflow:hidden}
+.q-files li>div{flex:1 1 0;min-width:0;max-width:100%;overflow:hidden}
+.q-files li b{display:block;max-width:100%;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;direction:ltr;text-align:right}
+.q-files li button{flex:0 0 auto}
+.q-review,.q-privacy,.q-preview-notice{overflow-wrap:anywhere}
+.q-review p{max-width:100%;overflow-wrap:anywhere}
+.q-actions{width:100%;flex-wrap:wrap}
+.q-actions button{min-width:0;max-width:100%;padding-inline:16px}
+@media(max-width:520px){
+  .q-card{padding:22px 16px}
+  .q-files li{gap:8px;padding:8px 10px}
+  .q-actions button{flex:1 1 125px}
+  .q-privacy,.q-preview-notice{align-items:flex-start}
+  .q-privacy svg{flex:0 0 auto}
+}
+
+/* Standalone quality page does not load the dashboard's layer tokens. */
+.q-site{--layer-busy:10000}
+
+.q-expiry-combo{display:flex;align-items:stretch;gap:8px;min-width:0}.q-expiry-combo>input{flex:1;min-width:0}.q-expiry-calendar{position:relative;width:52px;min-width:52px;border:1.5px solid #dee7df;background:#fafdF9;border-radius:13px;display:grid;place-items:center;color:#008a74;cursor:pointer;overflow:hidden}.q-expiry-calendar input[type=date]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}.q-expiry-calendar:focus-within{outline:2px solid #008a74;outline-offset:2px}
+
+/* Hebrew date control: direct numeric input and calendar in the same field. */
+.q-date-field{min-width:0;max-width:100%}
+.q-expiry-control{position:relative;min-width:0;width:100%;font-weight:500}
+.q-expiry-input{display:flex;align-items:center;min-width:0;width:100%;background:#fffcf5;border:1.5px solid #dfd2bf;border-radius:13px;overflow:hidden;transition:border-color .2s,box-shadow .2s}
+.q-expiry-input:focus-within{border-color:#ae563e;box-shadow:0 0 0 4px #ae563e16}
+.q-field .q-expiry-input>input{direction:ltr;text-align:left;font-family:Arial,sans-serif;letter-spacing:.4px;background:transparent;min-width:0;min-height:48px;flex:1;border:0;box-shadow:none!important;padding:12px 13px}
+.q-expiry-trigger{display:grid;place-items:center;align-self:stretch;flex:0 0 49px;border:0;border-right:1px solid #eadcca;background:#f8efdf;color:#a94431;cursor:pointer}
+.q-expiry-trigger:hover{background:#f3e3cc}
+.q-expiry-trigger:focus-visible{outline:2px solid #a94431;outline-offset:-4px}
+.q-expiry-popover{position:absolute;top:calc(100% + 7px);right:0;width:310px;max-width:calc(100vw - 45px);padding:13px;background:#fffdfa;border:1px solid #e5d5c0;border-radius:16px;box-shadow:0 14px 34px #40352d30;z-index:45;font:600 15px Assistant,Arial,sans-serif;color:#423126}
+.q-expiry-header{display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:12px}
+.q-expiry-header>button{border:0;background:#f7ecdf;color:#865139;width:30px;height:34px;display:grid;place-items:center;border-radius:8px;cursor:pointer}
+.q-expiry-header>select{width:auto;max-width:110px;padding:5px 7px;min-height:34px;font:700 14px Assistant,Arial,sans-serif;color:#533c2b;border:1px solid #e5d5c0;border-radius:8px;background:white;cursor:pointer}
+.q-expiry-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;align-items:stretch}
+.q-expiry-weekday{display:grid;place-items:center;color:#897762;font-size:12px;min-height:30px}
+.q-expiry-grid button{min-height:36px;display:grid;place-items:center;background:transparent;color:#423126;border:0;border-radius:8px;font:700 14px Assistant,Arial,sans-serif;cursor:pointer}
+.q-expiry-grid button:hover,.q-expiry-grid button:focus-visible{background:#f8ebd4;outline:1px solid #be9272}
+.q-expiry-grid button.q-expiry-selected{background:#9f4530;color:white}
+.q-expiry-grid button.q-expiry-today:not(.q-expiry-selected){border:1px solid #ac563e}
+.q-expiry-footer{display:flex;justify-content:space-between;border-top:1px solid #eee1d2;margin-top:10px;padding-top:10px}
+.q-expiry-footer button{border:0;background:transparent;color:#944831;padding:6px 10px;font:700 13px Assistant,Arial,sans-serif;cursor:pointer}
+.q-expiry-footer button:hover{text-decoration:underline}
+@media(max-width:430px){.q-expiry-popover{max-width:calc(100vw - 62px)}}
