@@ -10,6 +10,7 @@ import { evaluateColdTankNeglect } from "./neglectAfterCooling";
 import { hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext } from "./carbonationRetestPolicy";
 import { hasStablePlatoForCooling } from "./coolingPlatoStability";
+import { carbonationPressureContext, firstInRangePressureAdvice } from "./carbonationPressureInsights";
 
 
 
@@ -1192,6 +1193,18 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         lastMeasurementDate === todayDate &&
         Boolean(lastNote?.includes("סגירת גיזוז מלמטה"));
 
+    // A one-time milestone, derived from the entire current batch's carbonation
+    // history. It is not a stored success flag, and a later in-range test cannot
+    // cause the same recommendation to reappear.
+    const firstInRangeAdvice =
+        stage.name === "קר" && !pressureHandledToday
+            ? firstInRangePressureAdvice(
+                sortedMeasurements,
+                todayDate,
+                (value) => !isCarbonationOutOfRange(value, style, givenSpecs).outOfSpec
+            )
+            : null;
+
     const coldCarbOutOfSpecToday =
         stage.name === "קר" &&
         lastMeasurementDate === todayDate &&
@@ -1249,16 +1262,18 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     const requiredPressureAdjustment = {
         display: true,
-        req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment,
+        req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment || firstInRangeAdvice !== null,
         // Keep the legacy recommendation key (and today's ignore decisions)
         // but explicitly distinguish raising/lowering pressure from vent tuning.
-        actionType: coldCarbNeedsPressureAdjustment ? "pressureChange" as const : "ventAdjust" as const,
+        actionType: coldCarbNeedsPressureAdjustment || firstInRangeAdvice ? "pressureChange" as const : "ventAdjust" as const,
         reason: coldCarbNeedsPressureAdjustment
-            ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם או לוודא שבוצע.`
-            : `מומלץ לכוון פורק ל ${effectivePressureTarget}, הלחץ כרגע ${Number(effectivePressureTarget) > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
+            ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${carbonationPressureContext(sortedMeasurements, todayDate)}. מומלץ לבצע שינוי לחץ בהתאם או לוודא שבוצע.`
+            : firstInRangeAdvice
+                ? `בדיקת הגיזוז הראשונה בטווח התקין (${firstInRangeAdvice.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${carbonationPressureContext(sortedMeasurements, todayDate)}. מומלץ לשקול ${firstInRangeAdvice.direction === "lower" ? "הורדת" : "העלאת"} לחץ.`
+                : `מומלץ לכוון פורק ל ${effectivePressureTarget}, הלחץ כרגע ${Number(effectivePressureTarget) > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: coldCarbNeedsPressureAdjustment
             ? latestCarbSpec.importance
-            : isPressureOutOfRangeVal.howBad
+            : firstInRangeAdvice ? 1 : isPressureOutOfRangeVal.howBad
     }
 
     // Cooling today exempts this tank from Sunday's weekly cold-tank routine.
