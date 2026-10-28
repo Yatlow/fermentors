@@ -10,6 +10,7 @@ import { evaluateColdTankNeglect } from "./neglectAfterCooling";
 import { hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext } from "./carbonationRetestPolicy";
 import { hasStablePlatoForCooling } from "./coolingPlatoStability";
+import { yeastDropAllowsCooling } from "./coolingYeastTiming";
 import { carbonationPressureContext, firstInRangePressureAdvice } from "./carbonationPressureInsights";
 
 
@@ -1110,22 +1111,22 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         importance: coldNeglect?.importance ?? 0,
         reason: coldNeglect?.reason ?? "",
     };
+    // Completing a yeast drop today must never unlock cooling on the same
+    // day. Check dated, completed actions rather than any mention of yeast.
+    const coolingYeastReady = yeastDropAllowsCooling(sortedMeasurements, todayDate);
     const readyToCoolDown = (
         hasStablePlatoForCooling(sortedMeasurements) &&
-        stage.name === "בתסיסה" && yeastDroppedOnce
+        stage.name === "בתסיסה" &&
+        coolingYeastReady
     )
     let readyToCoolDownText = "";
     let coolDownDisplay = readyToCoolDown;
     let dispCoolDownGenerallRec = false;
     if (!readyToCoolDown && lastMeasurement?.plato && stage.name === "בתסיסה") {
         readyToCoolDownText = "המיכל עוד לא מוכן לקירור -עדיין לא הסתיימה התסיסה"
-        if (Number(lastMeasurement.plato) < 5) coolDownDisplay = true;
+        if (Number(lastMeasurement.plato) < 5 && coolingYeastReady) coolDownDisplay = true;
     }
     if (readyToCoolDown) {
-        if (!yeastDroppedOnce) {
-            readyToCoolDownText = "המיכל סיים לתסוס, מומלץ לבצעה הורדת שמרים לפני קירור";
-            dispCoolDownGenerallRec = true;
-        }
         if (CooldDate) {
             if (Number(lastMeasurement.temp) > 9) { readyToCoolDownText = "לפי הרישום המיכל כבר קורר- במדידת טמפ' זה יעודכן, מומלץ לוודא" }
             else coolDownDisplay = false
