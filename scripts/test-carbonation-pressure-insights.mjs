@@ -37,7 +37,7 @@ test("old pressure uses relative calendar-day labels and never timestamps", () =
         "לחץ אחרון: 0.8 bar (אתמול)",
     );
     assert.equal(carbonationPressureContext([carb("2026-10-26_2359", 2, 0.7)], today), "לחץ אחרון: 0.7 bar (לפני יומיים)");
-    assert.equal(carbonationPressureContext([carb("2026-10-25_0001", 2, 0.6)], today), "לחץ אחרון: 0.6 bar (לפני 3 ימים)");
+    assert.equal(carbonationPressureContext([carb("2026-10-25_0001", 2, 0.6)], today), "לחץ אחרון: 0.6 bar (לפני שלושה ימים)");
     assert.equal(carbonationPressureContext([carb("2026-09-28_1000", 2, 0.5)], today), "לחץ אחרון: 0.5 bar (לפני 30 ימים)");
     assert.equal(carbonationPressureContext([carb("2026-12-31_2359", 2, 1.1)], "2027-01-01"), "לחץ אחרון: 1.1 bar (אתמול)");
 });
@@ -175,4 +175,13 @@ test("live cooling recommendation checks completed drop timing before stable Pla
     assert.match(engine, /const coolingYeastReady = yeastDropAllowsCooling\(sortedMeasurements, todayDate\)/);
     assert.match(engine, /hasStablePlatoForCooling\(sortedMeasurements\)[\s\S]*stage\.name === "בתסיסה"[\s\S]*coolingYeastReady/);
     assert.match(engine, /Number\(lastMeasurement\.plato\) < 5 && coolingYeastReady/);
+});
+
+test("only dedicated quality-form preview may redirect the app root", () => {
+    const main = read("../src/main.tsx");
+    const hosting = read("../.github/workflows/firebase-hosting-pull-request.yml");
+    assert.match(main, /VITE_DEPLOY_ENV === 'preview' && import\.meta\.env\.VITE_QUALITY_REPORT_ONLY_PREVIEW === 'true'/);
+    assert.match(main, /location\.pathname === '\/'/);
+    assert.match(hosting, /VITE_QUALITY_REPORT_ONLY_PREVIEW:.*pull_request\.number == 252/);
+    assert.match(main, /import\('\.\/App'\)/);
 });
