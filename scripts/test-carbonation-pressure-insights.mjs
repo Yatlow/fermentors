@@ -119,6 +119,22 @@ test("existing recommendation and account-switch integration stays wired", () =>
     assert.match(app, /className="header-switch-user" onClick=\{logout\}/);
 });
 
+test("account switch stays next to the logo, before navigation and dashboard filters", () => {
+    const app = read("../src/App.tsx");
+    const css = read("../src/App.css");
+    const brandStart = app.indexOf('className="header-brand-top"');
+    const logo = app.indexOf('className="header-logo"', brandStart);
+    const identity = app.indexOf('className="header-user-bar"', brandStart);
+    const switchButton = app.indexOf('className="header-switch-user"', brandStart);
+    const navigation = app.indexOf('mobile-nav-shell', brandStart);
+    const filters = app.indexOf('className="dashboard-filter-toolbar"', brandStart);
+    assert.ok(brandStart >= 0 && brandStart < logo && logo < identity &&
+        identity < switchButton && switchButton < navigation && navigation < filters);
+    assert.equal((app.match(/className="header-user-bar"/g) ?? []).length, 1);
+    assert.match(css, /header-brand-top > img\.header-logo/);
+    assert.match(css, /header-brand-top \.header-current-user-email \{ display: none; \}/);
+});
+
 test("tank 16: today's logged yeast drop blocks cooling until tomorrow", () => {
     const history = [
         { id: "2026-10-25_0900", plato: 4.2 },
