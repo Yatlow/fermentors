@@ -59,7 +59,7 @@ export function carbonationPressureContext(
     todayDate: string,
 ): string {
     const pressure = latestPressureReading(measurements, todayDate);
-    if (!pressure) return "לחץ אחרון: אין מדידת לחץ זמינה";
+    if (!pressure) return "לחץ במיכל: אין מדידת לחץ זמינה";
     const daysBetween = (from: string, to: string): number => {
         const [fromYear, fromMonth, fromDay] = from.split("-").map(Number);
         const [toYear, toMonth, toDay] = to.split("-").map(Number);
@@ -83,7 +83,9 @@ export function carbonationPressureContext(
         10: "לפני עשרה ימים",
     };
     const when = relativeDays[daysAgo] ?? `לפני ${daysAgo} ימים`;
-    return `לחץ אחרון: ${pressure.value} bar (${when})`;
+    return daysAgo === 0
+        ? `לחץ במיכל: ${pressure.value} bar`
+        : `לחץ במיכל: ${pressure.value} bar (נמדד ${when})`;
 }
 
 export type FirstInRangePressureAdvice = {
