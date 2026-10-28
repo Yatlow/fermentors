@@ -7243,3 +7243,69 @@ b {
     .header-switch-user { min-height: 38px; }
 }
 @media print { .header-user-bar { display: none !important; } }
+
+
+/* Brand identity beside logo (PR256): keep account controls in the masthead. */
+.dashboard-header .headerBox .header-brand { flex-wrap: wrap; }
+.dashboard-header .header-brand-top {
+    display: flex;
+    align-items: center;
+    flex-direction: row;
+    direction: rtl;
+    gap: 12px;
+    min-width: 0;
+}
+.dashboard-header .header-brand-top .header-user-bar {
+    width: auto;
+    min-width: 0;
+    margin: 0;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+}
+.dashboard-header .header-brand-top .header-switch-user { flex-shrink: 0; }
+@media (max-width: 600px) {
+    .dashboard-header .headerBox .header-brand .header-brand-top {
+        order: 0;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+        gap: 10px;
+        width: 100%;
+        min-width: 0;
+    }
+    /* Override the older centred-logo mobile rules for this new wrapper. */
+    .dashboard-header .headerBox .header-brand .header-brand-top > img.header-logo {
+        width: 92px !important;
+        height: 92px !important;
+        min-width: 92px !important;
+        min-height: 92px !important;
+        max-width: 92px !important;
+        max-height: 92px !important;
+        flex: 0 0 92px !important;
+        align-self: center !important;
+        margin: 0 !important;
+        object-fit: contain !important;
+    }
+    .dashboard-header .header-brand-top .header-user-bar {
+        flex: 0 1 auto;
+        max-width: calc(100% - 102px);
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        gap: 5px;
+    }
+    .dashboard-header .header-brand-top .header-current-user {
+        flex: 1 1 100%;
+        width: 100%;
+        min-width: 0;
+    }
+    .dashboard-header .header-brand-top .header-current-user-email { display: none; }
+    .dashboard-header .header-brand-top .header-current-user-name {
+        max-width: 150px;
+    }
+    .dashboard-header .header-brand-top .header-switch-user {
+        min-height: 35px;
+        padding: 5px 8px;
+    }
+}
