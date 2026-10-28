@@ -7245,59 +7245,86 @@ b {
 @media print { .header-user-bar { display: none !important; } }
 
 
-/* Compact account menu. The menu is independent from the main navigation. */
-.dashboard-header .headerBox { position: relative; }
+/* Account navigation: a quiet secondary control, separated from primary destinations.
+   One layout owns the desktop/tablet placement; mobile keeps the centred logo. */
+.dashboard-header .headerBox {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+.dashboard-header .headerBox .header-brand {
+    position: relative;
+    z-index: calc(var(--layer-nav) + 10);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    gap: 12px;
+}
 .dashboard-header .header-brand-top {
     display: flex;
     align-items: center;
+    flex: 0 0 auto;
+    order: 0;
     min-width: 0;
 }
-.dashboard-header .header-account-menu {
+.dashboard-header .header-brand .mobile-nav-shell {
+    order: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.dashboard-header .header-brand .header-account-menu {
     position: relative;
-    z-index: calc(var(--layer-nav) + 10);
+    z-index: calc(var(--layer-nav) + 20);
     flex: 0 0 auto;
+    order: 2;
 }
 .dashboard-header .header-account-trigger {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 7px;
+    width: 40px;
+    height: 40px;
     min-height: 40px;
-    padding: 7px 10px;
-    border: 1px solid #dbe4ef;
-    border-radius: 11px;
-    background: #f8fafc;
-    color: #334155;
+    padding: 0;
+    border: 1px solid #d5dee9;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #475569;
     cursor: pointer;
     list-style: none;
-    font-size: 12px;
-    font-weight: 650;
+    transition: background .16s ease, border-color .16s ease;
 }
 .dashboard-header .header-account-trigger::-webkit-details-marker { display: none; }
 .dashboard-header .header-account-trigger::marker { content: ""; }
 .dashboard-header .header-account-trigger:hover,
 .dashboard-header .header-account-menu[open] .header-account-trigger {
-    background: #eff6ff;
-    border-color: #93c5fd;
+    background: #e2e8f0;
+    border-color: #a9b9cb;
 }
 .dashboard-header .header-account-trigger:focus-visible {
     outline: 2px solid #2563eb;
     outline-offset: 2px;
 }
+.dashboard-header .header-account-desktop-name { display: none; }
 .dashboard-header .header-account-popover {
     position: absolute;
     top: calc(100% + 8px);
     left: 0;
-    width: 240px;
+    width: min(245px, calc(100vw - 38px));
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
     padding: 12px;
     border: 1px solid #dbe4ef;
     border-radius: 12px;
     background: #fff;
     box-shadow: 0 10px 28px #0f172a26;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
     z-index: 1;
 }
 .dashboard-header .header-account-info {
@@ -7305,8 +7332,8 @@ b {
     flex-direction: column;
     min-width: 0;
     gap: 4px;
-    font-size: 12px;
     color: #334155;
+    font-size: 12px;
     text-align: right;
 }
 .dashboard-header .header-account-info span {
@@ -7315,40 +7342,69 @@ b {
     text-align: right;
 }
 .dashboard-header .header-account-popover .header-switch-user {
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
+    gap: 5px;
     width: 100%;
-    box-sizing: border-box;
+    min-height: 36px;
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #1e40af;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 650;
+    cursor: pointer;
+}
+.dashboard-header .header-account-popover .header-switch-user:hover {
+    background: #eff6ff;
+}
+.dashboard-header .header-account-popover .header-switch-user:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
 }
 
-/* Tablet and desktop: the account control is pinned to the far LEFT of the
-   full-width header, rather than following the final navigation tile. */
+/* Tablet and desktop: same primary row, with space + a subtle dividing line
+   between navigation destinations and the account utility at far left. */
 @media (min-width: 601px) {
-    .dashboard-header .headerBox .header-brand {
-        max-width: calc(100% - 116px);
+    .dashboard-header .headerBox .header-brand .mobile-nav-shell {
+        display: block !important;
+        width: auto;
     }
-    .dashboard-header .header-brand-top .header-account-menu {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: auto;
-        transform: none;
+    .dashboard-header .headerBox .header-brand .views-box {
+        display: flex !important;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        width: 100%;
+        gap: 6px;
+        padding: 2px 0;
+        box-shadow: none;
     }
-    .dashboard-header .header-account-popover {
-        left: 0;
-        right: auto;
+    .dashboard-header .header-brand .header-account-menu {
+        margin-inline-start: auto;
+        padding-inline-start: 12px;
+        border-inline-start: 1px solid #dbe4ef;
     }
 }
 
-/* Mobile: keep the brewery logo centred; give its row a stacking context ABOVE
-   the 300-layer navigation shell, so the expanded menu cannot sit behind tiles. */
+/* Mobile: the logo remains centred in the first row; a small profile icon
+   sits to the left. Open account menus layer over the navigation tiles. */
 @media (max-width: 600px) {
+    .dashboard-header .headerBox .header-brand {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        flex-wrap: nowrap !important;
+        gap: 4px !important;
+        width: 100% !important;
+    }
     .dashboard-header .headerBox .header-brand .header-brand-top {
         position: relative;
-        z-index: calc(var(--layer-nav) + 10);
         display: flex;
         align-items: center;
         justify-content: center;
-        direction: rtl;
         width: 100%;
         min-height: 116px;
         order: 0;
@@ -7368,21 +7424,24 @@ b {
         margin: 0 auto !important;
         object-fit: contain !important;
     }
-    .dashboard-header .header-brand-top .header-account-menu {
+    .dashboard-header .headerBox .header-brand .mobile-nav-shell {
+        order: 1 !important;
+        display: block;
+        position: relative;
+        width: 100% !important;
+        flex: 0 0 auto !important;
+        z-index: var(--layer-nav);
+    }
+    .dashboard-header .header-brand .header-account-menu {
         position: absolute;
+        top: 58px;
         left: 0;
-        top: 50%;
+        right: auto;
         transform: translateY(-50%);
-    }
-    .dashboard-header .header-account-trigger {
-        width: 40px;
-        height: 40px;
-        min-height: 40px;
+        border: 0;
+        margin: 0;
         padding: 0;
-    }
-    .dashboard-header .header-account-desktop-name { display: none; }
-    .dashboard-header .header-account-popover {
-        width: min(240px, calc(100vw - 35px));
+        z-index: calc(var(--layer-nav) + 20);
     }
 }
 @media print {
