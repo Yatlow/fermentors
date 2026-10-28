@@ -20,7 +20,7 @@ const { latestCompletedYeastDropDate, yeastDropAllowsCooling } =
     await import("data:text/javascript;base64," + Buffer.from(yeastModule).toString("base64"));
 
 
-test("last pressure is taken independently of the latest carbonation reading", () => {
+test("today pressure is shown without a measured-at annotation, independently of carbonation", () => {
     const history = [
         carb("2026-10-28_1045", "2.10"),
         { id: "2026-10-27_0940", pressure: "1,25" },
@@ -28,23 +28,23 @@ test("last pressure is taken independently of the latest carbonation reading", (
         { id: "2026-10-27_1755", pressure: "1.7" },
     ];
     assert.deepEqual(latestPressureReading(history, today), { value: 1.4, date: today, time: "07:10" });
-    assert.equal(carbonationPressureContext(history, today), "לחץ אחרון: 1.4 bar (היום)");
+    assert.equal(carbonationPressureContext(history, today), "לחץ במיכל: 1.4 bar");
 });
 
-test("old pressure uses relative calendar-day labels and never timestamps", () => {
+test("old pressure uses measured-at relative calendar days and never dates or times", () => {
     assert.equal(
         carbonationPressureContext([carb("2026-10-27_917", null, 0.8), carb("2026-10-28_0900", 2.1)], today),
-        "לחץ אחרון: 0.8 bar (אתמול)",
+        "לחץ במיכל: 0.8 bar (נמדד אתמול)",
     );
-    assert.equal(carbonationPressureContext([carb("2026-10-26_2359", 2, 0.7)], today), "לחץ אחרון: 0.7 bar (לפני יומיים)");
-    assert.equal(carbonationPressureContext([carb("2026-10-25_0001", 2, 0.6)], today), "לחץ אחרון: 0.6 bar (לפני שלושה ימים)");
-    assert.equal(carbonationPressureContext([carb("2026-09-28_1000", 2, 0.5)], today), "לחץ אחרון: 0.5 bar (לפני 30 ימים)");
-    assert.equal(carbonationPressureContext([carb("2026-12-31_2359", 2, 1.1)], "2027-01-01"), "לחץ אחרון: 1.1 bar (אתמול)");
+    assert.equal(carbonationPressureContext([carb("2026-10-26_2359", 2, 0.7)], today), "לחץ במיכל: 0.7 bar (נמדד לפני יומיים)");
+    assert.equal(carbonationPressureContext([carb("2026-10-25_0001", 2, 0.6)], today), "לחץ במיכל: 0.6 bar (נמדד לפני שלושה ימים)");
+    assert.equal(carbonationPressureContext([carb("2026-09-28_1000", 2, 0.5)], today), "לחץ במיכל: 0.5 bar (נמדד לפני 30 ימים)");
+    assert.equal(carbonationPressureContext([carb("2026-12-31_2359", 2, 1.1)], "2027-01-01"), "לחץ במיכל: 1.1 bar (נמדד אתמול)");
 });
 
 test("unknown and empty pressure are never shown as zero", () => {
     assert.equal(carbonationPressureContext([carb("2026-10-28_0900", 2.1, "")], today),
-        "לחץ אחרון: אין מדידת לחץ זמינה");
+        "לחץ במיכל: אין מדידת לחץ זמינה");
     assert.equal(latestPressureReading([carb("2026-10-28_0900", 2.1, null)], today), null);
     assert.equal(latestPressureReading([carb("2026-10-28_0900", 2.1, "0")], today)?.value, 0);
 });
