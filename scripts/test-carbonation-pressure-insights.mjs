@@ -111,14 +111,14 @@ test("empty carbonation measurements do not count as earlier valid readings", ()
 test("account switch and carbonation recommendations stay wired", () => {
     const source = read("../src/SERVICES/cellering/calculateCelleringRecomendations.ts");
     const app = read("../src/App.tsx");
-    assert.match(source, /carbonationPressureContext\\(sortedMeasurements, todayDate\\)/);
-    assert.match(source, /firstInRangeAdvice !== null/);
-    assert.match(source, /!pressureHandledToday/);
-    assert.match(app, /googleProvider\\.setCustomParameters\\(\\{ prompt: "select_account" \\}\\)/);
-    assert.match(app, /className="header-account-menu"/);
-    assert.match(app, /className="header-account-trigger"/);
-    assert.match(app, /className="header-account-popover"/);
-    assert.match(app, /className="header-switch-user" onClick=\\{logout\\}/);
+    assert.ok(source.includes("carbonationPressureContext(sortedMeasurements, todayDate)"));
+    assert.ok(source.includes("firstInRangeAdvice !== null"));
+    assert.ok(source.includes("!pressureHandledToday"));
+    assert.ok(app.includes('googleProvider.setCustomParameters({ prompt: "select_account" })'));
+    assert.ok(app.includes('className="header-account-menu"'));
+    assert.ok(app.includes('className="header-account-trigger"'));
+    assert.ok(app.includes('className="header-account-popover"'));
+    assert.ok(app.includes('className="header-switch-user" onClick={logout}'));
 });
 
 test("compact account popover is alongside a centred logo and does not move navigation", () => {
