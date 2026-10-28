@@ -611,21 +611,21 @@ function App() {
                     <div className="header-brand">
                         {mobileMoreOpen && <button type="button" className="mobile-nav-backdrop" aria-label="סגירת תפריט ניווט" onClick={() => setMobileMoreOpen(false)} />}
                         <div className="header-brand-top" dir="rtl">
-                        <img src={shpiro} alt="Shpiro" className="header-logo" onClick={() => window.location.reload()} />
-                        <div className="header-user-bar" dir="rtl">
-                            <div className="header-current-user" aria-label={`משתמש מחובר: ${user.displayName || user.email || "לא ידוע"}`}>
-                                <UserRound size={16} aria-hidden="true" />
-                                <span className="header-current-user-name">{user.displayName || user.email || "משתמש מחובר"}</span>
-                                {user.displayName && user.email && <span className="header-current-user-email" dir="ltr">{user.email}</span>}
+                            <img src={shpiro} alt="Shpiro" className="header-logo" onClick={() => window.location.reload()} />
+                            <div className="header-user-bar" dir="rtl">
+                                <div className="header-current-user" aria-label={`משתמש מחובר: ${user.displayName || user.email || "לא ידוע"}`}>
+                                    <UserRound size={16} aria-hidden="true" />
+                                    <span className="header-current-user-name">{user.displayName || user.email || "משתמש מחובר"}</span>
+                                    {user.displayName && user.email && <span className="header-current-user-email" dir="ltr">{user.email}</span>}
+                                </div>
+                                <button type="button" className="header-switch-user" onClick={logout} aria-label="התנתק והחלף משתמש Google">
+                                    <ArrowLeftRight size={16} aria-hidden="true" />
+                                    החלפת משתמש
+                                </button>
                             </div>
-                            <button type="button" className="header-switch-user" onClick={logout} aria-label="התנתק והחלף משתמש Google">
-                                <ArrowLeftRight size={16} aria-hidden="true" />
-                                החלפת משתמש
-                            </button>
-                        </div>
                         </div>
 
-                        <div className={`mobile-nav-shell ${mobileMoreOpen ? "is-open" : ""}`}>
+                                                <div className={`mobile-nav-shell ${mobileMoreOpen ? "is-open" : ""}`}>
                         <button type="button" className="mobile-area-trigger" aria-expanded={mobileMoreOpen} aria-controls="primary-area-navigation" onClick={() => setMobileMoreOpen((open) => !open)}><span className="mobile-area-current"><Menu size={22} aria-hidden="true" />{selectedView === "דאשבורד" ? <LayoutDashboard size={21}/> : selectedView === "רישום" ? <TestTubes size={21}/> : selectedView === "דוחות" ? <FileChartLine size={21}/> : selectedView === "ניהול" ? <PocketKnife size={21}/> : selectedView === "מקרר" ? <MapIcon size={21}/> : selectedView === "בישולים" ? <Beer size={21}/> : <CalendarCog size={21}/>}<span>{selectedView === "רישום" ? "פעולות סלרינג" : selectedView === "ניהול" ? "כלים" : selectedView === "מקרר" ? "מפת מקרר" : selectedView}</span></span>{!!zoneCounts?.pending && <span className="mobile-nav-pending-badge" aria-label={`${zoneCounts.pending} משטחים ממתינים לשיבוץ`}>{zoneCounts.pending}</span>}<ChevronDown className={`mobile-nav-chevron ${mobileMoreOpen ? "expanded" : ""}`} size={19} aria-hidden="true" /></button>
                         <nav className={`views-box ${mobileMoreOpen ? "mobile-more-open" : ""}`} id="primary-area-navigation" aria-label="ניווט ראשי">
                             <div className={`views-item ${selectedView === "דאשבורד" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("דאשבורד"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><LayoutDashboard size={20} aria-hidden="true"/><span className="views-label">דאשבורד</span>{openCellarRecommendationCount > 0 && <span className="nav-badge" aria-label={`${openCellarRecommendationCount} המלצות סלרינג פתוחות`}>{openCellarRecommendationCount}</span>}</div>
