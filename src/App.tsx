@@ -612,17 +612,22 @@ function App() {
                         {mobileMoreOpen && <button type="button" className="mobile-nav-backdrop" aria-label="סגירת תפריט ניווט" onClick={() => setMobileMoreOpen(false)} />}
                         <div className="header-brand-top" dir="rtl">
                             <img src={shpiro} alt="Shpiro" className="header-logo" onClick={() => window.location.reload()} />
-                            <div className="header-user-bar" dir="rtl">
-                                <div className="header-current-user" aria-label={`משתמש מחובר: ${user.displayName || user.email || "לא ידוע"}`}>
-                                    <UserRound size={16} aria-hidden="true" />
-                                    <span className="header-current-user-name">{user.displayName || user.email || "משתמש מחובר"}</span>
-                                    {user.displayName && user.email && <span className="header-current-user-email" dir="ltr">{user.email}</span>}
+                            <details className="header-account-menu" dir="rtl">
+                                <summary className="header-account-trigger" aria-label="פתיחת תפריט משתמש" title="משתמש מחובר">
+                                    <UserRound size={21} aria-hidden="true" />
+                                    <span className="header-account-desktop-name">{user.displayName?.split(" ")[0] || "משתמש"}</span>
+                                </summary>
+                                <div className="header-account-popover">
+                                    <div className="header-account-info">
+                                        <strong>{user.displayName || "משתמש מחובר"}</strong>
+                                        <span dir="ltr">{user.email || ""}</span>
+                                    </div>
+                                    <button type="button" className="header-switch-user" onClick={logout} aria-label="התנתק והחלף משתמש Google">
+                                        <ArrowLeftRight size={16} aria-hidden="true" />
+                                        החלפת משתמש
+                                    </button>
                                 </div>
-                                <button type="button" className="header-switch-user" onClick={logout} aria-label="התנתק והחלף משתמש Google">
-                                    <ArrowLeftRight size={16} aria-hidden="true" />
-                                    החלפת משתמש
-                                </button>
-                            </div>
+                            </details>
                         </div>
 
                                                 <div className={`mobile-nav-shell ${mobileMoreOpen ? "is-open" : ""}`}>
