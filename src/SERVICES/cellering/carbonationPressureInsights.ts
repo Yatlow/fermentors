@@ -69,10 +69,20 @@ export function carbonationPressureContext(
         ) / 86400000);
     };
     const daysAgo = daysBetween(pressure.date, todayDate);
-    const when = daysAgo === 0 ? "היום"
-        : daysAgo === 1 ? "אתמול"
-        : daysAgo === 2 ? "לפני יומיים"
-        : `לפני ${daysAgo} ימים`;
+    const relativeDays: Record<number, string> = {
+        0: "היום",
+        1: "אתמול",
+        2: "לפני יומיים",
+        3: "לפני שלושה ימים",
+        4: "לפני ארבעה ימים",
+        5: "לפני חמישה ימים",
+        6: "לפני שישה ימים",
+        7: "לפני שבוע",
+        8: "לפני שמונה ימים",
+        9: "לפני תשעה ימים",
+        10: "לפני עשרה ימים",
+    };
+    const when = relativeDays[daysAgo] ?? `לפני ${daysAgo} ימים`;
     return `לחץ אחרון: ${pressure.value} bar (${when})`;
 }
 
