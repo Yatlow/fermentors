@@ -13,6 +13,12 @@ const { latestPressureReading, carbonationPressureContext, firstInRangePressureA
 const today = "2026-10-28";
 const inRange = (value) => Math.abs(value - 2.45) < 0.03;
 const carb = (id, carbonation, pressure) => ({ id, carbonation, pressure });
+const yeastModule = ts.transpileModule(read("../src/SERVICES/cellering/coolingYeastTiming.ts"), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const { latestCompletedYeastDropDate, yeastDropAllowsCooling } =
+    await import("data:text/javascript;base64," + Buffer.from(yeastModule).toString("base64"));
+
 
 test("last pressure is taken independently of the latest carbonation reading", () => {
     const history = [
@@ -22,14 +28,18 @@ test("last pressure is taken independently of the latest carbonation reading", (
         { id: "2026-10-27_1755", pressure: "1.7" },
     ];
     assert.deepEqual(latestPressureReading(history, today), { value: 1.4, date: today, time: "07:10" });
-    assert.equal(carbonationPressureContext(history, today), "לחץ אחרון: 1.4 bar (היום בשעה 07:10)");
+    assert.equal(carbonationPressureContext(history, today), "לחץ אחרון: 1.4 bar (היום)");
 });
 
-test("old pressure is dated, with time if present", () => {
+test("old pressure uses relative calendar-day labels and never timestamps", () => {
     assert.equal(
         carbonationPressureContext([carb("2026-10-27_917", null, 0.8), carb("2026-10-28_0900", 2.1)], today),
-        "לחץ אחרון: 0.8 bar (נמדד ב־27/10/2026 בשעה 09:17)",
+        "לחץ אחרון: 0.8 bar (אתמול)",
     );
+    assert.equal(carbonationPressureContext([carb("2026-10-26_2359", 2, 0.7)], today), "לחץ אחרון: 0.7 bar (לפני יומיים)");
+    assert.equal(carbonationPressureContext([carb("2026-10-25_0001", 2, 0.6)], today), "לחץ אחרון: 0.6 bar (לפני 3 ימים)");
+    assert.equal(carbonationPressureContext([carb("2026-09-28_1000", 2, 0.5)], today), "לחץ אחרון: 0.5 bar (לפני 30 ימים)");
+    assert.equal(carbonationPressureContext([carb("2026-12-31_2359", 2, 1.1)], "2027-01-01"), "לחץ אחרון: 1.1 bar (אתמול)");
 });
 
 test("unknown and empty pressure are never shown as zero", () => {
@@ -107,4 +117,62 @@ test("existing recommendation and account-switch integration stays wired", () =>
     assert.match(app, /googleProvider\.setCustomParameters\(\{ prompt: "select_account" \}\)/);
     assert.match(app, /className="header-user-bar"/);
     assert.match(app, /className="header-switch-user" onClick=\{logout\}/);
+});
+
+test("tank 16: today's logged yeast drop blocks cooling until tomorrow", () => {
+    const history = [
+        { id: "2026-10-25_0900", plato: 4.2 },
+        { id: "2026-10-28_0910", notes: "הורדת 7 דליי שמרים, לחץ אחרי 1.5 bar" },
+    ];
+    assert.equal(latestCompletedYeastDropDate(history, today), today);
+    assert.equal(yeastDropAllowsCooling(history, today), false);
+    assert.equal(yeastDropAllowsCooling(history, "2026-10-29"), true);
+});
+
+test("a second yeast drop today blocks cooling even if an earlier drop already occurred", () => {
+    const history = [
+        { id: "2026-10-26_0945", notes: "הורדת 4 דליי שמרים, לחץ אחרי 1.5 bar" },
+        { id: "2026-10-28_1020", notes: "הורדת שמרים" },
+    ];
+    assert.equal(yeastDropAllowsCooling(history, today), false);
+    assert.equal(yeastDropAllowsCooling(history, "2026-10-29"), true);
+});
+
+test("previous-day actual drop is sufficient for cooling timing; empty history is not", () => {
+    assert.equal(yeastDropAllowsCooling([{ id: "2026-10-27_0910", notes: "הורדת 3 דליי שמרים" }], today), true);
+    assert.equal(yeastDropAllowsCooling([{ id: "2026-10-27", notes: "הוצאת שמרים" }], today), true);
+    assert.equal(yeastDropAllowsCooling([], today), false);
+});
+
+test("recommendation text and unrelated yeast mentions never unlock cooling", () => {
+    const falseNotes = [
+        "מומלץ לבצע הורדת שמרים",
+        "המלצת הורדת שמרים",
+        "לא בוצעה הורדת שמרים",
+        "לאחר הורדת שמרים מומלץ לקרר",
+        "יש לשקול הורדת שמרים",
+        "בדיקת גיזוז - מומלץ לבדוק שמרים",
+        "הורדת לחץ, שמרים תקינים",
+    ];
+    for (const note of falseNotes) {
+        assert.equal(yeastDropAllowsCooling([{ id: "2026-10-27_1020", notes: note }], today), false, note);
+    }
+});
+
+test("old completed notes, future entries and unsorted history are handled", () => {
+    const notes = [
+        { id: "2026-10-29_0845", notes: "הורדת 3 דליי שמרים" },
+        { id: "2026-10-26_1020", notes: "הורדת 4 דליי שמרים" },
+        { id: "2026-10-28_1150", notes: "בדיקת גיזוז" },
+        { id: "2026-10-27_0830", notes: "הורדו שמרים" },
+    ];
+    assert.equal(latestCompletedYeastDropDate(notes, today), "2026-10-27");
+    assert.equal(yeastDropAllowsCooling(notes, today), true);
+});
+
+test("live cooling recommendation checks completed drop timing before stable Plato", () => {
+    const engine = read("../src/SERVICES/cellering/calculateCelleringRecomendations.ts");
+    assert.match(engine, /const coolingYeastReady = yeastDropAllowsCooling\(sortedMeasurements, todayDate\)/);
+    assert.match(engine, /hasStablePlatoForCooling\(sortedMeasurements\)[\s\S]*stage\.name === "בתסיסה"[\s\S]*coolingYeastReady/);
+    assert.match(engine, /Number\(lastMeasurement\.plato\) < 5 && coolingYeastReady/);
 });
