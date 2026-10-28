@@ -1,4 +1,4 @@
-import { LayoutDashboard, TestTubes, FileChartLine, PocketKnife, Map as MapIcon, Beer, CalendarCog, Menu, ChevronDown, Search } from "lucide-react";
+import { LayoutDashboard, TestTubes, FileChartLine, PocketKnife, Map as MapIcon, Beer, CalendarCog, Menu, ChevronDown, Search, UserRound, ArrowLeftRight } from "lucide-react";
 import { observeMeasurementRevisions, stopMeasurementRevisionTracking } from "./SERVICES/getAndPost/gettAllDataByBatch";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
@@ -428,6 +428,8 @@ function App() {
     }, [user, isApproved]);
 
     function login() {
+        // Always expose the Google account chooser, including after switching users.
+        googleProvider.setCustomParameters({ prompt: "select_account" });
         signInWithPopup(auth, googleProvider)
             .catch((e) => console.error(e));
         console.log("Initiated Google sign-in popup");
@@ -623,6 +625,17 @@ function App() {
                             
                         </nav>
                         </div>
+                    </div>
+                    <div className="header-user-bar" dir="rtl">
+                        <div className="header-current-user" aria-label={`משתמש מחובר: ${user.displayName || user.email || "לא ידוע"}`}>
+                            <UserRound size={16} aria-hidden="true" />
+                            <span className="header-current-user-name">{user.displayName || user.email || "משתמש מחובר"}</span>
+                            {user.displayName && user.email && <span className="header-current-user-email" dir="ltr">{user.email}</span>}
+                        </div>
+                        <button type="button" className="header-switch-user" onClick={logout} aria-label="התנתק והחלף משתמש Google">
+                            <ArrowLeftRight size={16} aria-hidden="true" />
+                            החלפת משתמש
+                        </button>
                     </div>
                     {selectedView === "דאשבורד" && <div className="dashboard-filter-toolbar"><div className="tank-search-shell"><button type="button" className="tank-search-toggle" aria-label="חיפוש מיכל או אצווה" aria-expanded={tankSearchOpen} onClick={() => { setTankSearchOpen(v => !v); setMobileMoreOpen(false); }}><Search size={20} aria-hidden="true"/></button>{tankSearchOpen && <div className="tank-search-panel"><input autoFocus type="search" value={tankSearchQuery} onChange={e => setTankSearchQuery(e.target.value)} placeholder="מספר מיכל או אצווה" aria-label="חיפוש מיכל או אצווה"/><button type="button" onClick={() => { setTankSearchOpen(false); setTankSearchQuery(""); }} aria-label="סגור חיפוש">×</button>{tankSearchQuery.trim() && <div className="tank-search-results">{brews.filter(t => String(t.tankNumber).includes(tankSearchQuery.trim()) || String(t.batchNumber ?? "").includes(tankSearchQuery.trim())).slice(0,12).map(t => <button type="button" key={t.id} onClick={() => { setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setOnlyWithCellarRecommendations(false); setTankSearchOpen(false); setTankSearchQuery(""); window.setTimeout(() => { const slot = document.querySelector<HTMLElement>(`[data-tank-number="${t.tankNumber}"]`); slot?.scrollIntoView({behavior:"smooth",block:"center"}); slot?.classList.add("tank-search-highlight"); if (slot) window.setTimeout(() => slot.classList.remove("tank-search-highlight"), 3000); }, 120); }}>מיכל {t.tankNumber} · אצווה {t.batchNumber || "—"}</button>)}</div>}</div>}</div><DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses} selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses} sortByAge={sortByAge} setSortByAge={setSortByAge} onlyWithCellarRecommendations={onlyWithCellarRecommendations} setOnlyWithCellarRecommendations={setOnlyWithCellarRecommendations} recommendationCount={new Set(recommendedTankNumbers).size} filteredTankCount={filteredTankCount} /></div>}
                     {selectedView === "רישום" && <div className="status-filter">
