@@ -80,10 +80,12 @@ test('public complaints accept only a selected keg or bottle package',()=>{
 
 test('preview landing page bypasses brewery login and retains private production root',()=>{
  const main=readFileSync(new URL('../../src/main.tsx',import.meta.url),'utf8');
- const preview=main.indexOf("import.meta.env.VITE_DEPLOY_ENV === 'preview' && location.pathname === '/'");
+ const preview=main.indexOf("import.meta.env.VITE_DEPLOY_ENV === 'preview' && import.meta.env.VITE_QUALITY_REPORT_ONLY_PREVIEW === 'true' && location.pathname === '/'");
  const redirect=main.indexOf("history.replaceState(history.state, '', '/report-issue'");
  const publicBranch=main.indexOf("if (/^\\/report-issue\\/?$/.test(location.pathname))");
  const privateApp=main.indexOf("import('./App')");
+ const workflow=readFileSync(new URL('../../.github/workflows/firebase-hosting-pull-request.yml',import.meta.url),'utf8');
+ assert.ok(workflow.includes("VITE_QUALITY_REPORT_ONLY_PREVIEW: ${{ github.event.pull_request.number == 252 && 'true' || 'false' }}"));
  assert.ok(preview>=0 && preview<redirect && redirect<publicBranch && publicBranch<privateApp);
 });
 
