@@ -60,10 +60,19 @@ export function carbonationPressureContext(
 ): string {
     const pressure = latestPressureReading(measurements, todayDate);
     if (!pressure) return "לחץ אחרון: אין מדידת לחץ זמינה";
-    const formattedDate = pressure.date.split("-").reverse().join("/");
-    const when = pressure.date === todayDate
-        ? `היום${pressure.time ? ` בשעה ${pressure.time}` : ""}`
-        : `נמדד ב־${formattedDate}${pressure.time ? ` בשעה ${pressure.time}` : ""}`;
+    const daysBetween = (from: string, to: string): number => {
+        const [fromYear, fromMonth, fromDay] = from.split("-").map(Number);
+        const [toYear, toMonth, toDay] = to.split("-").map(Number);
+        return Math.round((
+            Date.UTC(toYear, toMonth - 1, toDay) -
+            Date.UTC(fromYear, fromMonth - 1, fromDay)
+        ) / 86400000);
+    };
+    const daysAgo = daysBetween(pressure.date, todayDate);
+    const when = daysAgo === 0 ? "היום"
+        : daysAgo === 1 ? "אתמול"
+        : daysAgo === 2 ? "לפני יומיים"
+        : `לפני ${daysAgo} ימים`;
     return `לחץ אחרון: ${pressure.value} bar (${when})`;
 }
 
