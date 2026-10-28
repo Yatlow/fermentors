@@ -121,19 +121,40 @@ test("account switch and carbonation recommendations stay wired", () => {
     assert.ok(app.includes('className="header-switch-user" onClick={logout}'));
 });
 
-test("compact account popover is alongside a centred logo and does not move navigation", () => {
+test("profile control lives in the logo header before navigation", () => {
     const app = read("../src/App.tsx");
-    const css = read("../src/App.css");
     const brand = app.indexOf('className="header-brand-top"');
     const logo = app.indexOf('className="header-logo"', brand);
     const menu = app.indexOf('className="header-account-menu"', brand);
     const nav = app.indexOf('mobile-nav-shell', brand);
     assert.ok(brand >= 0 && brand < logo && logo < menu && menu < nav);
-    assert.ok(css.includes("margin:0 auto!important"));
-    assert.ok(css.includes("position:absolute; left:0; top:50%"));
-    assert.ok(css.includes(".header-account-desktop-name { display:none; }"));
-    assert.ok(css.includes(".header-account-popover"));
+    assert.match(app, /<details className="header-account-menu"/);
+    assert.match(app, /<summary className="header-account-trigger"/);
     assert.equal((app.match(/className="header-account-menu"/g) ?? []).length, 1);
+});
+
+test("mobile account dropdown layers ABOVE the 300-layer navigation, logo stays centred", () => {
+    const css = read("../src/App.css");
+    const mobile = css.split("/* Mobile: keep the brewery logo centred;")[1]?.split("@media print")[0];
+    assert.ok(mobile, "explicit mobile override must exist");
+    assert.ok(mobile.includes("z-index: calc(var(--layer-nav) + 10);"));
+    assert.ok(mobile.includes("margin: 0 auto !important;"));
+    assert.ok(mobile.includes("position: absolute;"));
+    assert.ok(mobile.includes("transform: translateY(-50%);"));
+    assert.ok(mobile.includes(".dashboard-header .header-account-popover"));
+    assert.ok(mobile.includes("width: min(240px, calc(100vw - 35px));"));
+});
+
+test("tablet and desktop anchor account to far left, not next to navigation", () => {
+    const css = read("../src/App.css");
+    const wide = css.split("/* Tablet and desktop:")[1]?.split("/* Mobile:")[0];
+    assert.ok(wide, "explicit wide-screen override must exist");
+    assert.ok(wide.includes("@media (min-width: 601px)"));
+    assert.ok(wide.includes("max-width: calc(100% - 116px);"));
+    assert.ok(wide.includes("position: absolute;"));
+    assert.ok(wide.includes("left: 0;"));
+    assert.ok(wide.includes("right: auto;"));
+    assert.ok(css.includes(".dashboard-header .headerBox { position: relative; }"));
 });
 
 test("tank 16: today's logged yeast drop blocks cooling until tomorrow", () => {
