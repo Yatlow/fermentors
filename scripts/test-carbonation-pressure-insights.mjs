@@ -108,36 +108,32 @@ test("empty carbonation measurements do not count as earlier valid readings", ()
     ], today, inRange)?.direction, "lower");
 });
 
-test("existing recommendation and account-switch integration stays wired", () => {
+test("account switch and carbonation recommendations stay wired", () => {
     const source = read("../src/SERVICES/cellering/calculateCelleringRecomendations.ts");
     const app = read("../src/App.tsx");
-    assert.match(source, /carbonationPressureContext\(sortedMeasurements, todayDate\)/);
+    assert.match(source, /carbonationPressureContext\\(sortedMeasurements, todayDate\\)/);
     assert.match(source, /firstInRangeAdvice !== null/);
     assert.match(source, /!pressureHandledToday/);
-    assert.match(app, /googleProvider\.setCustomParameters\(\{ prompt: "select_account" \}\)/);
-    assert.match(app, /className="header-user-bar"/);
-    assert.match(app, /className="header-switch-user" onClick=\{logout\}/);
+    assert.match(app, /googleProvider\\.setCustomParameters\\(\\{ prompt: "select_account" \\}\\)/);
+    assert.match(app, /className="header-account-menu"/);
+    assert.match(app, /className="header-account-trigger"/);
+    assert.match(app, /className="header-account-popover"/);
+    assert.match(app, /className="header-switch-user" onClick=\\{logout\\}/);
 });
 
-test("account switch stays next to the logo, before navigation and dashboard filters", () => {
+test("compact account popover is alongside a centred logo and does not move navigation", () => {
     const app = read("../src/App.tsx");
     const css = read("../src/App.css");
-    const brandStart = app.indexOf('className="header-brand-top"');
-    const logo = app.indexOf('className="header-logo"', brandStart);
-    const identity = app.indexOf('className="header-user-bar"', brandStart);
-    const switchButton = app.indexOf('className="header-switch-user"', brandStart);
-    const navigation = app.indexOf('mobile-nav-shell', brandStart);
-    const filters = app.indexOf('className="dashboard-filter-toolbar"', brandStart);
-    assert.ok(brandStart >= 0 && brandStart < logo && logo < identity &&
-        identity < switchButton && switchButton < navigation && navigation < filters);
-    assert.equal((app.match(/className="header-user-bar"/g) ?? []).length, 1);
-    assert.match(css, /header-brand-top > img\.header-logo/);
-    assert.ok(css.includes(".header-brand-top .header-current-user-email {"));
-    assert.ok(css.includes("display: none;"));
-    assert.ok(css.includes("position: relative;"));
-    assert.ok(css.includes("margin: 0 auto !important;"));
-    assert.ok(css.includes("position: absolute;"));
-    assert.ok(css.includes("left: 0;"));
+    const brand = app.indexOf('className="header-brand-top"');
+    const logo = app.indexOf('className="header-logo"', brand);
+    const menu = app.indexOf('className="header-account-menu"', brand);
+    const nav = app.indexOf('mobile-nav-shell', brand);
+    assert.ok(brand >= 0 && brand < logo && logo < menu && menu < nav);
+    assert.ok(css.includes("margin:0 auto!important"));
+    assert.ok(css.includes("position:absolute; left:0; top:50%"));
+    assert.ok(css.includes(".header-account-desktop-name { display:none; }"));
+    assert.ok(css.includes(".header-account-popover"));
+    assert.equal((app.match(/className="header-account-menu"/g) ?? []).length, 1);
 });
 
 test("tank 16: today's logged yeast drop blocks cooling until tomorrow", () => {
