@@ -144,7 +144,7 @@ test("only actual raising/lowering constitutes pressure-change completion eviden
 test("dashboard marks vent recommendation by explicit action type, not tank stage", () => {
     const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
     const engine = readFileSync(new URL("../src/SERVICES/cellering/calculateCelleringRecomendations.ts", import.meta.url), "utf8");
-    assert.match(engine, /actionType: coldCarbNeedsPressureAdjustment \? "pressureChange" as const : "ventAdjust" as const/);
+    assert.match(engine, /actionType: coldCarbNeedsPressureAdjustment \|\| firstInRangeAdvice \? "pressureChange" as const : "ventAdjust" as const/);
     assert.match(dashboard, /scheduledActionType: recommendation\.actionType/);
     assert.doesNotMatch(dashboard, /recommendation\.recommendationKey === "pressureAdjustment" && tank\.stage/);
     assert.match(dashboard, /ventAdjust: "פורק"/);

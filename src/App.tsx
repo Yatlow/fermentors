@@ -1,4 +1,4 @@
-import { LayoutDashboard, TestTubes, FileChartLine, PocketKnife, Map as MapIcon, Beer, CalendarCog, Menu, ChevronDown, Search } from "lucide-react";
+import { LayoutDashboard, TestTubes, FileChartLine, PocketKnife, Map as MapIcon, Beer, CalendarCog, Menu, ChevronDown, Search, UserRound, ArrowLeftRight } from "lucide-react";
 import { observeMeasurementRevisions, stopMeasurementRevisionTracking } from "./SERVICES/getAndPost/gettAllDataByBatch";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
@@ -428,6 +428,8 @@ function App() {
     }, [user, isApproved]);
 
     function login() {
+        // Always expose the Google account chooser, including after switching users.
+        googleProvider.setCustomParameters({ prompt: "select_account" });
         signInWithPopup(auth, googleProvider)
             .catch((e) => console.error(e));
         console.log("Initiated Google sign-in popup");
@@ -608,9 +610,27 @@ function App() {
                 <div className="headerBox">
                     <div className="header-brand">
                         {mobileMoreOpen && <button type="button" className="mobile-nav-backdrop" aria-label="סגירת תפריט ניווט" onClick={() => setMobileMoreOpen(false)} />}
-                        <img src={shpiro} alt="Shpiro" className="header-logo" onClick={() => window.location.reload()} />
+                        <div className="header-brand-top" dir="rtl">
+                            <img src={shpiro} alt="Shpiro" className="header-logo" onClick={() => window.location.reload()} />
+                            <details className="header-account-menu" dir="rtl">
+                                <summary className="header-account-trigger" aria-label="פתיחת תפריט משתמש" title="משתמש מחובר">
+                                    <UserRound size={21} aria-hidden="true" />
+                                    <span className="header-account-desktop-name">{user.displayName?.split(" ")[0] || "משתמש"}</span>
+                                </summary>
+                                <div className="header-account-popover">
+                                    <div className="header-account-info">
+                                        <strong>{user.displayName || "משתמש מחובר"}</strong>
+                                        <span dir="ltr">{user.email || ""}</span>
+                                    </div>
+                                    <button type="button" className="header-switch-user" onClick={logout} aria-label="התנתק והחלף משתמש Google">
+                                        <ArrowLeftRight size={16} aria-hidden="true" />
+                                        החלפת משתמש
+                                    </button>
+                                </div>
+                            </details>
+                        </div>
 
-                        <div className={`mobile-nav-shell ${mobileMoreOpen ? "is-open" : ""}`}>
+                                                <div className={`mobile-nav-shell ${mobileMoreOpen ? "is-open" : ""}`}>
                         <button type="button" className="mobile-area-trigger" aria-expanded={mobileMoreOpen} aria-controls="primary-area-navigation" onClick={() => setMobileMoreOpen((open) => !open)}><span className="mobile-area-current"><Menu size={22} aria-hidden="true" />{selectedView === "דאשבורד" ? <LayoutDashboard size={21}/> : selectedView === "רישום" ? <TestTubes size={21}/> : selectedView === "דוחות" ? <FileChartLine size={21}/> : selectedView === "ניהול" ? <PocketKnife size={21}/> : selectedView === "מקרר" ? <MapIcon size={21}/> : selectedView === "בישולים" ? <Beer size={21}/> : <CalendarCog size={21}/>}<span>{selectedView === "רישום" ? "פעולות סלרינג" : selectedView === "ניהול" ? "כלים" : selectedView === "מקרר" ? "מפת מקרר" : selectedView}</span></span>{!!zoneCounts?.pending && <span className="mobile-nav-pending-badge" aria-label={`${zoneCounts.pending} משטחים ממתינים לשיבוץ`}>{zoneCounts.pending}</span>}<ChevronDown className={`mobile-nav-chevron ${mobileMoreOpen ? "expanded" : ""}`} size={19} aria-hidden="true" /></button>
                         <nav className={`views-box ${mobileMoreOpen ? "mobile-more-open" : ""}`} id="primary-area-navigation" aria-label="ניווט ראשי">
                             <div className={`views-item ${selectedView === "דאשבורד" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("דאשבורד"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><LayoutDashboard size={20} aria-hidden="true"/><span className="views-label">דאשבורד</span>{openCellarRecommendationCount > 0 && <span className="nav-badge" aria-label={`${openCellarRecommendationCount} המלצות סלרינג פתוחות`}>{openCellarRecommendationCount}</span>}</div>

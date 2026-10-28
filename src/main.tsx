@@ -3,10 +3,10 @@ import { createRoot } from 'react-dom/client'
 
 const root = createRoot(document.getElementById('root')!)
 
-// Preview channels for this PR are exclusively intended for testing the public
-// report. Opening the preview domain without /report-issue must never show the
-// brewery's private sign-in screen. Keep the normal production / unchanged.
-if (import.meta.env.VITE_DEPLOY_ENV === 'preview' && location.pathname === '/') {
+// Only the explicitly opted-in quality-form preview (PR #252) redirects its
+// root to /report-issue. Other PR previews must show the brewery dashboard.
+// Production routing remains unchanged.
+if (import.meta.env.VITE_DEPLOY_ENV === 'preview' && import.meta.env.VITE_QUALITY_REPORT_ONLY_PREVIEW === 'true' && location.pathname === '/') {
   history.replaceState(history.state, '', '/report-issue' + location.search + location.hash)
 }
 

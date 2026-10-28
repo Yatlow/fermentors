@@ -7182,3 +7182,112 @@ b {
 }
 /* Keep the legacy reporting JSX mounted in source but out of the navigation. */
 .status-filter-button[hidden] { display: none !important; }
+
+
+/* Signed-in identity and account switch stay available on every app view. */
+.header-user-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    margin-inline-start: auto;
+    font-size: 12px;
+}
+.header-current-user {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: #334155;
+}
+.header-current-user-name {
+    font-weight: 650;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 175px;
+}
+.header-current-user-email {
+    color: #64748b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+}
+.header-switch-user {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 34px;
+    padding: 6px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #1e40af;
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+}
+.header-switch-user:hover { background: #eff6ff; }
+.header-switch-user:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+@media (max-width: 849px) {
+    .header-user-bar { justify-content: center; width: 100%; margin-inline-start: 0; }
+}
+@media (max-width: 600px) {
+    .header-user-bar { gap: 6px; font-size: 11px; }
+    .header-current-user-email { max-width: 125px; }
+    .header-current-user-name { max-width: 120px; }
+    .header-switch-user { min-height: 38px; }
+}
+@media print { .header-user-bar { display: none !important; } }
+
+
+/* Compact account menu: logo is independently centred on mobile. */
+.dashboard-header .header-brand-top { display:flex; align-items:center; gap:12px; min-width:0; }
+.dashboard-header .header-account-menu { position:relative; z-index:3; flex:0 0 auto; }
+.dashboard-header .header-account-trigger {
+    display:inline-flex; align-items:center; justify-content:center; gap:7px;
+    border:1px solid #dbe4ef; border-radius:11px; background:#f8fafc;
+    color:#334155; min-height:40px; padding:7px 10px; cursor:pointer;
+    list-style:none; font-size:12px; font-weight:650;
+}
+.dashboard-header .header-account-trigger::-webkit-details-marker { display:none; }
+.dashboard-header .header-account-trigger::marker { content:""; }
+.dashboard-header .header-account-trigger:hover,
+.dashboard-header .header-account-menu[open] .header-account-trigger { background:#eff6ff; border-color:#93c5fd; }
+.dashboard-header .header-account-trigger:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
+.dashboard-header .header-account-popover {
+    position:absolute; top:calc(100% + 8px); left:0; width:240px;
+    box-sizing:border-box; border:1px solid #dbe4ef; border-radius:12px;
+    background:white; padding:12px; box-shadow:0 10px 28px #0f172a26;
+    display:flex; flex-direction:column; gap:12px; z-index:100;
+}
+.dashboard-header .header-account-info { display:flex; flex-direction:column; min-width:0; gap:4px; font-size:12px; color:#334155; text-align:right; }
+.dashboard-header .header-account-info span { color:#64748b; overflow-wrap:anywhere; text-align:right; }
+.dashboard-header .header-account-popover .header-switch-user { justify-content:center; width:100%; box-sizing:border-box; }
+@media(max-width:600px) {
+    .dashboard-header .headerBox .header-brand .header-brand-top {
+        display:flex; position:relative; align-items:center; justify-content:center;
+        direction:rtl; width:100%; min-height:116px; order:0; box-sizing:border-box;
+    }
+    .dashboard-header .headerBox .header-brand .header-brand-top > img.header-logo {
+        display:block!important; position:relative!important;
+        width:100px!important; height:100px!important;
+        min-width:100px!important; min-height:100px!important;
+        max-width:100px!important; max-height:100px!important;
+        flex:0 0 100px!important; align-self:center!important;
+        margin:0 auto!important; object-fit:contain!important;
+    }
+    .dashboard-header .header-brand-top .header-account-menu {
+        position:absolute; left:0; top:50%; transform:translateY(-50%);
+    }
+    .dashboard-header .header-account-trigger {
+        width:40px; height:40px; min-height:40px; padding:0;
+    }
+    .dashboard-header .header-account-desktop-name { display:none; }
+    .dashboard-header .header-account-popover { width:min(240px,calc(100vw - 35px)); }
+}
+@media print { .dashboard-header .header-account-menu { display:none!important; } }
