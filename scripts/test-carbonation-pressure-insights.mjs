@@ -121,40 +121,43 @@ test("account switch and carbonation recommendations stay wired", () => {
     assert.ok(app.includes('className="header-switch-user" onClick={logout}'));
 });
 
-test("profile control lives in the logo header before navigation", () => {
+test("account utility is a sibling of navigation and not part of the logo", () => {
     const app = read("../src/App.tsx");
     const brand = app.indexOf('className="header-brand-top"');
     const logo = app.indexOf('className="header-logo"', brand);
-    const menu = app.indexOf('className="header-account-menu"', brand);
-    const nav = app.indexOf('mobile-nav-shell', brand);
-    assert.ok(brand >= 0 && brand < logo && logo < menu && menu < nav);
-    assert.match(app, /<details className="header-account-menu"/);
-    assert.match(app, /<summary className="header-account-trigger"/);
+    const logoEnd = app.indexOf('</div>', logo);
+    const nav = app.indexOf('className={`mobile-nav-shell', logoEnd);
+    const account = app.indexOf('className="header-account-menu"', nav);
+    const filters = app.indexOf('className="dashboard-filter-toolbar"', account);
+    assert.ok(brand >= 0 && brand < logo && logo < logoEnd &&
+        logoEnd < nav && nav < account && account < filters);
     assert.equal((app.match(/className="header-account-menu"/g) ?? []).length, 1);
+    assert.ok(app.includes('className="header-account-trigger"'));
+    assert.ok(app.includes('className="header-account-popover"'));
 });
 
-test("mobile account dropdown layers ABOVE the 300-layer navigation, logo stays centred", () => {
+test("mobile centres the logo and puts profile popover above nav tiles", () => {
     const css = read("../src/App.css");
-    const mobile = css.split("/* Mobile: keep the brewery logo centred;")[1]?.split("@media print")[0];
-    assert.ok(mobile, "explicit mobile override must exist");
-    assert.ok(mobile.includes("z-index: calc(var(--layer-nav) + 10);"));
-    assert.ok(mobile.includes("margin: 0 auto !important;"));
-    assert.ok(mobile.includes("position: absolute;"));
-    assert.ok(mobile.includes("transform: translateY(-50%);"));
-    assert.ok(mobile.includes(".dashboard-header .header-account-popover"));
-    assert.ok(mobile.includes("width: min(240px, calc(100vw - 35px));"));
+    const mobile = css.split("/* Mobile: the logo remains centred")[1]?.split("@media print")[0];
+    assert.ok(mobile, "mobile rules must exist");
+    assert.ok(mobile.includes("flex-direction: column !important"));
+    assert.ok(mobile.includes("margin: 0 auto !important"));
+    assert.ok(mobile.includes("order: 1 !important"));
+    assert.ok(mobile.includes("z-index: var(--layer-nav)"));
+    assert.ok(mobile.includes("z-index: calc(var(--layer-nav) + 20)"));
 });
 
-test("tablet and desktop anchor account to far left, not next to navigation", () => {
+test("tablet and desktop align icon with nav but style it as a secondary utility", () => {
     const css = read("../src/App.css");
     const wide = css.split("/* Tablet and desktop:")[1]?.split("/* Mobile:")[0];
-    assert.ok(wide, "explicit wide-screen override must exist");
+    assert.ok(wide, "tablet/desktop rules must exist");
     assert.ok(wide.includes("@media (min-width: 601px)"));
-    assert.ok(wide.includes("max-width: calc(100% - 116px);"));
-    assert.ok(wide.includes("position: absolute;"));
-    assert.ok(wide.includes("left: 0;"));
-    assert.ok(wide.includes("right: auto;"));
-    assert.ok(css.includes(".dashboard-header .headerBox { position: relative; }"));
+    assert.ok(wide.includes("margin-inline-start: auto"));
+    assert.ok(wide.includes("border-inline-start: 1px solid #dbe4ef"));
+    assert.ok(wide.includes("display: block !important"));
+    assert.ok(css.includes("border-radius: 50%"));
+    assert.ok(css.includes("background: #f1f5f9"));
+    assert.ok(css.includes(".header-account-desktop-name { display: none; }"));
 });
 
 test("tank 16: today's logged yeast drop blocks cooling until tomorrow", () => {
