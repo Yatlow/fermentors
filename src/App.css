@@ -7182,3 +7182,64 @@ b {
 }
 /* Keep the legacy reporting JSX mounted in source but out of the navigation. */
 .status-filter-button[hidden] { display: none !important; }
+
+
+/* Signed-in identity and account switch stay available on every app view. */
+.header-user-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    margin-inline-start: auto;
+    font-size: 12px;
+}
+.header-current-user {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: #334155;
+}
+.header-current-user-name {
+    font-weight: 650;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 175px;
+}
+.header-current-user-email {
+    color: #64748b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+}
+.header-switch-user {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 34px;
+    padding: 6px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #1e40af;
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+}
+.header-switch-user:hover { background: #eff6ff; }
+.header-switch-user:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+@media (max-width: 849px) {
+    .header-user-bar { justify-content: center; width: 100%; margin-inline-start: 0; }
+}
+@media (max-width: 600px) {
+    .header-user-bar { gap: 6px; font-size: 11px; }
+    .header-current-user-email { max-width: 125px; }
+    .header-current-user-name { max-width: 120px; }
+    .header-switch-user { min-height: 38px; }
+}
+@media print { .header-user-bar { display: none !important; } }
