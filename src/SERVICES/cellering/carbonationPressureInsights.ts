@@ -70,6 +70,7 @@ export function carbonationPressureContext(
 export type FirstInRangePressureAdvice = {
     direction: "raise" | "lower";
     pressure: LatestPressureReading;
+    carbonation: number;
 };
 
 /** Only the first ever in-range carbonation measurement, made today, qualifies. */
@@ -86,7 +87,7 @@ export function firstInRangePressureAdvice(
     if (carbEntries.slice(0, -1).some((entry) => isInRange(entry.carbonation))) return null;
     const pressure = latestPressureReading(measurements, todayDate);
     if (!pressure) return null;
-    if (pressure.value > 0.9) return { direction: "lower", pressure };
-    if (pressure.value < 0.5) return { direction: "raise", pressure };
+    if (pressure.value > 0.9) return { direction: "lower", pressure, carbonation: latest.carbonation };
+    if (pressure.value < 0.5) return { direction: "raise", pressure, carbonation: latest.carbonation };
     return null;
 }
