@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { tankReleases, validateProduction, validateBrewReleases } from "../src/SERVICES/planning/productionCycle";
+import { tankReleases, validateProduction, validateProductionIssues, proposePendingPackagingVolumeCorrection, validateBrewReleases } from "../src/SERVICES/planning/productionCycle";
 import { openRuns, futureTanks } from "../src/SERVICES/planning/dailyPlanner";
 import { resolvePackagingBrewId, withStablePackagingIdentity } from "../src/SERVICES/planning/planIdentity";
 import { plansAfterActualPackagingCompletion, mergeCompletedPackagingBack, pendingPackagingDecisions } from "../src/SERVICES/planning/packagingActuals";
 import type { Settings, WeekPlan, Actual } from "../src/SERVICES/planning/planningEngine";
+import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
 
 const products: Settings["products"] = [
   { id: "pils-kegs", style: "Pils", type: "kegs", sku: "PK", monthly: 0, tempo: 0, tempoDate: "", leadDays: 21 },
@@ -439,4 +440,82 @@ test("a report from another physical batch never cancels the planned balance", (
   const sources = [{ id: "tank15", tankNumber: "15", batchNumber: "1586", action: 3 }];
   assert.deepEqual(pendingPackagingDecisions(original, products, actuals, sources).map((run) => run.quantity), [71]);
   assert.deepEqual(mergeCompletedPackagingBack(original, original, products, actuals, sources).packaging, original.packaging);
+});
+
+test("one-click adjustment reconciles 138 stout crates with 1039.5 L while preserving the selected day", () => {
+  const stoutProducts: Settings["products"] = [{
+    id: "stout-crates", sku: "stout-crates", style: "סטאוט", type: "crates",
+    monthly: 42, tempo: 0, tempoDate: "2026-10-29", leadDays: 21,
+  }];
+  const settings: Settings = {
+    products: stoutProducts, targetWeeks: 5, preferredRuns: 5,
+    lossPercent: 10, revision: 0,
+  };
+  const physical = {
+    id: "tank-3", number: "3", style: "סטאוט", batch: "1609",
+    brewed: "2026-10-01", ready: "2026-10-22",
+    liters: 1039.5, cold: true,
+  };
+  const original: WeekPlan = {
+    ...week(), id: "2026-11-08", packaging: [{
+      id: "stout-138", tankId: physical.id, tankNumber: "3",
+      batchNumber: physical.batch, productId: stoutProducts[0].id, quantity: 138,
+    }],
+  };
+  const scheduled: WeekPlan = {
+    ...original, packaging: [{ ...original.packaging[0], date: "2026-11-09" }],
+  };
+  const issues = validateProductionIssues([scheduled], settings, [physical], [], "2026-10-29");
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].volumeAdjustment?.maxRemainingUnits, 131);
+  assert.equal(issues[0].volumeAdjustment?.requestedRemainingUnits, 138);
+  assert.equal(issues[0].volumeAdjustment?.requiredLiters.toFixed(1), "1093.0");
+  assert.equal(issues[0].volumeAdjustment?.availableLiters, 1039.5);
+  const correction = proposePendingPackagingVolumeCorrection(
+    original, scheduled, issues[0], "stout-138", stoutProducts, [original], [],
+  );
+  assert.ok(correction, "the planner must offer an explicit, safe quantity reduction");
+  assert.equal(correction.from, 138);
+  assert.equal(correction.to, 131);
+  assert.equal(correction.plan.packaging[0].date, "2026-11-09");
+  assert.equal(correction.plan.packaging[0].batchNumber, "1609");
+  assert.equal(original.packaging[0].quantity, 138, "the original remains unchanged before approval");
+  assert.equal(validateProduction([correction.plan], settings, [physical], [], "2026-10-29"), null);
+  assert.ok(131 * 24 * .33 <= physical.liters);
+  assert.ok(132 * 24 * .33 > physical.liters);
+
+  const reported: Actual[] = [{
+    id: "already-packed", date: "2026-11-09", tankNumber: "3",
+    batchNumber: "1609", beerStyle: "סטאוט", packagingType: "bottles",
+    quantity: 24, unit: "ארגזים",
+  }];
+  assert.equal(proposePendingPackagingVolumeCorrection(
+    original, scheduled, issues[0], "stout-138", stoutProducts, [original], reported,
+  ), null, "previously completed physical packaging cannot be silently rewritten");
+  assert.equal(proposePendingPackagingVolumeCorrection(
+    original, { ...scheduled, packaging: [{ ...scheduled.packaging[0], tankId: "tank-4" }] },
+    issues[0], "stout-138", stoutProducts, [original], [],
+  ), null, "never apply a reduction after an unrelated tank reassignment");
+});
+
+test("weekly recommendation is capped at 131 crates when stout physical volume is 1039.5 L", () => {
+  const stout: Settings["products"][number] = {
+    id: "stout-crates", sku: "stout-crates", style: "סטאוט", type: "crates",
+    monthly: 42, tempo: 0, tempoDate: "2026-10-29", leadDays: 21,
+  };
+  const settings: Settings = {
+    products: [stout], targetWeeks: 5, totalTargetWeeks: 8.5,
+    preferredRuns: 5, lossPercent: 10, revision: 0,
+  };
+  const tank = {
+    id: "tank-3", number: "3", batch: "1609", style: "סטאוט",
+    brewed: "2026-10-01", ready: "2026-10-22", liters: 1039.5, cold: true,
+  };
+  const model = buildWeeklyPlanningModel({
+    settings, pallets: [], tanks: [tank], plans: [], actuals: [],
+    sources: [{ id: tank.id, tankNumber: 3, beerStyle: tank.style,
+      batchNumber: tank.batch, brewDate: "01/10/2026", action: 1 }],
+    today: "2026-10-29", week: "2026-11-08", holidays: [], shipments: [],
+  });
+  assert.equal(model.packagingRecommendation.find((r) => r.tankNumber === "3")?.quantity, 131);
 });
