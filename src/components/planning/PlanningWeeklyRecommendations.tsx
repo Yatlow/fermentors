@@ -30,7 +30,7 @@ import { projectedPallets, truckPlanningGroupKey } from "../../SERVICES/planning
 import { nominalPlanningUnits } from "../../SERVICES/planning/shipmentRecommendation";
 import { groupPlannedShipments, matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { replaceShipmentTrip } from "../../SERVICES/planning/shipmentEdit";
-import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
+import { buildWeeklyPlanningModel, forecastPackagingUnits, plannedPackagingCover } from "../../SERVICES/planning/weeklyPlanningModel";
 import {
     brewLitersForSize,
     brewSizeLabel,
@@ -298,11 +298,8 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function packagingRecommendationCover(p: Product) {
-        const before = model.rows.afterShipment.get(p.id);
         const quantity = allPackagingRecByProduct.get(p.id) ?? 0;
-        return !before || before.tempoUnits === null || !quantity || weeklyDemand(p) <= 0
-            ? null
-            : (before.tempoUnits + before.breweryUnits + quantity) / weeklyDemand(p);
+        return quantity > 0 ? plannedPackagingCover(model.rows.afterShipment.get(p.id), quantity) : null;
     }
 
     function recommendationTankLabel(productId: string) {
@@ -660,10 +657,8 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function draftPackagingCover(p: Product) {
-        const before = model.rows.afterShipment.get(p.id);
-        if (!before || before.tempoUnits === null || weeklyDemand(p) <= 0) return null;
         const planned = allDraftPackLines().filter((r) => r.productId === p.id).reduce((s, r) => s + r.quantity, 0);
-        return (before.tempoUnits + before.breweryUnits + planned) / weeklyDemand(p);
+        return plannedPackagingCover(model.rows.afterShipment.get(p.id), planned);
     }
 
     function recomputeEmptyTankFlags(lines: Plan[]) {
@@ -1146,7 +1141,15 @@ export default function PlanningWeeklyRecommendations({
                         const decided = currentPackagingQty(p);
                         const remaining = currentPackagingRemainingQty(p);
                         const completed = Math.max(0, decided - remaining);
-                        const shownAfter = editing === "packaging" ? draftPackagingCover(p) : after?.totalCover ?? null;
+                        const shownAfter = editing === "packaging"
+                            ? draftPackagingCover(p)
+                            : plannedPackagingCover(before, remaining);
+                        // Actual cycle allocation may be smaller than the planned
+                        // quantity. Report that operational discrepancy instead
+                        // of making the two coverage columns silently disagree.
+                        const allocated = forecastPackagingUnits(before, after);
+                        const allocationGap = editing !== "packaging" && remaining > 0 &&
+                            allocated !== null && allocated + 0.05 < remaining;
                         const recTank = recommendationTankLabel(p.id);
                         const decisionTank = decisionTankLabel(p);
                         const recAfter = packagingRecommendationCover(p);
@@ -1164,7 +1167,8 @@ export default function PlanningWeeklyRecommendations({
                             <span>
                                 {remaining > 0 ? <>{fmt(remaining)} {p.type === "crates" ? "ארגזים" : "חביות"}</> : "—"}
                                 {decisionTank && <small>{decisionTank}</small>}
-                                {remaining > 0 && <small>יגדיל כיסוי ל־{coverLabel(shownAfter)}</small>}
+                                {remaining > 0 && <small>יגדיל כיסוי ל־{coverLabel(shownAfter)} לפי הכמות המתוכננת</small>}
+                                {allocationGap && <small className="bp-risk-text" role="status">⚠️ תחזית הביצוע מקצה רק {Math.floor(allocated! + 0.01)} מתוך {fmt(remaining)} {p.type === "crates" ? "ארגזים" : "חביות"} (כיסוי צפוי {coverLabel(after?.totalCover)}). יש לבדוק נפח זמין ושיוך למחזור/אצווה.</small>}
                                 {completed > 0 && <small>{fmt(completed)} כבר נארזו בפועל</small>}
                             </span>
                         </div>;
