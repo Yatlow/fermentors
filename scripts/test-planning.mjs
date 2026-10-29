@@ -27,6 +27,7 @@ try {
     "tank-schedule-projection",
     "planning-canonical-current-cycle",
     "planning-cycle-packaging-regression",
+    "planning-rebrew-cycle-expiry",
     "packaging-replan-actuals",
     "planning-dashboard-current-cycle",
     "shipment-dispatch-variance",
