@@ -2,24 +2,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const extractionSource = readFileSync("server/batchDataExtractionService.js", "utf8");
-const quickReportSource = readFileSync("src/components/dashboard/QuickTankReportBox.tsx", "utf8");
-const syncSource = readFileSync("server/fermentor-cycle-optimization.js", "utf8");
-
+const extraction = readFileSync("server/batchDataExtractionService.js", "utf8");
+const quick = readFileSync("src/components/dashboard/QuickTankReportBox.tsx", "utf8");
+const writer = readFileSync("src/SERVICES/getAndPost/pushCurrentDataToFirestore.ts", "utf8");
+const sync = readFileSync("server/fermentor-cycle-optimization.js", "utf8");
+const outbox = readFileSync("server/sheetSyncOutbox.js", "utf8");
 const context = {
-  parseIsraeliDate(value) {
-    const match = String(value).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (!match) return null;
-    const date = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
-    return date.getDate() === Number(match[1]) ? date : null;
-  },
+  Utilities: { formatDate(date) {
+    return [String(date.getDate()).padStart(2, "0"), String(date.getMonth() + 1).padStart(2, "0"), date.getFullYear()].join("/");
+  } },
 };
 vm.createContext(context);
-vm.runInContext(extractionSource, context, { filename: "batchDataExtractionService.js" });
-
-const reported = context.extractReportedTankPressure_;
-const fromSheet = context.sheetTankPressure_;
-
+vm.runInContext(extraction, context, { filename: "batchDataExtractionService.js" });
+const parse = context.extractReportedTankPressure_;
 for (const [note, expected] of [
   ["הורדת 2 דליי שמרים, לחץ אחרי 1.25 bar", 1.25],
   ["הורדת שמרים, לחץ אחרי הורדת שמרים: 1,3 bar", 1.3],
@@ -36,45 +31,51 @@ for (const [note, expected] of [
   ["דרייהופ, סגירת לחץ, כיוון פורק ל 1.6", null],
   ["הורדת 2 דליי שמרים, ללא דיווח לחץ", null],
   ["חימום מיכל ל14° למנוחת דיאצטיל", null],
-]) {
-  assert.equal(reported(note), expected, `action: ${note}`);
-}
-
-assert.equal(fromSheet("1.75Bar", "הורדת לחץ ל: 0.8 bar"), 1.75, "later explicit reading wins over stale notes");
-assert.equal(fromSheet("0.00Bar", "העלאת לחץ ל: 1.1 bar"), 0, "zero is a legitimate explicit pressure");
-assert.equal(fromSheet("", "העלאת לחץ ל: 1.1 bar"), 1.1, "note-only legacy report is recovered");
-assert.equal(fromSheet("", "כיוון פורק ל: 1.6 bar"), null, "PRV setting is not tank pressure");
+]) assert.equal(parse(note), expected, note);
 
 const header = ["תאריך", "שעה", "סוכר", "טמפרטורה", "לחץ", "pH", "גיזוז", "הערות"];
-const row = (date, pressure, notes) => [date, "09:00", "", "", pressure, "", "", notes];
-const recovered = context.findLatestAvailableMeasurements([
-  header,
-  row("28/10/2026", "1.6Bar", ""),
-  row("29/10/2026", "", "הורדת 3 דליי שמרים, לחץ אחרי 1.1 bar"),
+const row = (date, time, pressure, notes) => [date, time, "", "", pressure, "", "", notes];
+const latest = (rows) => context.findLatestAvailableMeasurements([header, ...rows]);
+const morning = row("29/10/2026", "07:00", "1.40Bar",
+  "הורדת 2 דליי שמרים, לחץ אחרי 1.1 bar (דווח בשעה 10:30)");
+const current = latest([morning]);
+assert.equal(current.pressure, 1.1);
+assert.equal(current.pressureSource, "action");
+assert.ok(current.pressureUpdatedAt.includes("T"));
+assert.equal(morning[4], "1.40Bar", "daily measurement must not be rewritten");
+assert.equal(latest([row("29/10/2026", "07:00", "1.40Bar",
+  "הורדת 2 דליי שמרים, לחץ אחרי 1.1 bar (דווח בשעה 10:30) | הורדת לחץ ל: 0 bar (דווח בשעה 13:00)")]).pressure, 0);
+const laterReading = latest([
+  row("29/10/2026", "07:00", "1.40Bar", "הורדת לחץ ל: 1.1 bar (דווח בשעה 10:30)"),
+  row("29/10/2026", "12:00", "1.5Bar", ""),
 ]);
-assert.equal(recovered.pressure, 1.1, "newer note-only action advances currentData.pressure");
+assert.equal(laterReading.pressure, 1.5);
+assert.equal(laterReading.pressureSource, "measurement");
+assert.equal(latest([
+  row("28/10/2026", "07:00", "1.4Bar", "הורדת לחץ ל: 1.1 bar (דווח בשעה 15:00)"),
+  row("29/10/2026", "07:00", "1.3Bar", ""),
+]).pressure, 1.3);
+assert.equal(latest([
+  row("29/10/2026", "07:00", "1.4Bar", "הורדת לחץ ל: 0.7 bar"),
+]).pressure, 1.4);
+assert.equal(latest([
+  row("28/10/2026", "07:00", "1.3Bar", ""),
+  row("29/10/2026", "07:00", "", "הורדת 3 דליי שמרים, לחץ אחרי 0.8 bar"),
+]).pressure, 0.8);
 
-const preservesRecent = context.findLatestAvailableMeasurements([
-  header,
-  row("28/10/2026", "", "הורדת לחץ ל: 0.7 bar"),
-  row("29/10/2026", "1.3Bar", ""),
-]);
-assert.equal(preservesRecent.pressure, 1.3, "older action must not override later numeric pressure");
+assert.match(quick, /reading\.pressureAfterAction = reportedPressure/);
+assert.match(quick, /reading\.pressureRecordedAt = actionDate\.toISOString/);
+assert.doesNotMatch(quick, /reading\.pressure = reportedPressure/);
+assert.match(quick, /pressureAfterAction: !isEmpty && hasValidPressure/);
+assert.doesNotMatch(quick, /pressure: !isEmpty && hasValidPressure/);
+assert.match(writer, /field !== "pressure" && reading\[field\]/);
+assert.match(writer, /key !== "pressure"/);
+assert.match(writer, /reportedPressureUpdate\(row\.reading\)/);
+assert.match(writer, /isNewerPressureUpdate\(live\?\.currentData\?\.pressureUpdatedAt/);
+assert.match(writer, /transaction\.set\(refs\[index\]/);
+assert.match(extraction, /pressure: extractNumber\(values\[r\]\[4\]\)/);
+assert.equal((sync.match(/pressure: extractNumber\(values\[r\]\[4\]\)/g) || []).length, 2);
+assert.match(sync, /storedAt > incomingAt/);
+assert.match(outbox, /pressure: numberValue\(result\.pressure\)/);
 
-const sameDay = context.findLatestAvailableMeasurements([
-  header,
-  row("29/10/2026", "1.1Bar", ""),
-  row("29/10/2026", "1.2Bar", ""),
-]);
-assert.equal(sameDay.pressure, 1.2, "later Sheet row wins within the same day");
-
-assert.match(quickReportSource, /noteType === "לחץ" \|\| noteType === "שמרים"/);
-assert.match(quickReportSource, /noteType === "שמרים" \? value2 : value/);
-assert.match(quickReportSource, /reading\.pressure = reportedPressure/);
-assert.match(quickReportSource, /!Number\.isFinite\(reportedPressure\) \|\| reportedPressure < 0/);
-assert.equal((syncSource.match(/sheetTankPressure_\(values\[r\]\[4\], values\[r\]\[7\]\)/g) || []).length, 2,
-  "regular cycle and latest-measurement reconciliation must use legacy fallback");
-assert.match(extractionSource, /pressure: sheetTankPressure_\(values\[r\]\[4\], values\[r\]\[7\]\)/,
-  "historical measurements must use the same pressure resolution");
-
-console.log("Pressure action and reconciliation regressions passed.");
+console.log("Pressure timeline, morning-history preservation and sync guards passed.");
