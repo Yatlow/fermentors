@@ -656,6 +656,9 @@ function extractBrew(spreadSheetId) {
   }
 
   brew.currentData = findLatestAvailableMeasurements(values);
+  if (brew.currentData && brew.currentData.pressureUpdatedAt) {
+    brew.currentData.pressureBatchNumber = String(brew.batchNumber || "").replace("#", "").trim();
+  }
   brew.cellarState = fcBuildCellarState_(values, brew.batchNumber);
   return brew;
 }
