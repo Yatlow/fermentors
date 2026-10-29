@@ -189,6 +189,22 @@ export function futureTanks(
     (a, b) => a.brewed.localeCompare(b.brewed) || a.id.localeCompare(b.id),
   );
 }
+/** Past scheduled brews that are not observed as a real physical batch
+ * cannot be counted as packable beer. Use this same scope for BOTH weekly
+ * recommendations and committed operational forecasts.
+ */
+export function forecastableProductionPlans(
+  tanks: Tank[],
+  plans: WeekPlan[],
+  today: string,
+): WeekPlan[] {
+  return plans.map((week) => ({
+    ...week,
+    brews: week.brews.filter((brew) =>
+      brew.date >= today || tanks.some((tank) => physicalTankMatchesBrew(tank, brew))),
+  }));
+}
+
 export type DailyPoint = {
   date: string;
   productId: string;
@@ -235,18 +251,7 @@ export function dailyForecast(
     open = openRuns(plans, products, actuals),
     // The Gantt includes week +84 through Saturday +90. End is exclusive.
     end = addDays(weekStart(today), 91);
-  const pool = futureTanks(
-    tanks,
-    plans.map((w) => ({
-      ...w,
-      brews: w.brews.filter(
-        (b) =>
-          b.date >= today ||
-          tanks.some((t) => physicalTankMatchesBrew(t, b)),
-      ),
-    })),
-    settings,
-  );
+  const pool = futureTanks(tanks, forecastableProductionPlans(tanks, plans, today), settings);
   const available = new Map(pool.map((t) => [t.id, t.liters]));
   const bookings = new Map<string, Allocation[]>();
   const dated = open
