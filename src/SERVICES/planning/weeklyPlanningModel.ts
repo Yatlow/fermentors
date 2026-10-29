@@ -20,6 +20,7 @@ import {
   dailyForecast,
   futureTanks,
   openRuns,
+  physicalTankMatchesBrew,
   type DailyResult,
   type ShipmentEvent,
 } from "./dailyPlanner";
@@ -142,11 +143,7 @@ function dateWeeklyPackaging(plans: WeekPlan[], tanks: Tank[]): WeekPlan[] {
   const readyForRun = (run: Plan) => {
     if (run.brewId) {
       const brew = plannedBrews.find((item) => item.id === run.brewId);
-      if (brew) return tanks.find((tank) =>
-        tank.id === brew.tankId &&
-        tank.brewed === brew.date &&
-        sameStyle(tank.style, brew.style)
-      )?.ready;
+      if (brew) return tanks.find((tank) => physicalTankMatchesBrew(tank, brew))?.ready;
     }
     return run.tankId ? tanks.find((tank) => tank.id === run.tankId)?.ready : undefined;
   };
@@ -258,8 +255,7 @@ function remainingTankLiters(
             const physicalBatch = String(tank.batch ?? "").replace("#", "").trim();
             const linkedBatch = String(linked?.batchNumber ?? "").replace("#", "").trim();
             const runBatch = String(run.batchNumber ?? "").replace("#", "").trim();
-            return !!linked && linked.tankId === tank.id &&
-              linked.date === tank.brewed && sameStyle(linked.style, tank.style) &&
+            return !!linked && physicalTankMatchesBrew(tank, linked) &&
               (!linkedBatch || linkedBatch === physicalBatch) &&
               (!runBatch || runBatch === physicalBatch);
           })()
@@ -369,10 +365,7 @@ function buildPackagingRecommendation(
         // Such packaging is unfinished physical production, not an unrelated
         // future brew merely because it carries brewId.
         const linkedBrew = brewById(plans, linked);
-        return !!linkedBrew && linkedBrew.tankId === tank.id &&
-          linkedBrew.date === tank.brewed && sameStyle(linkedBrew.style, tank.style) &&
-          (!normalizedBatchForPlanning(linkedBrew.batchNumber) ||
-            normalizedBatchForPlanning(linkedBrew.batchNumber) === normalizedBatchForPlanning(tank.batch)) &&
+        return !!linkedBrew && physicalTankMatchesBrew(tank, linkedBrew) &&
           (!normalizedBatchForPlanning(run.batchNumber) ||
             normalizedBatchForPlanning(run.batchNumber) === normalizedBatchForPlanning(tank.batch));
       }
