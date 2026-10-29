@@ -119,3 +119,28 @@ test("matching physical batch must not be rejected merely because planned brew d
   assert.equal(futureTanks([actualNew], [week46], settings).length, 1,
     "no duplicate virtual tank for an already existing batch");
 });
+
+test("undated week-47 commitment to NEW IPA batch cannot be credited before maturation", () => {
+  const week47: WeekPlan = {
+    ...emptyWeek("2026-11-15"),
+    packaging: [{
+      id: "week47-future-new-batch", productId: product.id, quantity: 100,
+      tankId: old.id, tankNumber: old.number,
+      brewId: replacement.id, batchNumber: replacement.batchNumber,
+    }],
+  };
+  const model = modelFor("2026-11-15", [week46, week47]);
+  const before = model.rows.afterShipment.get(product.id);
+  const after = model.rows.afterPackaging.get(product.id);
+  assert.ok(before && after);
+  assert.equal(after.breweryUnits, before.breweryUnits,
+    "the next brew's 100 crates cannot appear in the week-47 stock forecast");
+  assert.equal(after.totalCover, before.totalCover,
+    "week-47 stock coverage must not include beer still fermenting");
+
+  const future = model.forecasts.afterPackaging.points;
+  assert.equal(future.find((p) => p.date === "2026-11-19" && p.productId === product.id)?.packed, 0,
+    "the default undated row's Thursday date is NOT permission to bypass maturation");
+  assert.equal(future.find((p) => p.date === "2026-11-30" && p.productId === product.id)?.packed, 100,
+    "forecast the undated new-batch commitment on Nov 30 when the batch matures");
+});
