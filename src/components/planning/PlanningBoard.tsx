@@ -22,6 +22,8 @@ import {
   normalizeEmptyTankFlagsForSchedule,
   tankReleases,
   validateProduction,
+  validateProductionIssues,
+  proposePendingPackagingVolumeCorrection,
   validateBrewReleases,
 } from "../../SERVICES/planning/productionCycle";
 import { validatePlanningWeek } from "../../SERVICES/planning/planningValidation";
@@ -262,7 +264,7 @@ export default function PlanningBoard({
     };
   }
 
-  async function persist(next: WeekPlan, confirmBrews = false) {
+  async function persist(next: WeekPlan, confirmBrews = false, correctionRowId?: string) {
     if (weekIsClosed(next.id, today)) throw new Error("השבוע נסגר לתכנון בתחילת יום שישי.");
     next = attachCanonicalBrewToEditedPackaging(next);
     const packagingWasEdited = JSON.stringify(next.packaging) !== JSON.stringify(current.packaging);
@@ -388,6 +390,35 @@ export default function PlanningBoard({
         production = validateProduction(productionScope(datedOnly), settings, validationTanks, actuals, today);
       }
     }
+    if (production && correctionRowId && packagingWasEdited) {
+      const issue = validateProductionIssues(
+        productionScope(datedOnly), settings, validationTanks, actuals, today,
+      ).find((item) =>
+        item.message === production &&
+        item.key === `pack:${effectiveNext.id}:${correctionRowId}` &&
+        !!item.volumeAdjustment,
+      );
+      const correction = issue && proposePendingPackagingVolumeCorrection(
+        current, effectiveNext, issue, correctionRowId,
+        settings.products, plans, actuals,
+      );
+      if (correction) {
+        const { from, to, detail } = correction;
+        const accepted = window.confirm(
+          `מיכל ${detail.tankLabel} — הכמות השבועית כבר אינה תואמת את הנפח הזמין.\n\n` +
+          `החלטה שמורה: ${from} ${detail.unitLabel}\n` +
+          `נפח זמין במחזור: ${detail.availableLiters.toFixed(1)} ליטר\n` +
+          `נפח נדרש לכל האריזות במחזור: ${detail.requiredLiters.toFixed(1)} ליטר\n\n` +
+          `אפשר לשבץ כעת עד ${to} ${detail.unitLabel}.\n\n` +
+          `האם לעדכן את ההחלטה השבועית מ־${from} ל־${to} ולשבץ ביום שנבחר?\n` +
+          "האריזות שלא ניתן לייצר לא ייכללו יותר בתכנון המלאי או המשלוחים."
+        );
+        if (!accepted) throw new Error("השיבוץ בוטל. הכמות המתוכננת לא שונתה.");
+        // Restart all checks with the user-approved reduced quantity. This
+        // also recalculates empty-tank flags and downstream shipment impacts.
+        return persist(correction.plan, confirmBrews);
+      }
+    }
     if (production) throw new Error(production);
 
     const assignedOnly = forecastDateUndatedPackaging(all).map((w) => ({ ...w, brews: w.brews.filter((brew) => !!brew.tankId) }));
@@ -430,7 +461,7 @@ export default function PlanningBoard({
       first.date = second.date;
       setBusy(true);
       try {
-        await persist(next);
+        await persist(next, false, first.id);
         setMessage(`האריזה נוספה ל־${shortDate(second.date)} לצד האריזות שכבר שובצו ליום.`);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "שיבוץ האריזה נכשל");
@@ -513,7 +544,7 @@ export default function PlanningBoard({
     run.date = date;
     setBusy(true);
     try {
-      await persist(next);
+      await persist(next, false, run.id);
       setMessage(`האריזה שובצה ל־${shortDate(date)}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "שיבוץ האריזה נכשל");
