@@ -205,15 +205,15 @@ function extractNumber(
 // those numbers are targets/settings, not measured tank pressure.
 function extractReportedTankPressure_(notes) {
   let last = null;
-  String(notes || "").split(/\\s*\\|\\s*/u).forEach(function (part) {
+  String(notes || "").split(/\s*\|\s*/u).forEach(function (part) {
     const note = part.trim();
     let match = null;
     if (/(?:הורדת|הוצאת|הורידו).{0,32}שמרים/u.test(note)) {
-      match = note.match(/לחץ\\s*(?:אחרי|לאחר)\\s*(?:(?:הורדת|הוצאת)\\s*שמרים\\s*)?[:：]?\\s*([0-9]+(?:[.,][0-9]+)?)/u);
-    } else if (/(?:העלאת|הורדת|שינוי|העלו|הורידו)\\s+(?:ה)?לחץ/u.test(note)) {
-      match = note.match(/(?:העלאת|הורדת|שינוי|העלו|הורידו)\\s+(?:ה)?לחץ\\s*(?:מ[-־:]?\\s*[0-9]+(?:[.,][0-9]+)?\\s*(?:bar)?\\s*)?(?:ל|אל)\\s*[:־-]?\\s*([0-9]+(?:[.,][0-9]+)?)/u);
+      match = note.match(/לחץ\s*(?:אחרי|לאחר)\s*(?:(?:הורדת|הוצאת)\s*שמרים\s*)?[:：]?\s*([0-9]+(?:[.,][0-9]+)?)/u);
+    } else if (/(?:העלאת|הורדת|שינוי|העלו|הורידו)\s+(?:ה)?לחץ/u.test(note)) {
+      match = note.match(/(?:העלאת|הורדת|שינוי|העלו|הורידו)\s+(?:ה)?לחץ\s*(?:מ[-־:]?\s*[0-9]+(?:[.,][0-9]+)?\s*(?:bar)?\s*)?(?:ל|אל)\s*[:־-]?\s*([0-9]+(?:[.,][0-9]+)?)/u);
     } else if (/סגירת גיזוז מלמטה/u.test(note)) {
-      match = note.match(/על\\s*([0-9]+(?:[.,][0-9]+)?)\\s*bar/iu);
+      match = note.match(/על\s*([0-9]+(?:[.,][0-9]+)?)\s*bar/iu);
     }
     if (match) {
       const parsed = Number(match[1].replace(",", "."));
