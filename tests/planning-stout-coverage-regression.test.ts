@@ -75,7 +75,7 @@ test("a later reservation on the same stout batch reduces week-46 recommendation
   assert.ok(recommended > 0, "the unreserved part can still be recommended");
 });
 
-test("a physical batch and its future replacement must have independent balances", () => {
+test("stout batch identity survives a one-day delay between planned and actual brewing", () => {
   const futureBrew = {
     id: "future-stout-3", tankId: tank.id, style: stout.style,
     date: "2026-10-12", liters: 1100, batchNumber: "1701",
@@ -91,19 +91,36 @@ test("a physical batch and its future replacement must have independent balances
       date: "2026-11-09",
     }],
   };
-  const oldCycle: Tank = {
-    ...tank, brewed: "2026-09-01", batch: "1600", liters: 0,
+  const physical: Tank = {
+    ...tank, brewed: "2026-10-13", ready: "2026-11-03",
+    batch: "1701", liters: 1093,
   };
   const plans = [brewWeek, decided];
-  assert.equal(validateProduction(plans, settings, futureTanks([oldCycle], plans, settings), [], today), null,
-    "a depleted old batch must not block valid packaging of a distinct future brew");
-  const model = modelFor([oldCycle], plans);
+  const allTanks = futureTanks([physical], plans, settings);
+  assert.equal(allTanks.length, 1,
+    "same physical batch must not be duplicated as a fictional virtual brew");
+  assert.equal(validateProduction(plans, settings, allTanks, [], today), null,
+    "real stout volume is enough even though actual brew date differs");
+  const model = modelFor([physical], plans);
   const actualAllocated = forecastPackagingUnits(
     model.rows.afterShipment.get(stout.id),
     model.rows.afterPackaging.get(stout.id),
   );
   assert.ok(actualAllocated !== null && Math.abs(actualAllocated - 138) < 0.01,
-    "decision forecast uses the future cycle volume, not the depleted physical tank");
+    "the saved decision must allocate from the real matching batch, not a missing virtual tank");
+});
+
+test("past phantom brew with no matching physical batch cannot recommend or forecast stout", () => {
+  const brewWeek: WeekPlan = {
+    ...emptyWeek("2026-10-11"), brews: [{
+      id: "unobserved-stout-3", tankId: tank.id, style: stout.style,
+      date: "2026-10-12", liters: 1100, batchNumber: "1701",
+    }],
+  };
+  const oldPhysical: Tank = { ...tank, brewed: "2026-09-01", batch: "1600", liters: 0 };
+  const model = modelFor([oldPhysical], [brewWeek]);
+  assert.ok(!model.packagingRecommendation.some((run) => run.tankNumber === "3"),
+    "an old, unobserved plan must not create imaginary stocked stout");
 });
 
 test("an already-physical brew without batch metadata uses the real remaining volume", () => {
