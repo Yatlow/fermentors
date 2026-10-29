@@ -746,7 +746,7 @@ export function validateDatedPlan(
       return "אין אריזה רגילה בשישי או שבת";
     if (r.date) {
       const day = days.get(r.date) ?? {
-        products: {},
+        products: {} as Partial<Record<"crates" | "kegs", string>>,
         quantities: { crates: 0, kegs: 0 },
       };
       // Combining crates and kegs is allowed with confirmation in PlanningView,
