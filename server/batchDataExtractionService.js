@@ -200,12 +200,10 @@ function extractNumber(
 // CURRENT FERMENTATION DATA
 // ============================================================
 
-// Recover a tank pressure from historical action-only notes when column E was
-// never written. Do not infer pressure from PRV settings, tank closing or dry hop:
-// those numbers are targets/settings, not measured tank pressure.
-function extractReportedTankPressure_(notes) {
-  let last = null;
-  String(notes || "").split(/\s*\|\s*/u).forEach(function (part) {
+// Tank pressure timeline is distinct from the morning measurement in column E.
+// Only the dashboard currentData uses action notes; history keeps column E intact.
+function extractReportedPressureEvents_(notes) {
+  return String(notes || "").split(/\s*\|\s*|\n/u).map(function (part) {
     const note = part.trim();
     let match = null;
     if (/(?:הורדת|הוצאת|הורידו).{0,32}שמרים/u.test(note)) {
@@ -215,20 +213,58 @@ function extractReportedTankPressure_(notes) {
     } else if (/סגירת גיזוז מלמטה/u.test(note)) {
       match = note.match(/על\s*([0-9]+(?:[.,][0-9]+)?)\s*bar/iu);
     }
-    if (match) {
-      const parsed = Number(match[1].replace(",", "."));
-      if (Number.isFinite(parsed) && parsed >= 0) last = parsed;
-    }
-  });
-  return last;
+    if (!match) return null;
+    const pressure = Number(match[1].replace(",", "."));
+    if (!Number.isFinite(pressure) || pressure < 0) return null;
+    // Modern reports append an explicit event time. Legacy notes lack one.
+    // Prefer "דווח בשעה" over any process time embedded in the same note.
+    const reported = [...note.matchAll(/דווח\s+בשעה\s+([01]?\d|2[0-3]):([0-5]\d)/gu)];
+    const times = reported.length ? reported :
+      [...note.matchAll(/בשעה\s+([01]?\d|2[0-3]):([0-5]\d)/gu)];
+    const clock = times.length ? times[times.length - 1] : null;
+    return { pressure: pressure, hour: clock ? Number(clock[1]) : null,
+      minute: clock ? Number(clock[2]) : null };
+  }).filter(Boolean);
 }
 
-// An explicit number in the measurement column takes precedence over action
-// notes. An old note may precede a newer manual/morning pressure reading on
-// the same row, and legacy notes contain no reliable event timestamp.
-function sheetTankPressure_(pressureCell, notesCell) {
-  const explicit = extractNumber(pressureCell);
-  return explicit !== null ? explicit : extractReportedTankPressure_(notesCell);
+function extractReportedTankPressure_(notes) {
+  const events = extractReportedPressureEvents_(notes);
+  return events.length ? events[events.length - 1].pressure : null;
+}
+
+function sheetPressureStateFromRows_(values) {
+  const header = findRowContaining(values, "טמפרטורה");
+  if (header < 0) return null;
+  let best = null;
+  function consider(date, hour, minute, pressure, source, priority) {
+    const at = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute);
+    if (!Number.isFinite(at.getTime())) return;
+    const candidate = { pressure: pressure, pressureUpdatedAt: at.toISOString(),
+      pressureSource: source, date: date, priority: priority };
+    if (!best || candidate.pressureUpdatedAt > best.pressureUpdatedAt ||
+        (candidate.pressureUpdatedAt === best.pressureUpdatedAt && candidate.priority >= best.priority)) {
+      best = candidate;
+    }
+  }
+  for (let r = header + 1; r < values.length; r++) {
+    const date = parseIsraeliDate(String(values[r][0] || "").trim());
+    if (!date) continue;
+    const rowTime = String(values[r][1] || "").match(/^(\d{1,2}):(\d{2})$/);
+    const hour = rowTime && Number(rowTime[1]) <= 23 ? Number(rowTime[1]) : 0;
+    const minute = rowTime && Number(rowTime[2]) <= 59 ? Number(rowTime[2]) : 0;
+    const measured = extractNumber(values[r][4]);
+    if (measured !== null) consider(date, hour, minute, measured, "measurement", 1);
+    const events = extractReportedPressureEvents_(values[r][7]);
+    events.forEach(function (event, index) {
+      // Old notes with no time cannot be ordered relative to a pressure
+      // measurement already present in this day's row. Do not override it.
+      if (event.hour === null && measured !== null) return;
+      const eventMinute = event.minute === null ? Math.min(minute + index + 1, 59) : event.minute;
+      consider(date, event.hour === null ? hour : event.hour,
+        eventMinute, event.pressure, "action", 2);
+    });
+  }
+  return best;
 }
 
 function findLatestAvailableMeasurements(
@@ -355,33 +391,8 @@ function findLatestAvailableMeasurements(
     }
 
     // --------------------------------------------------------
-    // PRESSURE
-    // --------------------------------------------------------
-
-    if (
-      values[r][4] !== undefined || values[r][7] !== undefined
-    ) {
-
-      const pressure = sheetTankPressure_(values[r][4], values[r][7]);
-
-      if (
-        pressure !== null &&
-        (
-          !latest.pressure ||
-          date >= latest.pressure.date
-        )
-      ) {
-
-        result.pressure =
-          pressure;
-
-        latest.pressure = {
-          date: date,
-          dateText: dateText
-        };
-      }
-    }
-
+    // The live pressure timeline is resolved after the full measurement scan;
+    // column E is not overwritten by an action-note value.
 
     // --------------------------------------------------------
     // pH
@@ -479,6 +490,15 @@ function findLatestAvailableMeasurements(
     }
   }
 
+
+  const latestPressure = sheetPressureStateFromRows_(values);
+  if (latestPressure) {
+    result.pressure = latestPressure.pressure;
+    result.pressureUpdatedAt = latestPressure.pressureUpdatedAt;
+    result.pressureSource = latestPressure.pressureSource;
+    latest.pressure = { date: latestPressure.date,
+      dateText: Utilities.formatDate(latestPressure.date, "Asia/Jerusalem", "dd/MM/yyyy") };
+  }
 
   // ==========================================================
   // CURRENT DATE
@@ -1123,7 +1143,7 @@ function uploadHistoricalMeasurements(
         extractNumber(
           values[r][2]
         ),
-      pressure: sheetTankPressure_(values[r][4], values[r][7]),
+      pressure: extractNumber(values[r][4]),
       carbonation:
         extractNumber(
           values[r][6]
