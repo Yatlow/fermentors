@@ -9,7 +9,7 @@ import {
   type Tank,
   type WeekPlan,
 } from "./planningEngine";
-import { actualDate, openRuns } from "./dailyPlanner";
+import { actualDate, openRuns, physicalTankMatchesBrew } from "./dailyPlanner";
 import type { Actual } from "./planningEngine";
 import { brewById, resolvePackagingBrewId, type PackagingPlan } from "./planIdentity";
 import { projectTankSchedules } from "./tankScheduleProjection";
@@ -451,7 +451,11 @@ export function validateProductionIssues(
     // the packaging product/type is actually defined.
     if (!runType) continue;
 
-    const cycleKey = linkedBrewId ? `brew:${linkedBrewId}` : `legacy:${tankId}`;
+    // An unlinked physical tank may appear in several distinct batches.
+    // Never add volume from batch A to batch B merely because the tank ID is reused.
+    const physicalCycleBatch = batch || normalizedBatch(t?.batch);
+    const cycleKey = linkedBrewId ? `brew:${linkedBrewId}` :
+      `legacy:${tankId}:${physicalCycleBatch || "unknown"}`;
     const history = tankRuns.get(cycleKey) ?? [];
     history.push({ date: r.date, type: runType });
     tankRuns.set(cycleKey, history);
@@ -468,9 +472,14 @@ export function validateProductionIssues(
     // A future canonical brew's declared volume is its original volume.
     // Subtract already packaged units before validating pending decisions.
     // A physical current tank's liters are already net of its past packaging.
+    // A saved brew can already be the LIVE batch, even when the historical
+    // brew row has no batch number. Use the measured physical balance only when
+    // date, style, tank AND any available batch identities actually agree.
+    // A future brew on the same tank must use its own net declared volume.
     const isCurrentPhysicalCycle = !!linkedBrew && !!t &&
-      normalizedBatch(linkedBrew.batchNumber) !== "" &&
-      normalizedBatch(t.batch) === normalizedBatch(linkedBrew.batchNumber);
+      !String(t.id).startsWith("planned:") &&
+      physicalTankMatchesBrew(t, linkedBrew) &&
+      (!batch || normalizedBatch(t.batch) === batch);
     const packedLiters = linkedBrew && !isCurrentPhysicalCycle
       ? actuals.filter((actual) => {
           const packedDate = actualDate(actual);
@@ -488,8 +497,16 @@ export function validateProductionIssues(
       ? t!.liters
       : linkedBrew ? Math.max(0, linkedBrew.liters - packedLiters) : t?.liters ?? 0;
     if (!cycleLiters) { report(`מיכל ${tankLabel}: חסר נפח מחזור לחישוב האריזה`); continue; }
-    if (used.get(cycleKey)! > cycleLiters + 0.01)
-      { report(`מיכל ${tankLabel}: הכמות המתוכננת גדולה מהנפח הזמין במחזור`); continue; }
+    if (used.get(cycleKey)! > cycleLiters + 0.01) {
+      const required = used.get(cycleKey)!;
+      const shortfall = required - cycleLiters;
+      const otherCommitments = required - r.remaining * unitLiters;
+      const availableForThisRun = Math.max(0, cycleLiters - otherCommitments);
+      const maxUnits = Math.max(0, Math.floor((availableForThisRun + 0.01) / unitLiters));
+      const unitLabel = runType === "crates" ? "ארגזים" : "חביות";
+      report(`מיכל ${tankLabel}: הכמות המתוכננת גדולה מהנפח הזמין במחזור — ${required.toFixed(1)} ל׳ מתוכננים מול ${cycleLiters.toFixed(1)} ל׳ זמינים (חסרים ${shortfall.toFixed(1)} ל׳). לאריזה זו ניתן לשבץ עד ${maxUnits} ${unitLabel} בהתאם לשאר האריזות במחזור. יש לבדוק גם את שיוך האצווה.`);
+      continue;
+    }
     // For the current physical batch, an explicit planned emptying is an
     // operational decision, not a claim that estimated liters exactly match
     // packed units. Beer may be lost to shrinkage or discarded at emptying.

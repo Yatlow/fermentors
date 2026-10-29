@@ -19,7 +19,9 @@ import {
   actualDate,
   dailyForecast,
   futureTanks,
+  forecastableProductionPlans,
   openRuns,
+  physicalTankMatchesBrew,
   type DailyResult,
   type ShipmentEvent,
 } from "./dailyPlanner";
@@ -41,6 +43,34 @@ export type WeeklySkuState = {
   tempoCover: number | null;
   totalCover: number | null;
 };
+
+/** Compare a recommendation and a saved decision against the SAME after-
+ * shipment stock snapshot. They must not use two different formulas just
+ * because the decision has already been persisted. This is planned stock
+ * coverage; operational feasibility is reported separately from the forecast.
+ */
+export function plannedPackagingCover(
+  before: WeeklySkuState | undefined,
+  quantity: number,
+): number | null {
+  if (!before || before.tempoUnits === null) return null;
+  const demand = weeklyDemand(before.product);
+  if (demand <= 0 || !Number.isFinite(quantity)) return null;
+  return (before.tempoUnits + before.breweryUnits + Math.max(0, quantity)) / demand;
+}
+
+/** Units that the operational forecast can actually allocate from the chosen
+ * cycles, measured against the same after-shipment baseline (not theoretical
+ * quantities requested by the planner).
+ */
+export function forecastPackagingUnits(
+  before: WeeklySkuState | undefined,
+  after: WeeklySkuState | undefined,
+): number | null {
+  if (!before || !after || before.totalCover === null || after.totalCover === null) return null;
+  const demand = weeklyDemand(before.product);
+  return demand > 0 ? Math.max(0, (after.totalCover - before.totalCover) * demand) : null;
+}
 
 export type WeeklyShipmentRecommendation = {
   productId: string;
@@ -114,11 +144,7 @@ function dateWeeklyPackaging(plans: WeekPlan[], tanks: Tank[]): WeekPlan[] {
   const readyForRun = (run: Plan) => {
     if (run.brewId) {
       const brew = plannedBrews.find((item) => item.id === run.brewId);
-      if (brew) return tanks.find((tank) =>
-        tank.id === brew.tankId &&
-        tank.brewed === brew.date &&
-        sameStyle(tank.style, brew.style)
-      )?.ready;
+      if (brew) return tanks.find((tank) => physicalTankMatchesBrew(tank, brew))?.ready;
     }
     return run.tankId ? tanks.find((tank) => tank.id === run.tankId)?.ready : undefined;
   };
@@ -204,9 +230,14 @@ function remainingTankLiters(
 ) {
   let liters = tank.liters;
   const brewId = plannedBrewId(tank);
-  const priorPlans = plans.map((w) => w.id === selectedWeek ? { ...w, packaging: [] } : w);
-  for (const run of openRuns(priorPlans, products, actuals)) {
-    if (run.remaining <= 0 || run.week >= selectedWeek) continue;
+  // Exclude the selected week's decisions to compare the system's alternative
+  // recommendation fairly, but reserve ALL other future commitments to the
+  // same physical cycle (including later weeks). Previously only earlier weeks
+  // were deducted: the engine could recommend a full tank that was already
+  // reserved for a later week, then the save validator correctly rejected it.
+  const otherPlans = plans.map((w) => w.id === selectedWeek ? { ...w, packaging: [] } : w);
+  for (const run of openRuns(otherPlans, products, actuals)) {
+    if (run.remaining <= 0 || run.week === selectedWeek) continue;
     // An overdue, unexecuted packing commitment does not consume physical
     // beer. Completed actuals are already reflected by tanksFrom().liters.
     if ((run.date && run.date < today) ||
@@ -225,13 +256,16 @@ function remainingTankLiters(
             const physicalBatch = String(tank.batch ?? "").replace("#", "").trim();
             const linkedBatch = String(linked?.batchNumber ?? "").replace("#", "").trim();
             const runBatch = String(run.batchNumber ?? "").replace("#", "").trim();
-            return !!linked && linked.tankId === tank.id &&
-              linked.date === tank.brewed && sameStyle(linked.style, tank.style) &&
+            return !!linked && physicalTankMatchesBrew(tank, linked) &&
               (!linkedBatch || linkedBatch === physicalBatch) &&
               (!runBatch || runBatch === physicalBatch);
           })()
-        : !!run.tankId && run.tankId === tank.id;
-    if (!belongs) continue;
+        : !!run.tankId && run.tankId === tank.id &&
+          (!normalizedBatchForPlanning(run.batchNumber) ||
+            normalizedBatchForPlanning(run.batchNumber) === normalizedBatchForPlanning(tank.batch));
+    // A tank may be reused. Neither an old batch snapshot nor an undated
+    // physical-tank-only legacy commitment may consume beer from a later cycle.
+    if (!belongs || (!brewId && !!run.date && run.date < tank.brewed)) continue;
     const p = products.find((x) => x.id === run.productId);
     if (p) liters -= run.remaining * litersPerUnit(p);
   }
@@ -252,7 +286,7 @@ function buildPackagingRecommendation(
   const products = settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
   const actualDays = new Set(actuals.map(actualDate).filter((d): d is string => !!d && d >= week && d <= weekEnd));
   const capacity = Math.max(0, (plans.find((w) => w.id === week)?.maxRuns ?? settings.preferredRuns) - actualDays.size);
-  const projectedTanks = futureTanks(tanks, plans, settings);
+  const projectedTanks = futureTanks(tanks, forecastableProductionPlans(tanks, plans, today), settings);
   const eligibleTanks = projectedTanks
     .filter((tank) => tank.ready <= weekEnd)
     .map((tank) => ({ tank, liters: remainingTankLiters(tank, plans, products, actuals, week, today) }))
@@ -332,10 +366,7 @@ function buildPackagingRecommendation(
         // Such packaging is unfinished physical production, not an unrelated
         // future brew merely because it carries brewId.
         const linkedBrew = brewById(plans, linked);
-        return !!linkedBrew && linkedBrew.tankId === tank.id &&
-          linkedBrew.date === tank.brewed && sameStyle(linkedBrew.style, tank.style) &&
-          (!normalizedBatchForPlanning(linkedBrew.batchNumber) ||
-            normalizedBatchForPlanning(linkedBrew.batchNumber) === normalizedBatchForPlanning(tank.batch)) &&
+        return !!linkedBrew && physicalTankMatchesBrew(tank, linkedBrew) &&
           (!normalizedBatchForPlanning(run.batchNumber) ||
             normalizedBatchForPlanning(run.batchNumber) === normalizedBatchForPlanning(tank.batch));
       }
@@ -612,7 +643,7 @@ export function buildWeeklyPlanningModel(args: {
   const shipment = buildShipmentRecommendation(normalized, weekStartRows);
   const packaging = buildPackagingRecommendation(normalized, rows.afterShipment, tanks, plans, actuals, sources, week, weekEnd, today);
   const brew = buildBrewRecommendation(normalized, rows.afterPackaging, tanks, forecastPlans, actuals, sources, today, week, weekEnd);
-  const packagingTankPool = futureTanks(tanks, plans, settings);
+  const packagingTankPool = futureTanks(tanks, forecastableProductionPlans(tanks, plans, today), settings);
   const allPackagingProducts = normalized.products.filter((p) => p.monthly > 0);
   const tankAvailableLiters = new Map(packagingTankPool.map((tank) => [tank.id, remainingTankLiters(tank, plans, allPackagingProducts, actuals, week, today)] as const));
   return {
