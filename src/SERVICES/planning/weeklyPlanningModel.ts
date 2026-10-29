@@ -42,6 +42,34 @@ export type WeeklySkuState = {
   totalCover: number | null;
 };
 
+/** Compare a recommendation and a saved decision against the SAME after-
+ * shipment stock snapshot. They must not use two different formulas just
+ * because the decision has already been persisted. This is planned stock
+ * coverage; operational feasibility is reported separately from the forecast.
+ */
+export function plannedPackagingCover(
+  before: WeeklySkuState | undefined,
+  quantity: number,
+): number | null {
+  if (!before || before.tempoUnits === null) return null;
+  const demand = weeklyDemand(before.product);
+  if (demand <= 0 || !Number.isFinite(quantity)) return null;
+  return (before.tempoUnits + before.breweryUnits + Math.max(0, quantity)) / demand;
+}
+
+/** Units that the operational forecast can actually allocate from the chosen
+ * cycles, measured against the same after-shipment baseline (not theoretical
+ * quantities requested by the planner).
+ */
+export function forecastPackagingUnits(
+  before: WeeklySkuState | undefined,
+  after: WeeklySkuState | undefined,
+): number | null {
+  if (!before || !after || before.totalCover === null || after.totalCover === null) return null;
+  const demand = weeklyDemand(before.product);
+  return demand > 0 ? Math.max(0, (after.totalCover - before.totalCover) * demand) : null;
+}
+
 export type WeeklyShipmentRecommendation = {
   productId: string;
   quantity: number;
