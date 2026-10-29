@@ -137,6 +137,15 @@ export default function PlanningBoard({
   const [busy, setBusy] = useState(false);
   const [earlyPackagingWarning, setEarlyPackagingWarning] = useState<string | null>(null);
   const earlyPackagingResolver = useRef<((approved: boolean) => void) | null>(null);
+  const [volumeCorrection, setVolumeCorrection] = useState<{
+    tankLabel: string;
+    from: number;
+    to: number;
+    unitLabel: string;
+    availableLiters: number;
+    requiredLiters: number;
+  } | null>(null);
+  const volumeCorrectionResolver = useRef<((approved: boolean) => void) | null>(null);
 
   const closed = weekIsClosed(week, today);
   const readOnly = disabled || closed;
@@ -215,6 +224,20 @@ export default function PlanningBoard({
     const resolve = earlyPackagingResolver.current;
     earlyPackagingResolver.current = null;
     setEarlyPackagingWarning(null);
+    resolve?.(approved);
+  }
+
+  function requestVolumeCorrection(offer: NonNullable<typeof volumeCorrection>) {
+    return new Promise<boolean>((resolve) => {
+      volumeCorrectionResolver.current = resolve;
+      setVolumeCorrection(offer);
+    });
+  }
+
+  function resolveVolumeCorrection(approved: boolean) {
+    const resolve = volumeCorrectionResolver.current;
+    volumeCorrectionResolver.current = null;
+    setVolumeCorrection(null);
     resolve?.(approved);
   }
 
@@ -404,15 +427,17 @@ export default function PlanningBoard({
       );
       if (correction) {
         const { from, to, detail } = correction;
-        const accepted = window.confirm(
-          `מיכל ${detail.tankLabel} — הכמות השבועית כבר אינה תואמת את הנפח הזמין.\n\n` +
-          `החלטה שמורה: ${from} ${detail.unitLabel}\n` +
-          `נפח זמין במחזור: ${detail.availableLiters.toFixed(1)} ליטר\n` +
-          `נפח נדרש לכל האריזות במחזור: ${detail.requiredLiters.toFixed(1)} ליטר\n\n` +
-          `אפשר לשבץ כעת עד ${to} ${detail.unitLabel}.\n\n` +
-          `האם לעדכן את ההחלטה השבועית מ־${from} ל־${to} ולשבץ ביום שנבחר?\n` +
-          "האריזות שלא ניתן לייצר לא ייכללו יותר בתכנון המלאי או המשלוחים."
-        );
+        // Use the application's own dialog rather than a browser-native
+        // confirm; hide the saving overlay until the planner responds.
+        setBusy(false);
+        const accepted = await requestVolumeCorrection({
+          tankLabel: detail.tankLabel,
+          from, to,
+          unitLabel: detail.unitLabel,
+          availableLiters: detail.availableLiters,
+          requiredLiters: detail.requiredLiters,
+        });
+        if (accepted) setBusy(true);
         if (!accepted) throw new Error("השיבוץ בוטל. הכמות המתוכננת לא שונתה.");
         // Restart all checks with the user-approved reduced quantity. This
         // also recalculates empty-tank flags and downstream shipment impacts.
@@ -571,9 +596,46 @@ export default function PlanningBoard({
     </div>
   </div>;
 
+  const volumeCorrectionDialog = volumeCorrection && <div className="bp-modal-backdrop" role="presentation">
+    <div className="bp-modal" role="dialog" aria-modal="true" aria-labelledby="bp-volume-correction-title" aria-describedby="bp-volume-correction-description" dir="rtl">
+      <div className="bp-editor-header">
+        <div>
+          <h3 id="bp-volume-correction-title">התאמת כמות אריזה · מיכל {volumeCorrection.tankLabel}</h3>
+          <small>הכמות בהחלטה השבועית גבוהה מהנפח שנותר במחזור.</small>
+        </div>
+      </div>
+      <p id="bp-volume-correction-description" className="bp-alert">
+        לא ניתן לשבץ את מלוא הכמות שנשמרה. אפשר לאשר תיקון נקודתי בלי לבטל את יתר התכנון.
+      </p>
+      <div className="bp-daily-sets">
+        <div className="bp-daily-set">
+          <b>כמות בהחלטה</b>
+          <span>{volumeCorrection.from.toLocaleString("he-IL")} {volumeCorrection.unitLabel}</span>
+        </div>
+        <div className="bp-daily-set">
+          <b>כמות אפשרית לשיבוץ</b>
+          <span><strong>{volumeCorrection.to.toLocaleString("he-IL")} {volumeCorrection.unitLabel}</strong></span>
+        </div>
+      </div>
+      <p>
+        נפח זמין: <strong>{volumeCorrection.availableLiters.toLocaleString("he-IL", { maximumFractionDigits: 1 })} ל׳</strong>
+        {" · "}
+        נפח נדרש: <strong>{volumeCorrection.requiredLiters.toLocaleString("he-IL", { maximumFractionDigits: 1 })} ל׳</strong>
+      </p>
+      <p>באישור תעודכן הכמות מ־{volumeCorrection.from} ל־{volumeCorrection.to} {volumeCorrection.unitLabel}, והאריזה תשובץ ביום שבחרת. שאר בדיקות התכנון יופעלו מחדש.</p>
+      <div className="bp-actions">
+        <button type="button" onClick={() => resolveVolumeCorrection(false)}>ביטול</button>
+        <button type="button" className="bp-action-warning" onClick={() => resolveVolumeCorrection(true)}>
+          עדכן ל־{volumeCorrection.to} {volumeCorrection.unitLabel} ושבץ
+        </button>
+      </div>
+    </div>
+  </div>;
+
   if (brewAssignmentOnly) {
     return <section className="bp-gantt-brew-assignment-only">
       {earlyPackagingDialog}
+      {volumeCorrectionDialog}
       {busy && <BeerLoader overlay message="שומר שיבוצי בישול…" />}
       <PlanningBrewAssignmentEditor
         initial={structuredClone(current)}
@@ -598,6 +660,7 @@ export default function PlanningBoard({
 
   return <section>
     {earlyPackagingDialog}
+    {volumeCorrectionDialog}
     {busy && !brewDraft && <BeerLoader overlay message="שומר את התכנון…" />}
 
     <div className="bp-section-heading">
