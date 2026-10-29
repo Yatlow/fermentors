@@ -342,7 +342,20 @@ export function normalizeEmptyTankFlagsForSchedule(plan: WeekPlan): WeekPlan {
   return { ...plan, packaging };
 }
 
-export type PlanningValidationIssue = { key: string; message: string };
+export type PlanningValidationIssue = {
+  key: string;
+  message: string;
+  /** Structured corrective action, not parsed from a translated error string.
+   * Only offered for a specific, unexecuted packaging commitment. */
+  volumeAdjustment?: {
+    requestedRemainingUnits: number;
+    maxRemainingUnits: number;
+    requiredLiters: number;
+    availableLiters: number;
+    tankLabel: string;
+    unitLabel: string;
+  };
+};
 
 export function validateProductionIssues(
   plans: WeekPlan[],
@@ -371,8 +384,8 @@ export function validateProductionIssues(
     // without brewId even though the source is an unambiguous planned brew.
     // Resolve that narrow case from tank + style + chronology before treating
     // it as legacy physical-tank packaging.
-    const report = (message: string) => {
-      issues.push({ key: `pack:${r.week}:${r.id ?? r.key}`, message });
+    const report = (message: string, volumeAdjustment?: PlanningValidationIssue["volumeAdjustment"]) => {
+      issues.push({ key: `pack:${r.week}:${r.id ?? r.key}`, message, ...(volumeAdjustment ? { volumeAdjustment } : {}) });
     };
     const product = settings.products.find((candidate) => candidate.id === r.productId);
     const runStyle = r.nonInventoryStyle ?? product?.style;
@@ -504,7 +517,14 @@ export function validateProductionIssues(
       const availableForThisRun = Math.max(0, cycleLiters - otherCommitments);
       const maxUnits = Math.max(0, Math.floor((availableForThisRun + 0.01) / unitLiters));
       const unitLabel = runType === "crates" ? "ארגזים" : "חביות";
-      report(`מיכל ${tankLabel}: הכמות המתוכננת גדולה מהנפח הזמין במחזור — ${required.toFixed(1)} ל׳ מתוכננים מול ${cycleLiters.toFixed(1)} ל׳ זמינים (חסרים ${shortfall.toFixed(1)} ל׳). לאריזה זו ניתן לשבץ עד ${maxUnits} ${unitLabel} בהתאם לשאר האריזות במחזור. יש לבדוק גם את שיוך האצווה.`);
+      report(`מיכל ${tankLabel}: הכמות המתוכננת גדולה מהנפח הזמין במחזור — ${required.toFixed(1)} ל׳ מתוכננים מול ${cycleLiters.toFixed(1)} ל׳ זמינים (חסרים ${shortfall.toFixed(1)} ל׳). לאריזה זו ניתן לשבץ עד ${maxUnits} ${unitLabel} בהתאם לשאר האריזות במחזור. יש לבדוק גם את שיוך האצווה.`, {
+        requestedRemainingUnits: r.remaining,
+        maxRemainingUnits: maxUnits,
+        requiredLiters: required,
+        availableLiters: cycleLiters,
+        tankLabel: String(tankLabel),
+        unitLabel,
+      });
       continue;
     }
     // For the current physical batch, an explicit planned emptying is an
@@ -541,6 +561,51 @@ export function validateProductionIssues(
       { report(`מיכל ${tankLabel}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמחזור`); continue; }
   }
   return issues;
+}
+
+/** A dated packaging attempt may expose that a previously saved, still-
+ * pending weekly quantity exceeds the live cycle volume (e.g. 138 stout
+ * crates while only 131 fit). Offer an EXPLICIT reduction to the highest
+ * packable amount. Never silently change the plan, erase a completed run,
+ * increase quantities or reinterpret a different tank/batch.
+ */
+export function proposePendingPackagingVolumeCorrection(
+  previous: WeekPlan,
+  next: WeekPlan,
+  issue: PlanningValidationIssue,
+  rowId: string,
+  products: Settings["products"],
+  allPlans: WeekPlan[],
+  actuals: Actual[],
+): { plan: WeekPlan; from: number; to: number; detail: NonNullable<PlanningValidationIssue["volumeAdjustment"]> } | null {
+  const detail = issue.volumeAdjustment;
+  if (!detail || issue.key !== `pack:${next.id}:${rowId}` ||
+      !Number.isInteger(detail.maxRemainingUnits) || detail.maxRemainingUnits <= 0 ||
+      detail.maxRemainingUnits >= detail.requestedRemainingUnits) return null;
+  const old = previous.packaging.find((run) => run.id === rowId);
+  const edited = next.packaging.find((run) => run.id === rowId);
+  if (!old || !edited || !edited.date ||
+      edited.quantity !== old.quantity || !old.quantity ||
+      edited.tankId !== old.tankId || edited.productId !== old.productId ||
+      edited.batchNumber !== old.batchNumber || edited.brewId !== old.brewId) return null;
+
+  // Never rewrite a quantity that has already been partially packed. Those
+  // reports are reconciled by the dedicated completed/remaining split flow.
+  const originalOpen = openRuns(allPlans, products, actuals)
+    .find((run) => run.week === previous.id && run.id === rowId);
+  if (!originalOpen || originalOpen.remaining !== old.quantity ||
+      detail.requestedRemainingUnits !== edited.quantity) return null;
+  const nextQuantity = detail.maxRemainingUnits;
+  return {
+    plan: {
+      ...next,
+      packaging: next.packaging.map((run) =>
+        run.id === rowId ? { ...run, quantity: nextQuantity } : run),
+    },
+    from: edited.quantity,
+    to: nextQuantity,
+    detail,
+  };
 }
 
 /** Legacy single-message interface retained for direct form validation. */
