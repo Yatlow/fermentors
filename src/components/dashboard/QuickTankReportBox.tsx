@@ -267,8 +267,19 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
             notes: noteText,
         };
         if (noteType === "גיזוז") reading.carbonation = value;
-        if (noteType === "גיזוז מלמטה התחלה" || noteType === "גיזוז מלמטה סגירה") {
-            reading.pressure = Number(value);
+        // Reported tank pressure is a reading, not merely a note. The valve
+        // setting ("פורק" / "סגירת מיכל") is NOT a tank pressure reading.
+        if (noteType === "לחץ" || noteType === "שמרים" ||
+            noteType === "גיזוז מלמטה התחלה" || noteType === "גיזוז מלמטה סגירה") {
+            const pressureText = noteType === "שמרים" ? value2 : value;
+            const reportedPressure = Number(pressureText);
+            if (!pressureText.trim() || !Number.isFinite(reportedPressure) || reportedPressure < 0) {
+                setStatus("error");
+                setErrorMsg("יש להזין לחץ תקין ב־bar");
+                submitInFlightRef.current = false;
+                return;
+            }
+            reading.pressure = reportedPressure;
         }
 
         try {
