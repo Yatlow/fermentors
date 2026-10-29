@@ -216,10 +216,12 @@ async function reconcileConfirmedReadings(
             const liveBatch = normalizeBatchId(String(live?.batchNumber ?? ""));
             const reported = reportedPressureUpdate(row.reading);
             if (reported && expectedBatch === liveBatch &&
-                isNewerPressureUpdate(live?.currentData?.pressureUpdatedAt, reported.at)) {
+                (String(live?.currentData?.pressureBatchNumber ?? "") !== expectedBatch ||
+                    isNewerPressureUpdate(live?.currentData?.pressureUpdatedAt, reported.at))) {
                 currentData.pressure = reported.pressure;
                 currentData.pressureUpdatedAt = reported.at;
                 currentData.pressureSource = reported.source;
+                currentData.pressureBatchNumber = expectedBatch;
             }
             transaction.set(doc(db, "brews", row.batchId, "measurements", row.measurementId),
                 measurement, { merge: true });
@@ -416,12 +418,14 @@ export async function pushCurrentDataToFirestore(
                 pressureUpdates.forEach(({ batchId, update }, index) => {
                     const live = current[index].data();
                     if (!live || normalizeBatchId(String(live.batchNumber ?? "")) !== batchId ||
-                        !isNewerPressureUpdate(live.currentData?.pressureUpdatedAt, update.at)) return;
+                        (String(live.currentData?.pressureBatchNumber ?? "") === batchId &&
+                        !isNewerPressureUpdate(live.currentData?.pressureUpdatedAt, update.at))) return;
                     transaction.set(refs[index], {
                         currentData: {
                             pressure: update.pressure,
                             pressureUpdatedAt: update.at,
                             pressureSource: update.source,
+                            pressureBatchNumber: batchId,
                         },
                         lastChangeSource: "APP",
                     }, { merge: true });
