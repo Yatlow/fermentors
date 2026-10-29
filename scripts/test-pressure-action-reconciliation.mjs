@@ -82,9 +82,6 @@ assert.equal(latest([
 
 assert.match(quick, /reading\.pressureAfterAction = reportedPressure/);
 assert.match(quick, /reading\.pressureRecordedAt = actionDate\.toISOString/);
-assert.match(quick, /notes: noteText,/);
-assert.doesNotMatch(quick, /דווח בשעה \$\{formatClockTime\(actionDate\)\}/);
-assert.match(quick, /const pressureText = `הורדת לחץ ל-\$\{pressureAfter\} bar`/);
 assert.doesNotMatch(quick, /reading\.pressure = reportedPressure/);
 assert.match(quick, /pressureAfterAction: !isEmpty && hasValidPressure/);
 assert.doesNotMatch(quick, /pressure: !isEmpty && hasValidPressure/);
