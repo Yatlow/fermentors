@@ -232,9 +232,14 @@ function remainingTankLiters(
 ) {
   let liters = tank.liters;
   const brewId = plannedBrewId(tank);
-  const priorPlans = plans.map((w) => w.id === selectedWeek ? { ...w, packaging: [] } : w);
-  for (const run of openRuns(priorPlans, products, actuals)) {
-    if (run.remaining <= 0 || run.week >= selectedWeek) continue;
+  // Exclude the selected week's decisions to compare the system's alternative
+  // recommendation fairly, but reserve ALL other future commitments to the
+  // same physical cycle (including later weeks). Previously only earlier weeks
+  // were deducted: the engine could recommend a full tank that was already
+  // reserved for a later week, then the save validator correctly rejected it.
+  const otherPlans = plans.map((w) => w.id === selectedWeek ? { ...w, packaging: [] } : w);
+  for (const run of openRuns(otherPlans, products, actuals)) {
+    if (run.remaining <= 0 || run.week === selectedWeek) continue;
     // An overdue, unexecuted packing commitment does not consume physical
     // beer. Completed actuals are already reflected by tanksFrom().liters.
     if ((run.date && run.date < today) ||
@@ -258,8 +263,12 @@ function remainingTankLiters(
               (!linkedBatch || linkedBatch === physicalBatch) &&
               (!runBatch || runBatch === physicalBatch);
           })()
-        : !!run.tankId && run.tankId === tank.id;
-    if (!belongs) continue;
+        : !!run.tankId && run.tankId === tank.id &&
+          (!normalizedBatchForPlanning(run.batchNumber) ||
+            normalizedBatchForPlanning(run.batchNumber) === normalizedBatchForPlanning(tank.batch));
+    // A tank may be reused. Neither an old batch snapshot nor an undated
+    // physical-tank-only legacy commitment may consume beer from a later cycle.
+    if (!belongs || (!brewId && !!run.date && run.date < tank.brewed)) continue;
     const p = products.find((x) => x.id === run.productId);
     if (p) liters -= run.remaining * litersPerUnit(p);
   }
