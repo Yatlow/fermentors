@@ -53,13 +53,13 @@ export function planningWeekIssues(
     if (packagingDays.size > w.maxRuns)
       errors.push("חריגה ממכסת ימי האריזה השבועית");
     for (const [date, runs] of packagingByDay) {
-      if (new Set(runs.map((run) => run.item)).size > 1)
-        errors.push(`${date}: יותר מפריט אריזה אחד ביום`);
-      if (new Set(runs.map((run) => run.type)).size > 1)
-        errors.push(`${date}: אין לשלב בקבוקים וחביות באותו יום`);
+      // A mixed crates/kegs shift is confirmable at the save boundary.
+      // Still disallow two different products of the SAME packaging type.
       for (const type of ["crates", "kegs"] as const) {
-        const total = runs.filter((run) => run.type === type)
-          .reduce((sum, run) => sum + run.quantity, 0);
+        const typedRuns = runs.filter((run) => run.type === type);
+        if (new Set(typedRuns.map((run) => run.item)).size > 1)
+          errors.push(`${date}: יותר מפריט אריזה אחד מסוג ${type === "crates" ? "ארגזים" : "חביות"} ביום`);
+        const total = typedRuns.reduce((sum, run) => sum + run.quantity, 0);
         const cap = packagingLimit(date, type);
         if (total > cap)
           errors.push(`${date}: ${total} ${type === "crates" ? "ארגזים" : "חביות"} חורגים מקיבולת ${cap}`);
@@ -109,4 +109,41 @@ export function validatePlanningWeek(
   today: string,
 ): string | null {
   return planningWeekIssues(w, settings, all, today)[0] ?? null;
+}
+
+/** A mixed-format day is not an operational error; a changed mix needs an
+ * explicit planner confirmation before saving. Compare only physical packaging
+ * commitments so row IDs, recommendation metadata and order do not trigger
+ * spurious repeated confirmations.
+ */
+export function changedMixedPackagingDays(
+  previous: WeekPlan | undefined,
+  next: WeekPlan,
+  settings: Settings,
+): { date: string; crates: number; kegs: number }[] {
+  const byDay = new Map<string, { date: string; crates: number; kegs: number }>();
+  for (const run of next.packaging) {
+    if (!run.date || !Number.isFinite(run.quantity) || run.quantity <= 0) continue;
+    const type = settings.products.find((item) => item.id === run.productId)?.type
+      ?? run.nonInventoryType;
+    if (type !== "crates" && type !== "kegs") continue;
+    const day = byDay.get(run.date) ?? { date: run.date, crates: 0, kegs: 0 };
+    day[type] += run.quantity;
+    byDay.set(run.date, day);
+  }
+
+  const signature = (week: WeekPlan | undefined, date: string) =>
+    JSON.stringify((week?.packaging ?? [])
+      .filter((run) => run.date === date && run.quantity > 0)
+      .map((run) => [
+        run.productId, run.nonInventoryStyle ?? "", run.nonInventoryType ?? "",
+        run.tankId ?? "", run.tankNumber ?? "", run.batchNumber ?? "",
+        run.quantity,
+      ])
+      .map((row) => JSON.stringify(row)).sort());
+
+  return [...byDay.values()]
+    .filter((day) => day.crates > 0 && day.kegs > 0 &&
+      signature(previous, day.date) !== signature(next, day.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }

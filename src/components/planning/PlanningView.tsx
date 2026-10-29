@@ -4,6 +4,7 @@ import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { validatePlanningDecisionChange } from "../../SERVICES/planning/planningDecisionSafety";
+import { changedMixedPackagingDays } from "../../SERVICES/planning/planningValidation";
 import { truckPlanningGroupKey } from "../../SERVICES/planning/truckPlanner";
 import { planningReadRequirements } from "../../SERVICES/planning/planningReadCoverage";
 import { pendingStockExecutionPlans } from "../../SERVICES/planning/planningStockExecution";
@@ -141,6 +142,22 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       settings, tanks, sources: productionTanks, actuals, today,
     });
     if (integrityError) throw new Error("התכנון אינו ניתן לביצוע: " + integrityError);
+    // A mixed-format shift is a planner decision, not a global bypass of
+    // capacity, inventory, other-product or tank-cycle validations.
+    // Ask only when the day's actual packaging commitments change.
+    const mixedDays = changedMixedPackagingDays(original, canonical, settings);
+    if (mixedDays.length) {
+      const detail = mixedDays.map(({ date, crates, kegs }) =>
+        `• ${date}: ${crates} ארגזים ו־${kegs} חביות`).join("\n");
+      const approved = window.confirm(
+        "⚠️ אישור שילוב אריזות באותו יום\n\n" +
+        detail +
+        "\n\nזהו שילוב של אריזת בקבוקים וחביות באותה משמרת. " +
+        "מגבלות הכמות לכל סוג והבדיקות התפעוליות נשארות פעילות.\n\n" +
+        "האם לאשר את השילוב ולשמור את התכנון?"
+      );
+      if (!approved) throw new Error("השמירה בוטלה: שילוב בקבוקים וחביות לא אושר.");
+    }
     if ((shipmentDecisionChanged || packagingDecisionChanged) && !data.loading && readScope.pallets && readScope.actuals) {
       const after = auditShipmentAvailability(settings, pallets, nextPlans, actuals, today, data.actualShipments);
       const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments);
