@@ -24,6 +24,7 @@ import {
   weeklyDemand,
   type Actual,
   type Allocation,
+  type BrewPlan,
   type Holiday,
   type Plan,
   type Product,
@@ -126,6 +127,20 @@ export function openRuns(
     }),
   );
 }
+/** A planned brew and the active physical batch are the same production
+ * cycle when their stable batch number agrees. A scheduled brew can start a
+ * day later than planned: the calendar date alone must never make a second,
+ * imaginary fermentor or hide its real packaging volume. With no recorded
+ * batch number, require exact brew-date identity as the conservative fallback.
+ */
+export function physicalTankMatchesBrew(tank: Tank, brew: BrewPlan): boolean {
+  if (tank.id !== brew.tankId || !sameStyle(tank.style, brew.style)) return false;
+  const plannedBatch = String(brew.batchNumber ?? "").replace("#", "").trim();
+  const physicalBatch = String(tank.batch ?? "").replace("#", "").trim();
+  return plannedBatch ? !!physicalBatch && physicalBatch === plannedBatch :
+    tank.brewed === brew.date;
+}
+
 export function futureTanks(
   tanks: Tank[],
   plans: WeekPlan[],
@@ -138,12 +153,7 @@ export function futureTanks(
       const key = `${b.tankId}:${b.date}:${styleKey(b.style)}`;
       if (
         seen.has(key) ||
-        tanks.some(
-          (t) =>
-            t.id === b.tankId &&
-            t.brewed === b.date &&
-            sameStyle(t.style, b.style),
-        )
+        tanks.some((t) => physicalTankMatchesBrew(t, b))
       )
         return [];
       seen.add(key);
@@ -232,7 +242,7 @@ export function dailyForecast(
       brews: w.brews.filter(
         (b) =>
           b.date >= today ||
-          tanks.some((t) => t.id === b.tankId && t.brewed === b.date),
+          tanks.some((t) => physicalTankMatchesBrew(t, b)),
       ),
     })),
     settings,
@@ -267,13 +277,9 @@ export function dailyForecast(
     // case futureTanks deliberately does not create a duplicate virtual tank.
     // Resolve canonical identity against that actual tank before allocating.
     const canonicalBrew = canonicalBrewId ? brewById(plans, canonicalBrewId) : null;
-    const physicalCanonical = canonicalBrew ? pool.find((tank) =>
-      tank.id === canonicalBrew.tankId &&
-      tank.brewed === canonicalBrew.date &&
-      sameStyle(tank.style, canonicalBrew.style) &&
-      (!canonicalBrew.batchNumber ||
-        String(tank.batch).replace("#", "").trim() === String(canonicalBrew.batchNumber).replace("#", "").trim())
-    ) : undefined;
+    const physicalCanonical = canonicalBrew
+      ? pool.find((tank) => physicalTankMatchesBrew(tank, canonicalBrew))
+      : undefined;
     const committedPool = (
       canonicalBrewId
         ? pool.filter((tank) => tank.id === (physicalCanonical?.id ?? `planned:${canonicalBrewId}`))
