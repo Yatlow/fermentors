@@ -141,6 +141,33 @@ export function physicalTankMatchesBrew(tank: Tank, brew: BrewPlan): boolean {
     tank.brewed === brew.date;
 }
 
+/** A physical tank and each future planned brew are separate, time-bounded
+ * cycles. Once a DIFFERENT brew starts on the same tank, the previous cycle
+ * must never supply packaging recommendations or finished-stock forecasts.
+ *
+ * The pool still retains old cycles so that decisions BEFORE the next brew
+ * can be validated. This date-scoped guard prevents the old physical batch
+ * leaking into later forecast weeks without deleting its history.
+ */
+export function tankCycleCanSupplyOn(
+  tank: Tank,
+  plans: WeekPlan[],
+  date: string,
+): boolean {
+  const plannedId = tank.id.startsWith("planned:") ? tank.id.slice("planned:".length) : null;
+  const brews = plans.flatMap((week) => week.brews ?? []);
+  const owner = plannedId ? brews.find((brew) => brew.id === plannedId) : undefined;
+  const physicalTankId = owner?.tankId ?? tank.id;
+  const cycleStart = owner?.date ?? tank.brewed;
+  return !brews.some((brew) =>
+    brew.tankId === physicalTankId &&
+    brew.date <= date &&
+    (owner
+      ? brew.id !== owner.id && brew.date > cycleStart
+      : brew.date >= cycleStart && !physicalTankMatchesBrew(tank, brew)),
+  );
+}
+
 export function futureTanks(
   tanks: Tank[],
   plans: WeekPlan[],
@@ -251,7 +278,8 @@ export function dailyForecast(
     open = openRuns(plans, products, actuals),
     // The Gantt includes week +84 through Saturday +90. End is exclusive.
     end = addDays(weekStart(today), 91);
-  const pool = futureTanks(tanks, forecastableProductionPlans(tanks, plans, today), settings);
+  const eligiblePlans = forecastableProductionPlans(tanks, plans, today);
+  const pool = futureTanks(tanks, eligiblePlans, settings);
   const available = new Map(pool.map((t) => [t.id, t.liters]));
   const bookings = new Map<string, Allocation[]>();
   const dated = open
@@ -291,7 +319,8 @@ export function dailyForecast(
         : r.tankId
           ? pool.filter((tank) => tank.id === r.tankId)
           : pool
-    ).map((tank) => tank.ready > r.date! ? { ...tank, ready: r.date! } : tank);
+    ).filter((tank) => tankCycleCanSupplyOn(tank, eligiblePlans, r.date!))
+      .map((tank) => tank.ready > r.date! ? { ...tank, ready: r.date! } : tank);
     const allocations = allocate(
       committedPool,
       available,
@@ -488,6 +517,7 @@ export function dailyForecast(
         const tank = pool.find(
           (t) =>
             sameStyle(t.style, p.style) &&
+            tankCycleCanSupplyOn(t, eligiblePlans, day) &&
             t.ready <= day &&
             (available.get(t.id) ?? 0) >=
               litersPerUnit(p) * (p.type === "crates" ? 84 : 1) &&

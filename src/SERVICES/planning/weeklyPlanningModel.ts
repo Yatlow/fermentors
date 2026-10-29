@@ -22,6 +22,7 @@ import {
   forecastableProductionPlans,
   openRuns,
   physicalTankMatchesBrew,
+  tankCycleCanSupplyOn,
   type DailyResult,
   type ShipmentEvent,
 } from "./dailyPlanner";
@@ -139,12 +140,23 @@ function forecastSettings(settings: Settings, today: string): Settings {
   };
 }
 
-function dateWeeklyPackaging(plans: WeekPlan[], tanks: Tank[]): WeekPlan[] {
+function dateWeeklyPackaging(plans: WeekPlan[], tanks: Tank[], settings: Settings): WeekPlan[] {
   const plannedBrews = plans.flatMap((week) => week.brews ?? []);
   const readyForRun = (run: Plan) => {
-    if (run.brewId) {
-      const brew = plannedBrews.find((item) => item.id === run.brewId);
-      if (brew) return tanks.find((tank) => physicalTankMatchesBrew(tank, brew))?.ready;
+    const brewId = resolvePackagingBrewId(run, plans);
+    if (brewId) {
+      const brew = plannedBrews.find((item) => item.id === brewId);
+      if (brew) {
+        const physical = tanks.find((tank) => physicalTankMatchesBrew(tank, brew));
+        if (physical) return physical.ready;
+        // An undated decision referencing the NEXT batch must not inherit
+        // the old batch's ready date from the reused physical tank. Otherwise
+        // an imagined date in week 47 could credit stock from a Nov 9 brew
+        // that does not mature until Nov 30.
+        const leads = settings.products.filter((p) => sameStyle(p.style, brew.style))
+          .map((p) => p.leadDays);
+        return addDays(brew.date, Math.max(21, ...leads));
+      }
     }
     return run.tankId ? tanks.find((tank) => tank.id === run.tankId)?.ready : undefined;
   };
@@ -286,9 +298,14 @@ function buildPackagingRecommendation(
   const products = settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
   const actualDays = new Set(actuals.map(actualDate).filter((d): d is string => !!d && d >= week && d <= weekEnd));
   const capacity = Math.max(0, (plans.find((w) => w.id === week)?.maxRuns ?? settings.preferredRuns) - actualDays.size);
-  const projectedTanks = futureTanks(tanks, forecastableProductionPlans(tanks, plans, today), settings);
+  const productionPlans = forecastableProductionPlans(tanks, plans, today);
+  const projectedTanks = futureTanks(tanks, productionPlans, settings);
   const eligibleTanks = projectedTanks
-    .filter((tank) => tank.ready <= weekEnd)
+    // This week's recommendation has no execution date yet. A tank with a
+    // replacement brew starting during the week is not an available source
+    // for the previous batch's finishing or coverage recommendation.
+    .filter((tank) => tank.ready <= weekEnd &&
+      tankCycleCanSupplyOn(tank, productionPlans, weekEnd))
     .map((tank) => ({ tank, liters: remainingTankLiters(tank, plans, products, actuals, week, today) }))
     .filter((entry) => entry.liters >= 20)
     .sort((a, b) => a.tank.brewed.localeCompare(b.tank.brewed) || Number(a.tank.number) - Number(b.tank.number));
@@ -631,7 +648,7 @@ export function buildWeeklyPlanningModel(args: {
   const { settings, pallets, tanks, plans, actuals, sources, today, week, holidays, shipments } = args;
   const weekEnd = addDays(week, 6);
   const normalized = forecastSettings(settings, today);
-  const forecastPlans = dateWeeklyPackaging(plans, tanks);
+  const forecastPlans = dateWeeklyPackaging(plans, tanks, settings);
   const stages: WeeklyStage[] = ["base", "afterShipment", "afterPackaging", "committed"];
   const forecasts = {} as Record<WeeklyStage, DailyResult>;
   const rows = {} as Record<WeeklyStage, Map<string, WeeklySkuState>>;
@@ -643,9 +660,18 @@ export function buildWeeklyPlanningModel(args: {
   const shipment = buildShipmentRecommendation(normalized, weekStartRows);
   const packaging = buildPackagingRecommendation(normalized, rows.afterShipment, tanks, plans, actuals, sources, week, weekEnd, today);
   const brew = buildBrewRecommendation(normalized, rows.afterPackaging, tanks, forecastPlans, actuals, sources, today, week, weekEnd);
-  const packagingTankPool = futureTanks(tanks, forecastableProductionPlans(tanks, plans, today), settings);
+  const productionPlans = forecastableProductionPlans(tanks, plans, today);
+  const packagingTankPool = futureTanks(tanks, productionPlans, settings);
   const allPackagingProducts = normalized.products.filter((p) => p.monthly > 0);
-  const tankAvailableLiters = new Map(packagingTankPool.map((tank) => [tank.id, remainingTankLiters(tank, plans, allPackagingProducts, actuals, week, today)] as const));
+  // Keep the old physical cycle in the lookup for historical and earlier-week
+  // editing, but publish ZERO packable liters after its replacement brew. The
+  // manual editor uses this map too, so it must not offer phantom old stock.
+  const tankAvailableLiters = new Map(packagingTankPool.map((tank) => [
+    tank.id,
+    tankCycleCanSupplyOn(tank, productionPlans, weekEnd)
+      ? remainingTankLiters(tank, plans, allPackagingProducts, actuals, week, today)
+      : 0,
+  ] as const));
   return {
     week,
     weekEnd,
