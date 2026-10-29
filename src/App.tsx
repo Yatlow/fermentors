@@ -112,6 +112,9 @@ export type NewReading = {
     plato?: string | number | null;
     pH?: string | number | null;
     pressure?: string | number | null;
+    // Action pressure is separate from the immutable morning measurement.
+    pressureAfterAction?: number;
+    pressureRecordedAt?: string;
     carbonation?: string | number | null;
     volume?: string | number | null;
     notes?: string | null;

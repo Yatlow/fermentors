@@ -258,17 +258,33 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
         setStatus("sending");
         setErrorMsg("");
 
+        const actionDate = new Date();
+        const isPressureAction = noteType === "לחץ" || noteType === "שמרים" ||
+            noteType === "גיזוז מלמטה התחלה" || noteType === "גיזוז מלמטה סגירה";
         const reading: any = {
-            id: buildMeasurementId(),
+            id: buildMeasurementId(actionDate),
             tankId: tank.id,
             tankNumber: tank.tankNumber,
             batchNumber: tank.batchNumber,
             sheetUrl: tank.sheetUrl ?? null,
-            notes: noteText,
+            // The Sheet pressure column belongs to the morning measurement.
+            // Append the action time to the journal instead of replacing it.
+            notes: isPressureAction ? `${noteText} (דווח בשעה ${formatClockTime(actionDate)})` : noteText,
         };
         if (noteType === "גיזוז") reading.carbonation = value;
-        if (noteType === "גיזוז מלמטה התחלה" || noteType === "גיזוז מלמטה סגירה") {
-            reading.pressure = Number(value);
+        if (isPressureAction) {
+            const pressureText = noteType === "שמרים" ? value2 : value;
+            const reportedPressure = Number(pressureText);
+            if (!pressureText.trim() || !Number.isFinite(reportedPressure) || reportedPressure < 0) {
+                setStatus("error");
+                setErrorMsg("יש להזין לחץ תקין ב־bar");
+                submitInFlightRef.current = false;
+                return;
+            }
+            // Updates only the live fermentor pressure; never today's
+            // measurement.pressure or the morning pressure cell in Sheets.
+            reading.pressureAfterAction = reportedPressure;
+            reading.pressureRecordedAt = actionDate.toISOString();
         }
 
         try {
@@ -371,9 +387,11 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
                 notes = notes ? `${notes}, סה"כ ${reportLiters.toFixed(2)} ליטר` : `סה"כ ${reportLiters.toFixed(2)} ליטר`;
             }
 
-            const hasValidPressure = pressureAfter !== "" && !Number.isNaN(Number(pressureAfter));
+            const actionDate = new Date();
+            const hasValidPressure = pressureAfter.trim() !== "" &&
+                Number.isFinite(Number(pressureAfter)) && Number(pressureAfter) >= 0;
             if (!isEmpty && hasValidPressure) {
-                const pressureText = `הורדת לחץ ל-${pressureAfter}`;
+                const pressureText = `הורדת לחץ ל-${pressureAfter} bar (דווח בשעה ${formatClockTime(actionDate)})`;
                 notes = notes ? `${notes} | ${pressureText}` : pressureText;
             }
 
@@ -388,7 +406,8 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
                 isEmpty: isEmpty ? true : undefined,
                 kegs: packagingType === "kegs" && reportLiters > 0 ? reportLiters : undefined,
                 crates: packagingType === "bottles" && reportLiters > 0 ? reportLiters : undefined,
-                pressure: !isEmpty && hasValidPressure ? Number(pressureAfter) : undefined,
+                pressureAfterAction: !isEmpty && hasValidPressure ? Number(pressureAfter) : undefined,
+                pressureRecordedAt: !isEmpty && hasValidPressure ? actionDate.toISOString() : undefined,
                 totalLiters,
                 shrinkagePercent,
             };

@@ -48,7 +48,8 @@ BEHAVIOR:
 var FC_CYCLE_CONTEXT_ = null;
 const FC_CYCLE_LEASE_KEY_ = "fc_cycle_lease_v2";
 const FC_CYCLE_LEASE_TTL_MS_ = 9 * 60 * 1000;
-const FC_SHEET_REVISION_PREFIX_ = "fc_sheet_revision_v1:";
+// v2 revisits unchanged active Sheets once to recover legacy note-only pressure.
+const FC_SHEET_REVISION_PREFIX_ = "fc_sheet_revision_v3:";
 
 function fcTimed_(label, callback) {
   const started = Date.now();
@@ -349,6 +350,18 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
           uid: entry.id,
           startingPlato: brew.startingPlato == null ? null : brew.startingPlato
         };
+        // The Sheet may be read before a newer browser report reaches Firestore.
+        // Never roll its older pressure snapshot over a later live observation.
+        if (next.currentData && entry.data.currentData &&
+            String(entry.data.batchNumber || "") === String(next.batchNumber || "")) {
+          const storedAt = String(entry.data.currentData.pressureUpdatedAt || "");
+          const incomingAt = String(next.currentData.pressureUpdatedAt || "");
+          if (storedAt && (!incomingAt || storedAt > incomingAt)) {
+            next.currentData.pressure = entry.data.currentData.pressure;
+            next.currentData.pressureUpdatedAt = storedAt;
+            next.currentData.pressureSource = entry.data.currentData.pressureSource || "action";
+          }
+        }
         const action = parseAction(entry.data.action);
         if (action !== null && action >= 3 && next.currentData) {
           try {
@@ -467,7 +480,7 @@ function resetChangeCache() {
     const all = props.getProperties();
     let count = 0;
     Object.keys(all).forEach(function (key) {
-      if (/^(fermentor:|packaging:|measurement:|brewProgress:|fc_success_v1:|fc_sheet_revision_v1:)/.test(key)) {
+      if (/^(fermentor:|packaging:|measurement:|brewProgress:|fc_success_v1:|fc_sheet_revision_v[0-9]+:)/.test(key)) {
         props.deleteProperty(key);
         count++;
       }
@@ -643,6 +656,9 @@ function extractBrew(spreadSheetId) {
   }
 
   brew.currentData = findLatestAvailableMeasurements(values);
+  if (brew.currentData && brew.currentData.pressureUpdatedAt) {
+    brew.currentData.pressureBatchNumber = String(brew.batchNumber || "").replace("#", "").trim();
+  }
   brew.cellarState = fcBuildCellarState_(values, brew.batchNumber);
   return brew;
 }

@@ -76,6 +76,24 @@ function toNumberOrNull(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
+// A pressure action changes live tank pressure, not the daily measurement.
+// The immutable observation time prevents late Sheet replies or older requests
+// from rolling back a newer measurement/action.
+function reportedPressureUpdate(reading: ReadingLike): { pressure: number; at: string; source: string } | null {
+    const isAction = hasValue(reading.pressureAfterAction);
+    const raw = isAction ? reading.pressureAfterAction : reading.pressure;
+    if (!hasValue(raw)) return null;
+    const pressure = toNumberOrNull(raw);
+    const at = String(reading.pressureRecordedAt ?? "");
+    if (pressure === null || pressure < 0 || !Number.isFinite(Date.parse(at))) return null;
+    return { pressure, at, source: isAction ? "action" : "measurement" };
+}
+
+function isNewerPressureUpdate(existing: unknown, incoming: string): boolean {
+    return !existing || typeof existing !== "string" ||
+        !Number.isFinite(Date.parse(existing)) || Date.parse(incoming) >= Date.parse(existing);
+}
+
 function normalizeBatchId(batchNumber: string | number): string {
     return String(batchNumber).replace("#", "").trim();
 }
@@ -105,6 +123,8 @@ function sheetOutboxPayload(readings: ReadingLike[]): string {
             batchNumber: reading.batchNumber == null ? null : String(reading.batchNumber),
             temp: reading.temp ?? null,
             pressure: reading.pressure ?? null,
+            pressureAfterAction: reading.pressureAfterAction ?? null,
+            pressureRecordedAt: reading.pressureRecordedAt ?? null,
             plato: reading.plato ?? null,
             pH: reading.pH ?? null,
             carbonation: reading.carbonation ?? null,
@@ -185,8 +205,24 @@ async function reconcileConfirmedReadings(
             };
             const currentData = Object.fromEntries(
                 Object.entries(measurement)
-                    .filter(([key, value]) => key !== "date" && key !== "time" && value !== null && value !== ""),
+                    // A complete Sheet row contains the morning pressure even
+                    // for unrelated afternoon notes. Never let it roll back the
+                    // current tank pressure.
+                    .filter(([key, value]) => key !== "date" && key !== "time" &&
+                        key !== "pressure" && value !== null && value !== ""),
             );
+            const live = tanks[index].data();
+            const expectedBatch = normalizeBatchId(String(row.reading.batchNumber ?? ""));
+            const liveBatch = normalizeBatchId(String(live?.batchNumber ?? ""));
+            const reported = reportedPressureUpdate(row.reading);
+            if (reported && expectedBatch === liveBatch &&
+                (String(live?.currentData?.pressureBatchNumber ?? "") !== expectedBatch ||
+                    isNewerPressureUpdate(live?.currentData?.pressureUpdatedAt, reported.at))) {
+                currentData.pressure = reported.pressure;
+                currentData.pressureUpdatedAt = reported.at;
+                currentData.pressureSource = reported.source;
+                currentData.pressureBatchNumber = expectedBatch;
+            }
             transaction.set(doc(db, "brews", row.batchId, "measurements", row.measurementId),
                 measurement, { merge: true });
             if (Object.keys(currentData).length) {
@@ -226,6 +262,7 @@ export async function pushCurrentDataToFirestore(
         batchId: string;
         measurement: Measurement;
     }> = [];
+    const pressureUpdates: Array<{ tankId: string; batchId: string; update: NonNullable<ReturnType<typeof reportedPressureUpdate>> }> = [];
 
     readings.forEach((reading) => {
         const sheetResult = asSheetResult(reading.sheetResult);
@@ -235,7 +272,7 @@ export async function pushCurrentDataToFirestore(
             ? crypto.randomUUID() : null;
 
         CURRENT_DATA_FIELDS.forEach((field) => {
-            if (reading[field] !== undefined) {
+            if (field !== "pressure" && reading[field] !== undefined) {
                 currentData[field] = normalizeCurrentDataValue(field, reading[field]);
             }
         });
@@ -245,7 +282,6 @@ export async function pushCurrentDataToFirestore(
             const authoritativeValues: Record<string, unknown> = {
                 temp: toNumberOrNull(sheetResult.temperature),
                 plato: toNumberOrNull(sheetResult.sugar),
-                pressure: toNumberOrNull(sheetResult.pressure),
                 pH: toNumberOrNull(sheetResult.pH),
                 carbonation: toNumberOrNull(sheetResult.carbonation),
                 notes: String(sheetResult.notes ?? "").trim(),
@@ -253,6 +289,15 @@ export async function pushCurrentDataToFirestore(
 
             Object.entries(authoritativeValues).forEach(([key, value]) => {
                 if (value !== null && value !== "") currentData[key] = value;
+            });
+        }
+
+        const reported = reportedPressureUpdate(reading);
+        if (reported) {
+            pressureUpdates.push({
+                tankId: reading.tankId,
+                batchId: normalizeBatchId(String(reading.batchNumber ?? "")),
+                update: reported,
             });
         }
 
@@ -340,6 +385,7 @@ export async function pushCurrentDataToFirestore(
             if (hasValue(reading.kegs) || hasValue(reading.crates) || reading.isEmpty !== undefined) return "אריזה";
             if (hasValue(reading.carbonation)) return "בדיקת גיזוז";
             if (hasValue(reading.plato) || hasValue(reading.pH)) return "פלאטו / pH";
+            if (hasValue(reading.pressureAfterAction)) return "שינוי לחץ / לחץ אחרי פעולה";
             if (hasValue(reading.temp) || hasValue(reading.pressure)) return "טמפרטורה / לחץ";
             if (hasValue(reading.notes)) return "פעולת סלרינג";
             return "מדידה";
@@ -365,6 +411,27 @@ export async function pushCurrentDataToFirestore(
 
     const commitAndRefreshCache = async () => {
         await firestoreBatch.commit();
+        if (pressureUpdates.length) {
+            await runTransaction(db, async transaction => {
+                const refs = pressureUpdates.map(item => doc(db, "fermentors", item.tankId));
+                const current = await Promise.all(refs.map(ref => transaction.get(ref)));
+                pressureUpdates.forEach(({ batchId, update }, index) => {
+                    const live = current[index].data();
+                    if (!live || normalizeBatchId(String(live.batchNumber ?? "")) !== batchId ||
+                        (String(live.currentData?.pressureBatchNumber ?? "") === batchId &&
+                        !isNewerPressureUpdate(live.currentData?.pressureUpdatedAt, update.at))) return;
+                    transaction.set(refs[index], {
+                        currentData: {
+                            pressure: update.pressure,
+                            pressureUpdatedAt: update.at,
+                            pressureSource: update.source,
+                            pressureBatchNumber: batchId,
+                        },
+                        lastChangeSource: "APP",
+                    }, { merge: true });
+                });
+            });
+        }
 
         optimisticCacheUpdates.forEach(({ batchId, measurement }) => {
             applyOptimisticMeasurementUpdate(batchId, measurement);
