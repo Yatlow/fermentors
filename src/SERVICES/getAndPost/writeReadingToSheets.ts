@@ -172,6 +172,15 @@ export async function writeReadingsToSheets(
     readings: ReadingToSend[]
 ): Promise<writeReadingResult[]> {
     const durableMeasurementBatch = readings.length > 0;
+    // Capture pressure reporting time before async persistence or Sheet retries.
+    // A later measurement supersedes an earlier action; not vice versa.
+    const recordedAt = new Date().toISOString();
+    readings.forEach(reading => {
+        if ((reading.pressure !== undefined && reading.pressure !== null && reading.pressure !== "") ||
+            reading.pressureAfterAction !== undefined) {
+            reading.pressureRecordedAt ??= recordedAt;
+        }
+    });
     const requestId = createAppsScriptRequestId("addFermentationMeasurements");
 
     // Every cellar/packaging measurement is committed to Firestore together with a
