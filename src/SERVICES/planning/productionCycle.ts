@@ -9,7 +9,7 @@ import {
   type Tank,
   type WeekPlan,
 } from "./planningEngine";
-import { actualDate, openRuns } from "./dailyPlanner";
+import { actualDate, openRuns, physicalTankMatchesBrew } from "./dailyPlanner";
 import type { Actual } from "./planningEngine";
 import { brewById, resolvePackagingBrewId, type PackagingPlan } from "./planIdentity";
 import { projectTankSchedules } from "./tankScheduleProjection";
@@ -478,11 +478,7 @@ export function validateProductionIssues(
     // A future brew on the same tank must use its own net declared volume.
     const isCurrentPhysicalCycle = !!linkedBrew && !!t &&
       !String(t.id).startsWith("planned:") &&
-      t.id === linkedBrew.tankId &&
-      t.brewed === linkedBrew.date &&
-      sameStyle(t.style, linkedBrew.style) &&
-      (!normalizedBatch(linkedBrew.batchNumber) ||
-        normalizedBatch(t.batch) === normalizedBatch(linkedBrew.batchNumber)) &&
+      physicalTankMatchesBrew(t, linkedBrew) &&
       (!batch || normalizedBatch(t.batch) === batch);
     const packedLiters = linkedBrew && !isCurrentPhysicalCycle
       ? actuals.filter((actual) => {
