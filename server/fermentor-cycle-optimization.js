@@ -505,7 +505,7 @@ function fcBuildCellarState_(values, batchNumber) {
         time: time,
         temp: extractNumber(values[r][3]),
         plato: extractNumber(values[r][2]),
-        pressure: extractNumber(values[r][4]),
+        pressure: sheetTankPressure_(values[r][4], values[r][7]),
         carbonation: extractNumber(values[r][6]),
         pH: extractNumber(values[r][5]),
         notes: String(values[r][7] || "").trim()
@@ -663,7 +663,7 @@ function writeLatestMeasurementIfChanged_(projectId, batchId, sheetUrl) {
       const measurement = {
         date: dateText, time: time,
         temp: extractNumber(values[r][3]), plato: extractNumber(values[r][2]),
-        pressure: extractNumber(values[r][4]), carbonation: extractNumber(values[r][6]),
+        pressure: sheetTankPressure_(values[r][4], values[r][7]), carbonation: extractNumber(values[r][6]),
         pH: extractNumber(values[r][5]), notes: String(values[r][7] || "").trim()
       };
       const measurementId = createMeasurementId(date, time);
