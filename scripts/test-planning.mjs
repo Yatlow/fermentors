@@ -16,6 +16,7 @@ try {
     "planning-gas-reconciliation",
     "shipment-picking-regression",
     "planning-weekly-regression",
+    "planning-stout-coverage-regression",
     "planning-brew-assignment-draft",
     "planning-weekly-brew-draft-capacity",
     "planning-style-targets",
