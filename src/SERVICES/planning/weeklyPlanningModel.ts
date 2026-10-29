@@ -140,12 +140,23 @@ function forecastSettings(settings: Settings, today: string): Settings {
   };
 }
 
-function dateWeeklyPackaging(plans: WeekPlan[], tanks: Tank[]): WeekPlan[] {
+function dateWeeklyPackaging(plans: WeekPlan[], tanks: Tank[], settings: Settings): WeekPlan[] {
   const plannedBrews = plans.flatMap((week) => week.brews ?? []);
   const readyForRun = (run: Plan) => {
-    if (run.brewId) {
-      const brew = plannedBrews.find((item) => item.id === run.brewId);
-      if (brew) return tanks.find((tank) => physicalTankMatchesBrew(tank, brew))?.ready;
+    const brewId = resolvePackagingBrewId(run, plans);
+    if (brewId) {
+      const brew = plannedBrews.find((item) => item.id === brewId);
+      if (brew) {
+        const physical = tanks.find((tank) => physicalTankMatchesBrew(tank, brew));
+        if (physical) return physical.ready;
+        // An undated decision referencing the NEXT batch must not inherit
+        // the old batch's ready date from the reused physical tank. Otherwise
+        // an imagined date in week 47 could credit stock from a Nov 9 brew
+        // that does not mature until Nov 30.
+        const leads = settings.products.filter((p) => sameStyle(p.style, brew.style))
+          .map((p) => p.leadDays);
+        return addDays(brew.date, Math.max(21, ...leads));
+      }
     }
     return run.tankId ? tanks.find((tank) => tank.id === run.tankId)?.ready : undefined;
   };
@@ -637,7 +648,7 @@ export function buildWeeklyPlanningModel(args: {
   const { settings, pallets, tanks, plans, actuals, sources, today, week, holidays, shipments } = args;
   const weekEnd = addDays(week, 6);
   const normalized = forecastSettings(settings, today);
-  const forecastPlans = dateWeeklyPackaging(plans, tanks);
+  const forecastPlans = dateWeeklyPackaging(plans, tanks, settings);
   const stages: WeeklyStage[] = ["base", "afterShipment", "afterPackaging", "committed"];
   const forecasts = {} as Record<WeeklyStage, DailyResult>;
   const rows = {} as Record<WeeklyStage, Map<string, WeeklySkuState>>;
