@@ -19,6 +19,7 @@ import {
   actualDate,
   dailyForecast,
   futureTanks,
+  forecastableProductionPlans,
   openRuns,
   physicalTankMatchesBrew,
   type DailyResult,
@@ -285,7 +286,7 @@ function buildPackagingRecommendation(
   const products = settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
   const actualDays = new Set(actuals.map(actualDate).filter((d): d is string => !!d && d >= week && d <= weekEnd));
   const capacity = Math.max(0, (plans.find((w) => w.id === week)?.maxRuns ?? settings.preferredRuns) - actualDays.size);
-  const projectedTanks = futureTanks(tanks, plans, settings);
+  const projectedTanks = futureTanks(tanks, forecastableProductionPlans(tanks, plans, today), settings);
   const eligibleTanks = projectedTanks
     .filter((tank) => tank.ready <= weekEnd)
     .map((tank) => ({ tank, liters: remainingTankLiters(tank, plans, products, actuals, week, today) }))
@@ -642,7 +643,7 @@ export function buildWeeklyPlanningModel(args: {
   const shipment = buildShipmentRecommendation(normalized, weekStartRows);
   const packaging = buildPackagingRecommendation(normalized, rows.afterShipment, tanks, plans, actuals, sources, week, weekEnd, today);
   const brew = buildBrewRecommendation(normalized, rows.afterPackaging, tanks, forecastPlans, actuals, sources, today, week, weekEnd);
-  const packagingTankPool = futureTanks(tanks, plans, settings);
+  const packagingTankPool = futureTanks(tanks, forecastableProductionPlans(tanks, plans, today), settings);
   const allPackagingProducts = normalized.products.filter((p) => p.monthly > 0);
   const tankAvailableLiters = new Map(packagingTankPool.map((tank) => [tank.id, remainingTankLiters(tank, plans, allPackagingProducts, actuals, week, today)] as const));
   return {
