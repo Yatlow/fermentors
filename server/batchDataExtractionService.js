@@ -256,9 +256,11 @@ function sheetPressureStateFromRows_(values) {
     if (measured !== null) consider(date, hour, minute, measured, "measurement", 1);
     const events = extractReportedPressureEvents_(values[r][7]);
     events.forEach(function (event, index) {
-      // Old notes with no time cannot be ordered relative to a pressure
-      // measurement already present in this day's row. Do not override it.
-      if (event.hour === null && measured !== null) return;
+      // Legacy notes lack a timestamp, but they were appended to this row's
+      // action journal AFTER its original pressure measurement. Honor their
+      // order: the last logged action is the last known tank pressure.
+      // Keep column E and the historical measurement untouched.
+      // A separately recorded later pressure row still wins by its time.
       const eventMinute = event.minute === null ? Math.min(minute + index + 1, 59) : event.minute;
       consider(date, event.hour === null ? hour : event.hour,
         eventMinute, event.pressure, "action", 2);
