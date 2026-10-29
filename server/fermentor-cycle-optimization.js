@@ -49,7 +49,7 @@ var FC_CYCLE_CONTEXT_ = null;
 const FC_CYCLE_LEASE_KEY_ = "fc_cycle_lease_v2";
 const FC_CYCLE_LEASE_TTL_MS_ = 9 * 60 * 1000;
 // v2 revisits unchanged active Sheets once to recover legacy note-only pressure.
-const FC_SHEET_REVISION_PREFIX_ = "fc_sheet_revision_v2:";
+const FC_SHEET_REVISION_PREFIX_ = "fc_sheet_revision_v3:";
 
 function fcTimed_(label, callback) {
   const started = Date.now();
@@ -350,6 +350,18 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
           uid: entry.id,
           startingPlato: brew.startingPlato == null ? null : brew.startingPlato
         };
+        // The Sheet may be read before a newer browser report reaches Firestore.
+        // Never roll its older pressure snapshot over a later live observation.
+        if (next.currentData && entry.data.currentData &&
+            String(entry.data.batchNumber || "") === String(next.batchNumber || "")) {
+          const storedAt = String(entry.data.currentData.pressureUpdatedAt || "");
+          const incomingAt = String(next.currentData.pressureUpdatedAt || "");
+          if (storedAt && (!incomingAt || storedAt > incomingAt)) {
+            next.currentData.pressure = entry.data.currentData.pressure;
+            next.currentData.pressureUpdatedAt = storedAt;
+            next.currentData.pressureSource = entry.data.currentData.pressureSource || "action";
+          }
+        }
         const action = parseAction(entry.data.action);
         if (action !== null && action >= 3 && next.currentData) {
           try {
@@ -506,7 +518,7 @@ function fcBuildCellarState_(values, batchNumber) {
         time: time,
         temp: extractNumber(values[r][3]),
         plato: extractNumber(values[r][2]),
-        pressure: sheetTankPressure_(values[r][4], values[r][7]),
+        pressure: extractNumber(values[r][4]),
         carbonation: extractNumber(values[r][6]),
         pH: extractNumber(values[r][5]),
         notes: String(values[r][7] || "").trim()
@@ -664,7 +676,7 @@ function writeLatestMeasurementIfChanged_(projectId, batchId, sheetUrl) {
       const measurement = {
         date: dateText, time: time,
         temp: extractNumber(values[r][3]), plato: extractNumber(values[r][2]),
-        pressure: sheetTankPressure_(values[r][4], values[r][7]), carbonation: extractNumber(values[r][6]),
+        pressure: extractNumber(values[r][4]), carbonation: extractNumber(values[r][6]),
         pH: extractNumber(values[r][5]), notes: String(values[r][7] || "").trim()
       };
       const measurementId = createMeasurementId(date, time);
