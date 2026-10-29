@@ -55,9 +55,26 @@ assert.equal(latest([
   row("28/10/2026", "07:00", "1.4Bar", "הורדת לחץ ל: 1.1 bar (דווח בשעה 15:00)"),
   row("29/10/2026", "07:00", "1.3Bar", ""),
 ]).pressure, 1.3);
+// Legacy journals were appended after the row's original morning reading;
+// the last pressure-changing action is the current pressure, not column E.
+const legacyAction = row("29/10/2026", "07:00", "1.50Bar",
+  "כיוון פורק ל: 1.6 bar | הורדת 6 דליי שמרים, לחץ אחרי 1.3 bar | העלאת לחץ ל: 1.6 bar");
+const legacyRecovered = latest([legacyAction]);
+assert.equal(legacyRecovered.pressure, 1.6);
+assert.equal(legacyRecovered.pressureSource, "action");
+assert.equal(legacyAction[4], "1.50Bar", "morning pressure is immutable");
 assert.equal(latest([
   row("29/10/2026", "07:00", "1.4Bar", "הורדת לחץ ל: 0.7 bar"),
-]).pressure, 1.4);
+]).pressure, 0.7);
+// A later independent pressure measurement still overrides those actions.
+assert.equal(latest([
+  legacyAction,
+  row("29/10/2026", "14:00", "1.8Bar", ""),
+]).pressure, 1.8);
+// The reported PRV setpoint alone must not be used as measured pressure.
+assert.equal(latest([
+  row("29/10/2026", "07:00", "1.5Bar", "כיוון פורק ל: 1.6 bar"),
+]).pressure, 1.5);
 assert.equal(latest([
   row("28/10/2026", "07:00", "1.3Bar", ""),
   row("29/10/2026", "07:00", "", "הורדת 3 דליי שמרים, לחץ אחרי 0.8 bar"),
