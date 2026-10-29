@@ -4,7 +4,7 @@ import {
   defaultSettings, emptyWeek, shipmentAdvice, type Product, type Tank, type WeekPlan,
 } from "../src/SERVICES/planning/planningEngine";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
-import { dailyForecast, futureTanks } from "../src/SERVICES/planning/dailyPlanner";
+import { dailyForecast, futureTanks, validateDatedPlan } from "../src/SERVICES/planning/dailyPlanner";
 import { simulatedGanttBrews } from "../src/SERVICES/planning/ganttBrewProjection";
 import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
 import {
@@ -13,7 +13,7 @@ import {
 } from "../src/SERVICES/planning/shipmentActuals";
 import { auditShipmentAvailability } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
 import { validatePlanningDecisionChange } from "../src/SERVICES/planning/planningDecisionSafety";
-import { planningWeekIssues } from "../src/SERVICES/planning/planningValidation";
+import { changedMixedPackagingDays, planningWeekIssues } from "../src/SERVICES/planning/planningValidation";
 import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
 import { selectTruck } from "../src/SERVICES/planning/truckPlanner";
 import { automaticReservationDelta } from "../src/SERVICES/planning/automaticReservationReconciliation";
@@ -552,4 +552,58 @@ test("an old missing-capacity brew cannot mask another missing-capacity future b
     edited: afterWeek, settings, tanks: [], sources: [], actuals: [],
     today: "2026-10-23",
   })?.includes("חסר נפח עבודה"));
+});
+
+test("mixed crates and kegs can share a date with planner confirmation, without bypassing limits", () => {
+  const keg: Product = { ...ipa, id: "ipa-kegs", sku: "ipa-kegs", type: "kegs" };
+  const mixedSettings = { ...settings, products: [ipa, keg] };
+  const original = { ...emptyWeek("2026-11-01"), changeReason: "תכנון אריזה",
+    packaging: [{
+      id: "crate-run", productId: ipa.id, quantity: 84,
+      tankId: "tank-4", date: "2026-11-04",
+    }],
+  };
+  const mixed: WeekPlan = { ...original, packaging: [...original.packaging, {
+    id: "keg-run", productId: keg.id, quantity: 50,
+    tankId: "tank-8", date: "2026-11-04",
+  }] };
+  assert.deepEqual(planningWeekIssues(mixed, mixedSettings, [mixed], "2026-10-29"), []);
+  assert.equal(validateDatedPlan(mixed, mixedSettings, [], "2026-10-29"), null);
+  assert.deepEqual(changedMixedPackagingDays(original, mixed, mixedSettings), [{
+    date: "2026-11-04", crates: 84, kegs: 50,
+  }], "a new mixed day requires explicit planner approval");
+  assert.deepEqual(changedMixedPackagingDays(mixed, { ...mixed, note: "הערה" }, mixedSettings), [],
+    "editing an unrelated note must not repeatedly request approval");
+  assert.deepEqual(changedMixedPackagingDays(mixed, {
+    ...mixed, packaging: [...mixed.packaging].reverse(),
+  }, mixedSettings), [], "changing only row order is not a new exception");
+  assert.deepEqual(changedMixedPackagingDays(mixed, {
+    ...mixed, packaging: mixed.packaging.map((run) => run.productId === keg.id
+      ? { ...run, quantity: 60 } : run),
+  }, mixedSettings), [{ date: "2026-11-04", crates: 84, kegs: 60 }],
+  "changing the mixed-day quantities requires approval again");
+  assert.deepEqual(changedMixedPackagingDays(mixed, original, mixedSettings), [],
+    "removing one packaging format needs no mixed-day approval");
+
+  const overCapacity: WeekPlan = { ...mixed, packaging: mixed.packaging.map((run) =>
+    run.productId === ipa.id ? { ...run, quantity: 253 } : run) };
+  assert.ok(planningWeekIssues(overCapacity, mixedSettings, [overCapacity], "2026-10-29")
+    .some((issue) => issue.includes("קיבולת 252")),
+    "mixed-format confirmation does not bypass crates daily capacity");
+  assert.match(validateDatedPlan(overCapacity, mixedSettings, [], "2026-10-29") ?? "",
+    /מדרגות|קיבולת/, "the legacy day-level validator also keeps normal limits");
+
+  const secondCrate: Product = {
+    ...ipa, id: "wheat-crates", sku: "wheat-crates", style: "חיטה",
+  };
+  const multiSettings = { ...mixedSettings, products: [...mixedSettings.products, secondCrate] };
+  const tooMany: WeekPlan = { ...mixed, packaging: [...mixed.packaging, {
+    id: "other-crate", productId: secondCrate.id, quantity: 84,
+    tankId: "tank-9", date: "2026-11-04",
+  }] };
+  assert.ok(planningWeekIssues(tooMany, multiSettings, [tooMany], "2026-10-29")
+    .some((issue) => issue.includes("יותר מפריט אריזה אחד מסוג ארגזים")));
+  assert.match(validateDatedPlan(tooMany, multiSettings, [], "2026-10-29") ?? "",
+    /שני פריטים שונים מסוג ארגזים/,
+    "combining two different crate products remains restricted");
 });
