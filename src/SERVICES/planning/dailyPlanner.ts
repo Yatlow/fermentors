@@ -729,7 +729,7 @@ export function validateDatedPlan(
 ): string | null {
   if (!Number.isInteger(w.maxRuns) || w.maxRuns < 0 || w.maxRuns > 5)
     return "מכסת האריזה חייבת להיות בין 0 ל־5";
-  const days = new Map<string, { id: string; qty: number }>();
+  const days = new Map<string, { products: Partial<Record<"crates" | "kegs", string>>; quantities: Record<"crates" | "kegs", number> }>();
   const ids = new Set<string>();
   for (const r of w.packaging) {
     const p = settings.products.find((p) => p.id === r.productId);
@@ -745,15 +745,20 @@ export function validateDatedPlan(
     if (!w.allowExceptions && r.date && dayOfWeek(r.date) > 4)
       return "אין אריזה רגילה בשישי או שבת";
     if (r.date) {
-      const old = days.get(r.date);
-      if (!w.allowExceptions && old && old.id !== p.id)
-        return "לא ניתן לארוז שני פריטים שונים באותו יום";
-      const qty = (old?.qty ?? 0) + r.quantity;
+      const day = days.get(r.date) ?? {
+        products: {},
+        quantities: { crates: 0, kegs: 0 },
+      };
+      // Combining crates and kegs is allowed with confirmation in PlanningView,
+      // but two different products of one type still need separate days.
+      if (!w.allowExceptions && day.products[p.type] && day.products[p.type] !== p.id)
+        return `לא ניתן לארוז שני פריטים שונים מסוג ${p.type === "crates" ? "ארגזים" : "חביות"} באותו יום`;
+      const qty = day.quantities[p.type] + r.quantity;
       if (!w.allowExceptions && qty > packagingLimit(r.date, p.type))
-        return dayOfWeek(r.date) === 0
-          ? "בראשון: עד 168 ארגזים או 100 חביות"
-          : "עד 252 ארגזים ביום";
-      days.set(r.date, { id: p.id, qty });
+        return `${r.date}: ${qty} ${p.type === "crates" ? "ארגזים" : "חביות"} חורגים מקיבולת ${packagingLimit(r.date, p.type)}`;
+      day.products[p.type] = p.id;
+      day.quantities[p.type] = qty;
+      days.set(r.date, day);
     }
   }
   const undated = w.packaging
