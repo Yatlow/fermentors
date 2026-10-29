@@ -277,7 +277,7 @@ function qMedia_(jobId,data) {
 const Q_EMAILJS_SERVICE='service_bxs22rp';
 const Q_EMAILJS_TEMPLATE='template_3suohm9';
 const Q_EMAILJS_PUBLIC='xcE_CHJqkvlh2b_S3';
-const Q_NOTIFY_TO='yochai@shapirobeer.co.il';
+const Q_NOTIFY_TO='yochai@shapirobeer.co.il,sagiv@shapirobeer.co.il,itzik@shapirobeer.co.il';
 function qEscapeHtml_(value) {
   return String(value===null||value===undefined?'':value)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
