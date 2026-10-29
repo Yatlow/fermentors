@@ -200,6 +200,37 @@ function extractNumber(
 // CURRENT FERMENTATION DATA
 // ============================================================
 
+// Recover a tank pressure from historical action-only notes when column E was
+// never written. Do not infer pressure from PRV settings, tank closing or dry hop:
+// those numbers are targets/settings, not measured tank pressure.
+function extractReportedTankPressure_(notes) {
+  let last = null;
+  String(notes || "").split(/\\s*\\|\\s*/u).forEach(function (part) {
+    const note = part.trim();
+    let match = null;
+    if (/(?:הורדת|הוצאת|הורידו).{0,32}שמרים/u.test(note)) {
+      match = note.match(/לחץ\\s*(?:אחרי|לאחר)\\s*(?:(?:הורדת|הוצאת)\\s*שמרים\\s*)?[:：]?\\s*([0-9]+(?:[.,][0-9]+)?)/u);
+    } else if (/(?:העלאת|הורדת|שינוי|העלו|הורידו)\\s+(?:ה)?לחץ/u.test(note)) {
+      match = note.match(/(?:העלאת|הורדת|שינוי|העלו|הורידו)\\s+(?:ה)?לחץ\\s*(?:מ[-־:]?\\s*[0-9]+(?:[.,][0-9]+)?\\s*(?:bar)?\\s*)?(?:ל|אל)\\s*[:־-]?\\s*([0-9]+(?:[.,][0-9]+)?)/u);
+    } else if (/סגירת גיזוז מלמטה/u.test(note)) {
+      match = note.match(/על\\s*([0-9]+(?:[.,][0-9]+)?)\\s*bar/iu);
+    }
+    if (match) {
+      const parsed = Number(match[1].replace(",", "."));
+      if (Number.isFinite(parsed) && parsed >= 0) last = parsed;
+    }
+  });
+  return last;
+}
+
+// An explicit number in the measurement column takes precedence over action
+// notes. An old note may precede a newer manual/morning pressure reading on
+// the same row, and legacy notes contain no reliable event timestamp.
+function sheetTankPressure_(pressureCell, notesCell) {
+  const explicit = extractNumber(pressureCell);
+  return explicit !== null ? explicit : extractReportedTankPressure_(notesCell);
+}
+
 function findLatestAvailableMeasurements(
   values
 ) {
@@ -328,19 +359,16 @@ function findLatestAvailableMeasurements(
     // --------------------------------------------------------
 
     if (
-      values[r][4]
+      values[r][4] !== undefined || values[r][7] !== undefined
     ) {
 
-      const pressure =
-        extractNumber(
-          values[r][4]
-        );
+      const pressure = sheetTankPressure_(values[r][4], values[r][7]);
 
       if (
         pressure !== null &&
         (
           !latest.pressure ||
-          date > latest.pressure.date
+          date >= latest.pressure.date
         )
       ) {
 
@@ -1095,10 +1123,7 @@ function uploadHistoricalMeasurements(
         extractNumber(
           values[r][2]
         ),
-      pressure:
-        extractNumber(
-          values[r][4]
-        ),
+      pressure: sheetTankPressure_(values[r][4], values[r][7]),
       carbonation:
         extractNumber(
           values[r][6]
