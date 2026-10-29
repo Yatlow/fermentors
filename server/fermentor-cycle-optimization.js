@@ -48,7 +48,8 @@ BEHAVIOR:
 var FC_CYCLE_CONTEXT_ = null;
 const FC_CYCLE_LEASE_KEY_ = "fc_cycle_lease_v2";
 const FC_CYCLE_LEASE_TTL_MS_ = 9 * 60 * 1000;
-const FC_SHEET_REVISION_PREFIX_ = "fc_sheet_revision_v1:";
+// v2 revisits unchanged active Sheets once to recover legacy note-only pressure.
+const FC_SHEET_REVISION_PREFIX_ = "fc_sheet_revision_v2:";
 
 function fcTimed_(label, callback) {
   const started = Date.now();
@@ -467,7 +468,7 @@ function resetChangeCache() {
     const all = props.getProperties();
     let count = 0;
     Object.keys(all).forEach(function (key) {
-      if (/^(fermentor:|packaging:|measurement:|brewProgress:|fc_success_v1:|fc_sheet_revision_v1:)/.test(key)) {
+      if (/^(fermentor:|packaging:|measurement:|brewProgress:|fc_success_v1:|fc_sheet_revision_v[0-9]+:)/.test(key)) {
         props.deleteProperty(key);
         count++;
       }
