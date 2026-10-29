@@ -49,7 +49,7 @@ var FC_CYCLE_CONTEXT_ = null;
 const FC_CYCLE_LEASE_KEY_ = "fc_cycle_lease_v2";
 const FC_CYCLE_LEASE_TTL_MS_ = 9 * 60 * 1000;
 // v2 revisits unchanged active Sheets once to recover legacy note-only pressure.
-const FC_SHEET_REVISION_PREFIX_ = "fc_sheet_revision_v3:";
+const FC_SHEET_REVISION_PREFIX_ = "fc_sheet_revision_v4:";
 
 function fcTimed_(label, callback) {
   const started = Date.now();
