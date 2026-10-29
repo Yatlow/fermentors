@@ -267,9 +267,8 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
             tankNumber: tank.tankNumber,
             batchNumber: tank.batchNumber,
             sheetUrl: tank.sheetUrl ?? null,
-            // The Sheet pressure column belongs to the morning measurement.
-            // Append the action time to the journal instead of replacing it.
-            notes: isPressureAction ? `${noteText} (דווח בשעה ${formatClockTime(actionDate)})` : noteText,
+            // Keep the Sheet journal human-readable: timestamps stay in Firestore only.
+            notes: noteText,
         };
         if (noteType === "גיזוז") reading.carbonation = value;
         if (isPressureAction) {
@@ -391,7 +390,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
             const hasValidPressure = pressureAfter.trim() !== "" &&
                 Number.isFinite(Number(pressureAfter)) && Number(pressureAfter) >= 0;
             if (!isEmpty && hasValidPressure) {
-                const pressureText = `הורדת לחץ ל-${pressureAfter} bar (דווח בשעה ${formatClockTime(actionDate)})`;
+                const pressureText = `הורדת לחץ ל-${pressureAfter} bar`;
                 notes = notes ? `${notes} | ${pressureText}` : pressureText;
             }
 
