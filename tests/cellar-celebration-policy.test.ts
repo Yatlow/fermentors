@@ -184,6 +184,6 @@ test("component requires a newly completed scheduled action before rearming", ()
     const source = readFileSync("src/components/dashboard/HealthDashboard.tsx", "utf8");
     assert.match(source, /completedScheduledToday.some/);
     assert.match(source, /row.resolvedDate === today/);
-    assert.match(source, /!acknowledgedScheduledIds.includes\\(row.id\\)/);
+    assert.ok(source.includes("!acknowledgedScheduledIds.includes(row.id)"));
     assert.match(source, /newScheduledWorkSinceAcknowledgement: newScheduledWork/);
 });
