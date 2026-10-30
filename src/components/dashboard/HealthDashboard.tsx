@@ -949,7 +949,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
             if (cancelled) return;
             setAnalysis({
-                autoIgnored: eligibleResults.flatMap((result) => "autoIgnored" in result ? result.autoIgnored : []),
+                autoIgnored: eligibleResults.flatMap((result) => "autoIgnored" in result ? (result.autoIgnored ?? []) : []),
                 alerts: eligibleResults
                     .flatMap((result) => result.alerts)
                     .sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity]),
@@ -1090,7 +1090,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     const ignoredForDisplay = useMemo(() => [
         ...ignoredRecommendations.map((row) => ({
             ...row,
-            autoReason: null as string | null,
+            autoReason: null as null,
         })),
         ...analysis.autoIgnored,
     ], [ignoredRecommendations, analysis.autoIgnored]);
