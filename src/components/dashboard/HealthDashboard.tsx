@@ -41,7 +41,7 @@ import {
     type ScheduledCellarRecommendation,
     type ScheduledCellarActionType,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
-import { automaticIgnoredRecommendationsForTank, type AutomaticallyIgnoredCellarRecommendation } from "../../SERVICES/cellering/autoIgnoredCellarRecommendations";
+import { automaticIgnoredRecommendationsForTank, partitionAutomaticallyIgnoredRecommendations, type AutomaticallyIgnoredCellarRecommendation } from "../../SERVICES/cellering/autoIgnoredCellarRecommendations";
 import {
     ignoreCellarRecommendation,
     isRecommendationIgnored,
@@ -237,6 +237,17 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     const [completedScheduledToday, setCompletedScheduledToday] = useState<ScheduledCellarRecommendation[]>([]);
     const [ignoredRecommendations, setIgnoredRecommendations] = useState<IgnoredCellarRecommendation[]>([]);
     const [ignoreSavingId, setIgnoreSavingId] = useState<string | null>(null);
+    // Per-day, per-session operator opt-in. This is not a Firestore manual
+    // ignore and never changes the underlying weekend recommendation rule.
+    const [restoredAutoIds, setRestoredAutoIds] = useState<Set<string>>(() => {
+        if (typeof window === "undefined") return new Set();
+        try {
+            const stored = JSON.parse(window.sessionStorage.getItem("cellar-restored-auto-recommendations-v1") || "[]");
+            return new Set(Array.isArray(stored) ? stored.filter((id): id is string => typeof id === "string") : []);
+        } catch {
+            return new Set();
+        }
+    });
     const autoResolvedScheduledIds = useRef(new Set<string>());
 
     useEffect(() => {
@@ -478,20 +489,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             ? bottomCarbonationRecommendation(measurements)
                             : null;
 
-                        const naturalRecommendations = activeRecommendations(
-                            recommendations,
-                            bottomCarb
-                                ? [{ recommendationKey: "bottomCarbonationFollowUp", recommendation: bottomCarb }]
-                                : []
-                        ).filter((recommendation) =>
-                            // Neglect is a weekday-only reminder; other recommendations remain available.
-                            !(recommendation.recommendationKey === "neglectedStatus" &&
-                              [5, 6].includes(new Date().getDay()))
-                        );
-
                         const now = new Date();
                         const today = localDateKey(now);
-                        const autoIgnored = automaticIgnoredRecommendationsForTank({
+                        const autoCandidates = automaticIgnoredRecommendationsForTank({
                             tankNumber: number,
                             batchNumber: String(tank.batchNumber),
                             ignoredDate: today,
@@ -502,6 +502,25 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             row.batchNumber,
                             row.recommendationKey,
                         ));
+                        const { ignored: autoIgnored, restored: autoRestored } =
+                            partitionAutomaticallyIgnoredRecommendations(autoCandidates, restoredAutoIds);
+                        const naturalRecommendations = activeRecommendations(
+                            recommendations,
+                            [
+                                ...(bottomCarb
+                                    ? [{ recommendationKey: "bottomCarbonationFollowUp", recommendation: bottomCarb }]
+                                    : []),
+                                ...autoRestored.map((row) => ({
+                                    recommendationKey: row.recommendationKey,
+                                    recommendation: {
+                                        req: true,
+                                        display: true,
+                                        importance: row.importance,
+                                        reason: row.detail,
+                                    },
+                                })),
+                            ]
+                        );
                         const day = now.getDay();
                         const todayRows = measurements.filter(
                             (measurement) => measurementDateKey(measurement) === today
@@ -520,8 +539,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         const carbCompletedToday = hasTodayCarbonation;
 
                         const naturalCarb = Boolean(
-                            recommendations?.requiresCarbTest?.req &&
-                            recommendations?.requiresCarbTest?.display
+                            (recommendations?.requiresCarbTest?.req &&
+                                recommendations?.requiresCarbTest?.display) ||
+                            autoRestored.some((row) => row.recommendationKey === "carbTest")
                         );
                         const naturalYeastKeys = new Set([
                             "warmYeastDrop",
@@ -949,7 +969,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             cancelled = true;
             clearTimeout(analysisTimer);
         };
-    }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday, ignoredRecommendations]);
+    }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday, ignoredRecommendations, restoredAutoIds]);
 
     const recommendedTankKey = useMemo(() => [...new Set(analysis.alerts
         .filter((alert) => alert.recommendationKey && alert.recommendationKey !== "measurementRound")
@@ -1126,6 +1146,21 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         }
     }
 
+    function restoreAutomatic(row: AutomaticallyIgnoredCellarRecommendation) {
+        const today = localDateKey(new Date());
+        if (row.ignoredDate !== today) return;
+        setRestoredAutoIds((current) => {
+            const next = new Set([...current].filter((id) => id.startsWith(`auto:${today}:`)));
+            next.add(row.id);
+            try {
+                window.sessionStorage.setItem("cellar-restored-auto-recommendations-v1", JSON.stringify([...next]));
+            } catch {
+                // The current UI session still honors the override.
+            }
+            return next;
+        });
+    }
+
     async function restoreIgnored(row: IgnoredCellarRecommendation) {
         setIgnoreSavingId(row.id);
         try {
@@ -1217,24 +1252,24 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             <div className="health-ignored-actions-list">
                                 {ignoredForDisplay.map((row) => (
                                     <div className="health-ignored-action" key={row.id}>
-                                        <span>
-                                            <LightbulbOff size={15} aria-hidden="true" />
-                                            מיכל {row.tankNumber} · {recommendationShortLabel(row.recommendationKey, row.title)}
+                                        <span className="health-ignored-copy">
+                                            <span className="health-ignored-label">
+                                                <LightbulbOff size={15} aria-hidden="true" />
+                                                מיכל {row.tankNumber} · {recommendationShortLabel(row.recommendationKey, row.title)}
+                                            </span>
                                             {row.autoReason && <small>{row.autoReason}</small>}
                                         </span>
-                                        {!row.autoReason && (
-                                            <button
-                                                type="button"
-                                                className="health-restore-button"
-                                                disabled={ignoreSavingId === row.id}
-                                                onClick={() => void restoreIgnored(row)}
-                                                title="החזר המלצה"
-                                                aria-label={`החזר המלצה למיכל ${row.tankNumber}`}
-                                            >
-                                                <Undo2 size={15} aria-hidden="true" />
-                                                החזר
-                                            </button>
-                                        )}
+                                        <button
+                                            type="button"
+                                            className="health-restore-button"
+                                            disabled={!row.autoReason && ignoreSavingId === row.id}
+                                            onClick={() => row.autoReason ? restoreAutomatic(row) : void restoreIgnored(row)}
+                                            title="החזר המלצה להיום"
+                                            aria-label={`החזר המלצה למיכל ${row.tankNumber} להיום`}
+                                        >
+                                            <Undo2 size={15} aria-hidden="true" />
+                                            החזר
+                                        </button>
                                     </div>
                                 ))}
                             </div>
