@@ -4,6 +4,8 @@
  * Manual ignores and daily auto-suppression retain separate lifecycles.
  */
 type SuppressedRecommendation = {
+  req?: boolean | null;
+  display?: boolean;
   autoIgnoredReason?: string | null;
   importance?: number;
   reason?: string | null;
