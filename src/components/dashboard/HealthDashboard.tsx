@@ -3,6 +3,7 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { completedDailyRoundKpi, fermentationGraceEnd, graceDayStart, measurementGraceTankIds } from "../../SERVICES/dashboard/cellarGrace";
 import { cellarBadgeFieldsForDay } from "../../SERVICES/dashboard/cellarMeasurementBadge";
+import { CELLAR_CELEBRATION_ACK_KEY, evaluateCellarCelebration, type SettledCellarScore } from "../../SERVICES/dashboard/cellarCelebrationPolicy";
 import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
 import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
@@ -109,6 +110,8 @@ type DailyActionProgress = {
 };
 
 type CellarAnalysis = {
+    /** Prevent a previous day's async analysis from triggering today's celebration. */
+    analyzedDay: string | null;
     alerts: HealthAlert[];
     autoIgnored: AutomaticallyIgnoredCellarRecommendation[];
     scoreRecommendations: ScoredRecommendation[];
@@ -133,6 +136,7 @@ const EMPTY_DAILY_ACTION_PROGRESS: DailyActionProgress = {
 };
 
 const EMPTY_ANALYSIS: CellarAnalysis = {
+    analyzedDay: null,
     alerts: [],
     autoIgnored: [],
     scoreRecommendations: [],
@@ -949,6 +953,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
             if (cancelled) return;
             setAnalysis({
+                analyzedDay: localDateKey(asOf),
                 autoIgnored: eligibleResults.flatMap((result) => "autoIgnored" in result ? (result.autoIgnored ?? []) : []),
                 alerts: eligibleResults
                     .flatMap((result) => result.alerts)
@@ -1018,8 +1023,8 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     );
     const displayedHealthScore = healthScore;
     const overallClass = healthBand(displayedHealthScore);
-    const previousSettledScoreRef = useRef<number | null>(null);
-    const persistedHealthWriteRef = useRef<boolean | null>(null);
+    const previousSettledScoreRef = useRef<SettledCellarScore | null>(null);
+    const locallyCelebratedDayRef = useRef<string | null>(null);
     const [celebrationOpen, setCelebrationOpen] = useState(false);
     const cellarStateTank = useMemo(
         () => brews.find((tank) => Number(tank.tankNumber) === 1) as
@@ -1027,58 +1032,117 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             | undefined,
         [brews]
     );
+    const cellarStateTankId = cellarStateTank?.id;
     const persistedHealthIs100 = cellarStateTank?.cellarHealthIs100 === true;
+    const persistedCompletionDay = cellarStateTank?.cellarHealthCompletedDay ?? null;
+    const hasRecordedWorkToday = analysis.completedActions.length > 0 ||
+        analysis.measurementProgress.some((progress) =>
+            progress.completedFieldCount > 0 || (progress.bonusCompletedFieldCount ?? 0) > 0
+        );
+
+    // A celebration is a once-per-local-day achievement, not a replay of the
+    // stored is100 boolean. Local acknowledgement is recorded BEFORE the
+    // Firestore write: no quick report, listener refresh, remount or close can
+    // open the modal again for the same day.
     useEffect(() => {
-        if (analyzing || !cellarStateTank?.id) return;
-
-        previousSettledScoreRef.current = healthScore;
-        const todayKey = localDateKey(new Date());
-        // The celebration state is independent of the dynamically calculated grace.
-        const desiredIs100 = healthScore === 100;
-
-        // Tank 1 is already part of the app's fermentor listener, so this gives
-        // the celebration a tiny shared state without adding another listener/read.
-        // It is written only when the score crosses the 100 boundary.
-        if (persistedHealthIs100 === desiredIs100) {
-            persistedHealthWriteRef.current = null;
-            return;
-        }
-        if (persistedHealthWriteRef.current === desiredIs100) return;
-        persistedHealthWriteRef.current = desiredIs100;
-
-        const shouldCelebrate =
-            desiredIs100 &&
-            !persistedHealthIs100;
-
-        const timer = window.setTimeout(() => {
-            if (previousSettledScoreRef.current !== healthScore) return;
-            void updateDoc(doc(db, "fermentors", String(cellarStateTank.id)), {
-                cellarHealthIs100: desiredIs100,
-                ...(desiredIs100 ? {
-                    cellarHealthCompletedDay: todayKey,
-                } : {}),
-            }).then(() => {
-                if (shouldCelebrate) setCelebrationOpen(true);
-            }).catch((error) => {
-                persistedHealthWriteRef.current = null;
-                console.error("Failed persisting cellar health celebration state:", error);
-            });
-        }, 1200);
-
-        return () => {
-            window.clearTimeout(timer);
-            // A dependency refresh can cancel the pending write before it starts.
-            // Release the in-flight guard so the next settled render retries.
-            if (persistedHealthWriteRef.current === desiredIs100) {
-                persistedHealthWriteRef.current = null;
+        if (!cellarStateTankId) return;
+        const today = localDateKey(new Date());
+        let storedDay: string | null = null;
+        let acknowledgedScheduledIds: string[] = [];
+        // The marker retains the scheduled work present at the last 100%
+        // achievement. Only NEW scheduled action IDs can re-arm the celebration
+        // after a genuine below-100 -> 100 cycle.
+        const scheduledIds = [...new Set([
+            ...scheduledRecommendations,
+            ...completedScheduledToday,
+        ].map((row) => row.id))].sort();
+        try {
+            const raw = window.localStorage.getItem(CELLAR_CELEBRATION_ACK_KEY);
+            if (raw) {
+                try {
+                    const parsed = JSON.parse(raw) as { day?: string; scheduledIds?: string[] };
+                    storedDay = parsed.day ?? null;
+                    acknowledgedScheduledIds = Array.isArray(parsed.scheduledIds) ? parsed.scheduledIds : [];
+                } catch {
+                    storedDay = raw; // Backward-compatible once-per-day marker.
+                }
             }
-        };
+        } catch {
+            // A ref still prevents repeated celebrations in this session.
+        }
+        const newScheduledWork = storedDay === today &&
+            completedScheduledToday.some((row) =>
+                row.resolvedDate === today &&
+                !acknowledgedScheduledIds.includes(row.id)
+            );
+        const decision = evaluateCellarCelebration({
+            score: healthScore,
+            analyzedDay: analysis.analyzedDay,
+            today,
+            previousSettledScore: previousSettledScoreRef.current,
+            persistedCompletionDay,
+            locallyAcknowledgedDay: storedDay === today || locallyCelebratedDayRef.current === today ? today : null,
+            newScheduledWorkSinceAcknowledgement: newScheduledWork && previousSettledScoreRef.current?.day === today,
+            hasWorkRecordedToday: hasRecordedWorkToday,
+            analyzing,
+        });
+        previousSettledScoreRef.current = decision.nextSettledScore;
+        if (!decision.shouldCelebrate) return;
+
+        locallyCelebratedDayRef.current = today;
+        try {
+            window.localStorage.setItem(CELLAR_CELEBRATION_ACK_KEY, JSON.stringify({
+                day: today,
+                scheduledIds,
+            }));
+        } catch {
+            // In-memory acknowledgement remains effective.
+        }
+        setCelebrationOpen(true);
+        // Display is independent of a slow or failed Firestore write.
+        // The existing fermentors listener propagates the daily marker to
+        // other devices; do not reset it when the score temporarily falls.
+        void updateDoc(doc(db, "fermentors", String(cellarStateTankId)), {
+            cellarHealthIs100: true,
+            cellarHealthCompletedDay: today,
+        }).catch((error) => {
+            console.error("Failed persisting the daily cellar 100% achievement:", error);
+        });
     }, [
         analyzing,
         healthScore,
-        cellarStateTank?.id,
+        analysis.analyzedDay,
+        hasRecordedWorkToday,
+        persistedCompletionDay,
+        cellarStateTankId,
+        scheduledRecommendations,
+        completedScheduledToday,
+    ]);
+
+    // Preserve the legacy live is100 field for existing consumers, but NEVER
+    // use it as the celebration trigger. Debounce transient recalculations and
+    // avoid a broad brews dependency that used to cancel the timer on unrelated
+    // Firestore snapshots.
+    useEffect(() => {
+        if (analyzing || !cellarStateTankId ||
+            analysis.analyzedDay !== localDateKey(new Date())) return;
+        const desiredIs100 = healthScore === 100;
+        if (persistedHealthIs100 === desiredIs100) return;
+
+        const timer = window.setTimeout(() => {
+            void updateDoc(doc(db, "fermentors", String(cellarStateTankId)), {
+                cellarHealthIs100: desiredIs100,
+            }).catch((error) => {
+                console.error("Failed updating the current cellar 100% status:", error);
+            });
+        }, 1800);
+        return () => window.clearTimeout(timer);
+    }, [
+        analyzing,
+        healthScore,
+        analysis.analyzedDay,
+        cellarStateTankId,
         persistedHealthIs100,
-        brews,
     ]);
 
     const counts = useMemo(() => ({

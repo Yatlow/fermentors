@@ -243,3 +243,39 @@ test("completed high-importance action can fully replace an equal unresolved act
     assert.equal(before, 22);
     assert.equal(after, 100);
 });
+
+test("rounding must not declare 100 when one of 201 required fields is still missing", () => {
+    const completed = Array.from({ length: 200 }, () => ({
+        missingFields: [] as Array<"pressure">,
+        requiredFieldCount: 1,
+        completedFieldCount: 1,
+    }));
+    const remaining = {
+        missingFields: ["pressure"] as Array<"pressure">,
+        requiredFieldCount: 1,
+        completedFieldCount: 0,
+    };
+    assert.equal(calculateCellarHealthScore([], [...completed, remaining]), 99);
+    assert.equal(calculateCellarHealthScore([], completed), 100);
+});
+
+test("grace bonus must not mask an unresolved recommendation or missing daily field", () => {
+    const progress = [{
+        missingFields: [] as Array<"pressure">,
+        requiredFieldCount: 2,
+        completedFieldCount: 2,
+        bonusCompletedFieldCount: 7,
+    }];
+    assert.equal(calculateCellarHealthScore([{ importance: 3 }], progress), 99);
+    assert.equal(calculateCellarHealthScore([], progress, [], 1), 99);
+    assert.equal(calculateCellarHealthScore([], progress), 100);
+});
+
+test("a very small pending daily action still caps the score at 99", () => {
+    const progress = Array.from({ length: 500 }, () => ({
+        missingFields: [] as Array<"pressure">,
+        requiredFieldCount: 1,
+        completedFieldCount: 1,
+    }));
+    assert.equal(calculateCellarHealthScore([], progress, [], 1), 99);
+});
