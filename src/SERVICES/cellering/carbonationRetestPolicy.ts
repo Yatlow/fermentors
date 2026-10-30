@@ -54,25 +54,34 @@ function hasOrdinaryPressureAdjustment(note: unknown): boolean {
 }
 
 /**
+ * Presentation policy: keep severe (importance 3) carbonation retests visible
+ * on Fridays. Less urgent repeat tests are deferred, without resetting their
+ * elapsed treatment/testing interval.
+ */
+export function shouldRecommendCarbonationRetestOnDate(
+  todayDate: string,
+  importance: number,
+): boolean {
+  const date = dayNumber(todayDate);
+  if (date === null) return false;
+  return new Date(date * 86400000).getUTCDay() !== 5 || importance >= 3;
+}
+
+/**
  * Operational retest cadence after an out-of-spec carbonation reading:
  * - ordinary pressure correction: retest once the calendar-date difference is 2
  *   (for example 01/01 23:59 -> 03/01 00:00 is already due);
  * - completed bottom carbonation: retest from the next day;
  * - no treatment recorded: retest once the carbonation reading is 2 days old.
  *
- * The caller decides whether the last carbonation is actually out of spec.
+ * The caller decides whether the last carbonation is actually out of spec
+ * and applies the weekday/severity presentation policy separately.
  */
 export function carbonationRetestPolicy(
   measurements: CarbonationRetestMeasurement[],
   todayDate: string,
 ): CarbonationRetestPolicy {
-  // A repeat test stays due in history, but is not recommended on Friday.
-  // Calculate from the supplied local date, not the browser's current timezone.
-  const todayDay = dayNumber(todayDate);
-  const skipFridayRetest = todayDay !== null &&
-    new Date(todayDay * 86400000).getUTCDay() === 5;
-
-  let lastCarbIndex = -1;
+   let lastCarbIndex = -1;
   let lastCarbonation: number | null = null;
 
   // API/Firestore measurements are not guaranteed to arrive chronologically.
@@ -146,7 +155,6 @@ export function carbonationRetestPolicy(
       lastCarbonation,
       lastCarbonationDate,
       due:
-        !skipFridayRetest &&
         daysSinceReference !== null &&
         daysSinceReference >= requiredWaitDays,
       waitReason: latestTreatment.type,
@@ -161,7 +169,7 @@ export function carbonationRetestPolicy(
     hasCarbonation: true,
     lastCarbonation,
     lastCarbonationDate,
-    due: !skipFridayRetest && daysSinceReference !== null && daysSinceReference >= 2,
+    due: daysSinceReference !== null && daysSinceReference >= 2,
     waitReason: "cadence",
     treatmentDate: null,
     daysSinceReference,
