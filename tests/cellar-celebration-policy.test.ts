@@ -134,7 +134,7 @@ test("component uses the daily marker, not Firestore status, to decide the anima
     const source = readFileSync("src/components/dashboard/HealthDashboard.tsx", "utf8");
     assert.match(source, /evaluateCellarCelebration\(\{/);
     assert.match(source, /locallyCelebratedDayRef\.current = today/);
-    assert.match(source, /setItem\(CELLAR_CELEBRATION_ACK_KEY, today\)/);
+    assert.match(source, /setItem\\(CELLAR_CELEBRATION_ACK_KEY, JSON.stringify\\(\\{/);
     assert.match(source, /setCelebrationOpen\(true\)/);
     assert.match(source, /cellarHealthCompletedDay: today/);
     assert.match(source, /analyzedDay: localDateKey\(asOf\)/);
@@ -156,4 +156,34 @@ test("closing and automatic timeout cannot be restarted by changing callback ref
     assert.match(source, /\},\[open,autoCloseMs\]\)/);
     assert.doesNotMatch(source, /\},\[open,onClose,autoCloseMs\]\)/);
     assert.match(source, /launchTimers\.forEach\(window\.clearTimeout\)/);
+});
+
+test("a genuinely completed scheduled action permits a second 100% celebration on the same day", () => {
+    const second = decide({
+        previousSettledScore: { day: today, score: 93 },
+        persistedCompletionDay: today,
+        locallyAcknowledgedDay: today,
+        newScheduledWorkSinceAcknowledgement: true,
+    });
+    assert.equal(second.shouldCelebrate, true);
+    assert.equal(decide({
+        previousSettledScore: { day: today, score: 100 },
+        persistedCompletionDay: today,
+        locallyAcknowledgedDay: today,
+        newScheduledWorkSinceAcknowledgement: true,
+    }).shouldCelebrate, false);
+    assert.equal(decide({
+        previousSettledScore: { day: today, score: 93 },
+        persistedCompletionDay: today,
+        locallyAcknowledgedDay: today,
+        newScheduledWorkSinceAcknowledgement: false,
+    }).shouldCelebrate, false);
+});
+
+test("component requires a newly completed scheduled action before rearming", () => {
+    const source = readFileSync("src/components/dashboard/HealthDashboard.tsx", "utf8");
+    assert.match(source, /completedScheduledToday.some/);
+    assert.match(source, /row.resolvedDate === today/);
+    assert.match(source, /!acknowledgedScheduledIds.includes\\(row.id\\)/);
+    assert.match(source, /newScheduledWorkSinceAcknowledgement: newScheduledWork/);
 });
