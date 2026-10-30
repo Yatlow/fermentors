@@ -66,6 +66,12 @@ export function carbonationRetestPolicy(
   measurements: CarbonationRetestMeasurement[],
   todayDate: string,
 ): CarbonationRetestPolicy {
+  // A repeat test stays due in history, but is not recommended on Friday.
+  // Calculate from the supplied local date, not the browser's current timezone.
+  const todayDay = dayNumber(todayDate);
+  const skipFridayRetest = todayDay !== null &&
+    new Date(todayDay * 86400000).getUTCDay() === 5;
+
   let lastCarbIndex = -1;
   let lastCarbonation: number | null = null;
 
@@ -140,6 +146,7 @@ export function carbonationRetestPolicy(
       lastCarbonation,
       lastCarbonationDate,
       due:
+        !skipFridayRetest &&
         daysSinceReference !== null &&
         daysSinceReference >= requiredWaitDays,
       waitReason: latestTreatment.type,
@@ -154,7 +161,7 @@ export function carbonationRetestPolicy(
     hasCarbonation: true,
     lastCarbonation,
     lastCarbonationDate,
-    due: daysSinceReference !== null && daysSinceReference >= 2,
+    due: !skipFridayRetest && daysSinceReference !== null && daysSinceReference >= 2,
     waitReason: "cadence",
     treatmentDate: null,
     daysSinceReference,
