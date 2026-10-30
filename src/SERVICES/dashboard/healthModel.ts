@@ -222,13 +222,26 @@ export function calculateCellarHealthScore(
         pendingDailyActionWeight;
     if (possible <= 0) return 100;
 
-    return Math.max(
+    // The bonus from optional grace measurements may offset unfinished required
+    // work in the numeric ratio. Similarly a 99.5% raw score rounds to 100.
+    // Neither means "all work completed": 100 must remain an exact, earned
+    // completion state because it also triggers the daily celebration.
+    const hasUnfinishedWork =
+        unresolvedRecommendationWeight > 0 ||
+        pendingDailyActionWeight > 0 ||
+        measurementProgress.some((progress) =>
+            (Number(progress.completedFieldCount) || 0) <
+            (Number(progress.requiredFieldCount) || 0)
+        );
+
+    const roundedScore = Math.max(
         0,
         Math.min(
             100,
             Math.round(((measurementEarned + completedActionWeight) / possible) * 100)
         )
     );
+    return hasUnfinishedWork ? Math.min(99, roundedScore) : roundedScore;
 }
 
 export type HealthBand = "healthy" | "good" | "warning" | "poor" | "critical";
