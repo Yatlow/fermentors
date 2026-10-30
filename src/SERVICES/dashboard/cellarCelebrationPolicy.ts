@@ -20,12 +20,14 @@ export function evaluateCellarCelebration(input: {
     previousSettledScore: SettledCellarScore | null;
     persistedCompletionDay: string | null;
     locallyAcknowledgedDay: string | null;
+    /** New scheduled work IDs since the last celebration permit a new cycle. */
+    newScheduledWorkSinceAcknowledgement?: boolean;
     hasWorkRecordedToday: boolean;
     analyzing: boolean;
 }): CellarCelebrationDecision {
     const {
         score, analyzedDay, today, previousSettledScore,
-        persistedCompletionDay, locallyAcknowledgedDay,
+        persistedCompletionDay, locallyAcknowledgedDay, newScheduledWorkSinceAcknowledgement = false,
         hasWorkRecordedToday, analyzing,
     } = input;
     if (
@@ -50,8 +52,8 @@ export function evaluateCellarCelebration(input: {
 
     return {
         shouldCelebrate: newAchievement &&
-            persistedCompletionDay !== today &&
-            locallyAcknowledgedDay !== today,
+            (newScheduledWorkSinceAcknowledgement ||
+                (persistedCompletionDay !== today && locallyAcknowledgedDay !== today)),
         nextSettledScore: { day: today, score },
     };
 }
