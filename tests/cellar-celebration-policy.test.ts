@@ -134,7 +134,7 @@ test("component uses the daily marker, not Firestore status, to decide the anima
     const source = readFileSync("src/components/dashboard/HealthDashboard.tsx", "utf8");
     assert.match(source, /evaluateCellarCelebration\(\{/);
     assert.match(source, /locallyCelebratedDayRef\.current = today/);
-    assert.match(source, /setItem\\(CELLAR_CELEBRATION_ACK_KEY, JSON.stringify\\(\\{/);
+    assert.ok(source.includes("setItem(CELLAR_CELEBRATION_ACK_KEY, JSON.stringify({"));
     assert.match(source, /setCelebrationOpen\(true\)/);
     assert.match(source, /cellarHealthCompletedDay: today/);
     assert.match(source, /analyzedDay: localDateKey\(asOf\)/);
