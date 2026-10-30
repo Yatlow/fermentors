@@ -8,7 +8,7 @@ import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshol
 import { shouldShowNeglectedTank } from "./neglectWeekday";
 import { evaluateColdTankNeglect } from "./neglectAfterCooling";
 import { hasCellarActionOnDate } from "./cellarActionState";
-import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext } from "./carbonationRetestPolicy";
+import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext, shouldRecommendCarbonationRetestOnDate } from "./carbonationRetestPolicy";
 import { hasStablePlatoForCooling } from "./coolingPlatoStability";
 import { yeastDropAllowsCooling } from "./coolingYeastTiming";
 import { carbonationPressureContext, firstInRangePressureAdvice } from "./carbonationPressureInsights";
@@ -1041,7 +1041,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             );
 
             if (lastCarbSpec.outOfSpec) {
-                if (retestPolicy.due) {
+                if (retestPolicy.due && shouldRecommendCarbonationRetestOnDate(todayDate, lastCarbSpec.importance)) {
                     requiresCarbTest.req = true;
                     requiresCarbTest.display = true;
                     requiresCarbTest.importance = lastCarbSpec.importance;
@@ -1058,10 +1058,10 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     retestPolicy.waitReason === "tested_today" ||
                     retestPolicy.waitReason === "cadence"
                 ) {
-                    // A pressure correction needs two full days to equilibrate.
-                    // Bottom carbonation is the exception: it may be re-tested
-                    // the next day. In either case do not let Sunday/Wednesday
-                    // routine rules create an earlier duplicate test.
+                    // Respect the treatment waiting period and the Friday
+                    // importance gate (only severity 3 is actionable on Friday).
+                    // Do not let older positional or weekly rules reopen a
+                    // moderate retest that was intentionally deferred.
                     requiresCarbTest.req = false;
                     requiresCarbTest.display = false;
                 }
