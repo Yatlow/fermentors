@@ -1114,7 +1114,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // Completing a yeast drop today must never unlock cooling on the same
     // day. Check dated, completed actions rather than any mention of yeast.
     const coolingYeastReady = yeastDropAllowsCooling(sortedMeasurements, todayDate);
+    // A previous day's Plato is never sufficient, even when the latest tank
+    // report is today's temperature/pressure or the yeast history is ready.
+    const todayPlato = latestNumericOnDate("plato", todayDate);
     const readyToCoolDown = (
+        todayPlato !== null &&
         hasStablePlatoForCooling(sortedMeasurements) &&
         stage.name === "בתסיסה" &&
         coolingYeastReady
@@ -1122,9 +1126,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     let readyToCoolDownText = "";
     let coolDownDisplay = readyToCoolDown;
     let dispCoolDownGenerallRec = false;
-    if (!readyToCoolDown && lastMeasurement?.plato && stage.name === "בתסיסה") {
+    if (!readyToCoolDown && todayPlato !== null && stage.name === "בתסיסה") {
         readyToCoolDownText = "המיכל עוד לא מוכן לקירור -עדיין לא הסתיימה התסיסה"
-        if (Number(lastMeasurement.plato) < 5 && coolingYeastReady) coolDownDisplay = true;
+        if (todayPlato < 5 && coolingYeastReady) coolDownDisplay = true;
     }
     if (readyToCoolDown) {
         if (CooldDate) {
