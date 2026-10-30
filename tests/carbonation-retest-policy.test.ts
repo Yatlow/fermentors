@@ -228,3 +228,40 @@ test("compares today's reading to the latest prior day, even several days back",
     { id: "2026-10-20_1000", pressure: 1.35 },
   ], "2026-10-20") ?? "", /לחץ קודם \(17\/10\/2026\): 0.88 bar.*עלייה של 0.47 bar/);
 });
+
+test("Friday suppresses overdue untreated carbonation retests without resetting their age", () => {
+  const history = [
+    { id: "2026-10-28_0915", carbonation: 2.01 },
+    { id: "2026-10-30_0700", pressure: 1.1 },
+  ];
+  const friday = carbonationRetestPolicy(history, "2026-10-30");
+  assert.equal(friday.waitReason, "cadence");
+  assert.equal(friday.daysSinceReference, 2);
+  assert.equal(friday.due, false);
+  assert.equal(carbonationRetestDueReason(friday), null);
+  assert.equal(carbonationRetestPolicy(history, "2026-10-31").due, true);
+});
+
+test("Friday also suppresses retests after ordinary pressure changes and bottom carbonation", () => {
+  const histories = [
+    { treatment: "הורדת לחץ ל1.2 bar", expectedReason: "ordinary_pressure", age: 2, start: "2026-10-28" },
+    { treatment: "סגירת גיזוז מלמטה בשעה 13:00 על 0.8 bar", expectedReason: "bottom_carbonation", age: 1, start: "2026-10-29" },
+  ] as const;
+  for (const { treatment, expectedReason, age, start } of histories) {
+    const history = [{ id: `${start}_0900`, carbonation: 2.1, notes: treatment }];
+    const friday = carbonationRetestPolicy(history, "2026-10-30");
+    assert.equal(friday.waitReason, expectedReason);
+    assert.equal(friday.daysSinceReference, age);
+    assert.equal(friday.due, false);
+    assert.equal(carbonationRetestPolicy(history, "2026-10-31").due, true);
+  }
+});
+
+test("Friday exemption does not affect a Thursday retest or a test already done today", () => {
+  assert.equal(carbonationRetestPolicy([
+    { id: "2026-10-27_0900", carbonation: 2.0 },
+  ], "2026-10-29").due, true);
+  assert.equal(carbonationRetestPolicy([
+    { id: "2026-10-30_0830", carbonation: 2.0 },
+  ], "2026-10-30").waitReason, "tested_today");
+});
