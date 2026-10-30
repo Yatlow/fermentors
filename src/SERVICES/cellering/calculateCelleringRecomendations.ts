@@ -826,7 +826,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         display: false,
         req: false,
         reason: undefined as string | undefined,
-        importance: 1
+        importance: 1,
+        autoIgnoredReason: null as string | null,
     };
 
     const hasCarbonationAfterCooling =
@@ -1064,6 +1065,12 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     // moderate retest that was intentionally deferred.
                     requiresCarbTest.req = false;
                     requiresCarbTest.display = false;
+                    if (retestPolicy.due && !shouldRecommendCarbonationRetestOnDate(todayDate, lastCarbSpec.importance)) {
+                        requiresCarbTest.autoIgnoredReason = "התעלמות אוטומטית - יום שישי";
+                        requiresCarbTest.importance = lastCarbSpec.importance;
+                        requiresCarbTest.reason = carbonationRetestDueReason(retestPolicy) ??
+                            "מומלץ לבצע בדיקת גיזוז חוזרת";
+                    }
                 }
             }
         }
@@ -1101,15 +1108,20 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // Start the five-day cold neglect clock at the latest ACTUAL cooling.
     // Older fermentation actions must not make a newly cooled tank look neglected.
     // A completed yeast drop or carbonation test after cooling resets this clock.
-    const coldNeglect =
-        stage.name === "קר" && shouldShowNeglectedTank(today)
-            ? evaluateColdTankNeglect(sortedMeasurements)
-            : null;
+    // Evaluate neglected tanks on weekends too, but preserve weekday
+    // actionability; expose why an otherwise actionable alert was suppressed.
+    const coldNeglect = stage.name === "קר"
+        ? evaluateColdTankNeglect(sortedMeasurements)
+        : null;
+    const showColdNeglect = coldNeglect !== null && shouldShowNeglectedTank(today);
     const neglectedStatus = {
-        display: coldNeglect !== null,
-        req: coldNeglect !== null,
+        display: showColdNeglect,
+        req: showColdNeglect,
         importance: coldNeglect?.importance ?? 0,
         reason: coldNeglect?.reason ?? "",
+        autoIgnoredReason: coldNeglect !== null && (today === 5 || today === 6)
+            ? `התעלמות אוטומטית - יום ${today === 5 ? "שישי" : "שבת"}`
+            : null,
     };
     // Completing a yeast drop today must never unlock cooling on the same
     // day. Check dated, completed actions rather than any mention of yeast.
