@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext } from "../src/SERVICES/cellering/carbonationRetestPolicy";
+import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext, shouldRecommendCarbonationRetestOnDate } from "../src/SERVICES/cellering/carbonationRetestPolicy";
 
 test("out-of-spec carbonation from two days ago is due today when untreated", () => {
   const policy = carbonationRetestPolicy(
@@ -229,39 +229,79 @@ test("compares today's reading to the latest prior day, even several days back",
   ], "2026-10-20") ?? "", /לחץ קודם \(17\/10\/2026\): 0.88 bar.*עלייה של 0.47 bar/);
 });
 
-test("Friday suppresses overdue untreated carbonation retests without resetting their age", () => {
+test("Friday leaves the underlying retest due, but defers moderate severity", () => {
   const history = [
-    { id: "2026-10-28_0915", carbonation: 2.01 },
+    { id: "2026-10-28_0915", carbonation: 2.39 },
     { id: "2026-10-30_0700", pressure: 1.1 },
   ];
   const friday = carbonationRetestPolicy(history, "2026-10-30");
   assert.equal(friday.waitReason, "cadence");
   assert.equal(friday.daysSinceReference, 2);
-  assert.equal(friday.due, false);
-  assert.equal(carbonationRetestDueReason(friday), null);
+  assert.equal(friday.due, true, "the waiting clock remains due independently of weekday");
+  assert.equal(shouldRecommendCarbonationRetestOnDate("2026-10-30", 2), false);
+  assert.equal(shouldRecommendCarbonationRetestOnDate("2026-10-31", 2), true);
   assert.equal(carbonationRetestPolicy(history, "2026-10-31").due, true);
 });
 
-test("Friday also suppresses retests after ordinary pressure changes and bottom carbonation", () => {
+test("Friday shows urgency 3 retests for all timing branches", () => {
   const histories = [
-    { treatment: "הורדת לחץ ל1.2 bar", expectedReason: "ordinary_pressure", age: 2, start: "2026-10-28" },
-    { treatment: "סגירת גיזוז מלמטה בשעה 13:00 על 0.8 bar", expectedReason: "bottom_carbonation", age: 1, start: "2026-10-29" },
+    { treatment: null, reason: "cadence", age: 2, start: "2026-10-28" },
+    { treatment: "הורדת לחץ ל1.2 bar", reason: "ordinary_pressure", age: 2, start: "2026-10-28" },
+    { treatment: "סגירת גיזוז מלמטה בשעה 13:00 על 0.8 bar", reason: "bottom_carbonation", age: 1, start: "2026-10-29" },
   ] as const;
-  for (const { treatment, expectedReason, age, start } of histories) {
+  for (const { treatment, reason, age, start } of histories) {
     const history = [{ id: `${start}_0900`, carbonation: 2.1, notes: treatment }];
-    const friday = carbonationRetestPolicy(history, "2026-10-30");
-    assert.equal(friday.waitReason, expectedReason);
-    assert.equal(friday.daysSinceReference, age);
-    assert.equal(friday.due, false);
-    assert.equal(carbonationRetestPolicy(history, "2026-10-31").due, true);
+    const policy = carbonationRetestPolicy(history, "2026-10-30");
+    assert.equal(policy.waitReason, reason);
+    assert.equal(policy.daysSinceReference, age);
+    assert.equal(policy.due, true);
+    assert.equal(shouldRecommendCarbonationRetestOnDate("2026-10-30", 3), true);
+    assert.match(carbonationRetestDueReason(policy) ?? "", /בדיקת גיזוז חוזרת/);
   }
 });
 
-test("Friday exemption does not affect a Thursday retest or a test already done today", () => {
-  assert.equal(carbonationRetestPolicy([
-    { id: "2026-10-27_0900", carbonation: 2.0 },
-  ], "2026-10-29").due, true);
-  assert.equal(carbonationRetestPolicy([
-    { id: "2026-10-30_0830", carbonation: 2.0 },
-  ], "2026-10-30").waitReason, "tested_today");
+test("Friday defers moderate retests regardless of treatment path", () => {
+  const histories = [
+    { id: "2026-10-28_1010", carbonation: 2.39 },
+    { id: "2026-10-28_1010", carbonation: 2.39, notes: "העלאת לחץ ל1.5 bar" },
+    { id: "2026-10-29_1010", carbonation: 2.39, notes: "סגירת גיזוז מלמטה בשעה 10:55 על 0.8 bar" },
+  ];
+  for (const row of histories) {
+    const policy = carbonationRetestPolicy([row], "2026-10-30");
+    assert.equal(policy.due, true);
+    assert.equal(shouldRecommendCarbonationRetestOnDate("2026-10-30", 2), false);
+    assert.equal(shouldRecommendCarbonationRetestOnDate("2026-10-30", 3), true);
+  }
+});
+
+test("Friday severity boundary and adjacent weekdays are stable", () => {
+  const friday = "2026-10-30";
+  assert.equal(shouldRecommendCarbonationRetestOnDate(friday, 1), false);
+  assert.equal(shouldRecommendCarbonationRetestOnDate(friday, 2), false);
+  assert.equal(shouldRecommendCarbonationRetestOnDate(friday, 2.999), false);
+  assert.equal(shouldRecommendCarbonationRetestOnDate(friday, 3), true);
+  assert.equal(shouldRecommendCarbonationRetestOnDate("2026-10-29", 2), true);
+  assert.equal(shouldRecommendCarbonationRetestOnDate("2026-10-31", 2), true);
+  assert.equal(shouldRecommendCarbonationRetestOnDate("not-a-date", 3), false);
+});
+
+test("Friday severe retests still respect actual waiting periods and today's completed tests", () => {
+  const notYetDue = carbonationRetestPolicy([
+    { id: "2026-10-29_1010", carbonation: 2.1, notes: "הורדת לחץ ל1.2 bar" },
+  ], "2026-10-30");
+  assert.equal(notYetDue.due, false);
+  assert.equal(notYetDue.waitReason, "ordinary_pressure");
+  const testedToday = carbonationRetestPolicy([
+    { id: "2026-10-30_0830", carbonation: 2.1 },
+  ], "2026-10-30");
+  assert.equal(testedToday.waitReason, "tested_today");
+  assert.equal(testedToday.due, false);
+});
+
+test("live recommendation applies Friday severity only to retests, not first cooling test", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync("src/SERVICES/cellering/calculateCelleringRecomendations.ts", "utf8");
+  assert.match(source, /if \(retestPolicy\.due && shouldRecommendCarbonationRetestOnDate\(todayDate, lastCarbSpec\.importance\)\)/);
+  assert.match(source, /!hasCarbonationAfterCooling/);
+  assert.match(source, /CoolAge >= 1/);
 });
