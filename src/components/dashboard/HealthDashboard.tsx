@@ -243,7 +243,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         if (typeof window === "undefined") return new Set();
         try {
             const stored = JSON.parse(window.sessionStorage.getItem("cellar-restored-auto-recommendations-v1") || "[]");
-            return new Set(Array.isArray(stored) ? stored.filter((id): id is string => typeof id === "string") : []);
+            return new Set<string>(Array.isArray(stored) ? stored.filter((id): id is string => typeof id === "string") : []);
         } catch {
             return new Set();
         }
