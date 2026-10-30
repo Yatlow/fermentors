@@ -1071,7 +1071,10 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             // A ref still prevents repeated celebrations in this session.
         }
         const newScheduledWork = storedDay === today &&
-            scheduledIds.some((id) => !acknowledgedScheduledIds.includes(id));
+            completedScheduledToday.some((row) =>
+                row.resolvedDate === today &&
+                !acknowledgedScheduledIds.includes(row.id)
+            );
         const decision = evaluateCellarCelebration({
             score: healthScore,
             analyzedDay: analysis.analyzedDay,
