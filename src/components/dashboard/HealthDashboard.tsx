@@ -1060,7 +1060,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             previousSettledScore: previousSettledScoreRef.current,
             persistedCompletionDay,
             locallyAcknowledgedDay: storedDay === today || locallyCelebratedDayRef.current === today ? today : null,
-            hasWorkRecordedToday,
+            hasWorkRecordedToday: hasRecordedWorkToday,
             analyzing,
         });
         previousSettledScoreRef.current = decision.nextSettledScore;
