@@ -43,11 +43,34 @@ test("only two readings with no dates or future readings do not qualify", () => 
 test("canonical daily IDs use the Sheet time, not a fictitious midnight", () => {
   const fridayDaily = { id: "2026-10-09", time: "16:00", plato: 4.2 };
   const sundayDaily = { id: "2026-10-11", time: "16:00", plato: 4.2 };
-  assert.equal(hasStablePlatoForCooling([fridayDaily, sundayDaily], new Date(2026, 9, 12, 9)), true);
+  assert.equal(hasStablePlatoForCooling([fridayDaily, sundayDaily], new Date(2026, 9, 11, 17)), true);
+  assert.equal(hasStablePlatoForCooling([fridayDaily, sundayDaily], new Date(2026, 9, 12, 9)), false);
   assert.equal(hasStablePlatoForCooling([fridayDaily, sundayDaily], new Date(2026, 9, 12, 17)), false);
   assert.equal(hasStablePlatoForCooling([fridayDaily, { id: "2026-10-11", plato: 4.2 }], new Date(2026, 9, 11, 17)), false);
 });
 test("invalid dates and invalid times never count as fresh", () => {
   assert.equal(hasStablePlatoForCooling([friday, { id: "2026-10-11", time: "27:00", plato: 4.2 }], now), false);
   assert.equal(hasStablePlatoForCooling([friday, { id: "2026-10-11_extra", time: "09:00", plato: 4.2 }], now), false);
+});
+
+test("tank 19: today's pressure/temp reading does not replace a missing Plato reading", () => {
+  const monday = new Date(2026, 9, 12, 10);
+  const history = [
+    friday, sunday,
+    { id: "2026-10-12_0715", temp: 18, pressure: 1.1 },
+  ];
+  assert.equal(hasStablePlatoForCooling(history, monday), false);
+  assert.equal(hasStablePlatoForCooling([
+    ...history,
+    { id: "2026-10-12_0830", plato: 4.2 },
+  ], monday), true);
+});
+
+test("cooling fallback also requires a valid Plato from today", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync("src/SERVICES/cellering/calculateCelleringRecomendations.ts", "utf8");
+  assert.match(source, /const todayPlato = latestNumericOnDate\("plato", todayDate\)/);
+  assert.match(source, /todayPlato !== null &&\s*hasStablePlatoForCooling/);
+  assert.match(source, /!readyToCoolDown && todayPlato !== null/);
+  assert.match(source, /if \(todayPlato < 5 && coolingYeastReady\)/);
 });
