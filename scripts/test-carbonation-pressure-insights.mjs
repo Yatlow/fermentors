@@ -215,7 +215,9 @@ test("live cooling recommendation checks completed drop timing before stable Pla
     const engine = read("../src/SERVICES/cellering/calculateCelleringRecomendations.ts");
     assert.match(engine, /const coolingYeastReady = yeastDropAllowsCooling\(sortedMeasurements, todayDate\)/);
     assert.match(engine, /hasStablePlatoForCooling\(sortedMeasurements\)[\s\S]*stage\.name === "בתסיסה"[\s\S]*coolingYeastReady/);
-    assert.match(engine, /Number\(lastMeasurement\.plato\) < 5 && coolingYeastReady/);
+    assert.match(engine, /todayPlato !== null &&\s*hasStablePlatoForCooling/);
+    assert.match(engine, /!readyToCoolDown && todayPlato !== null/);
+    assert.match(engine, /if \(todayPlato < 5 && coolingYeastReady\)/);
 });
 
 test("only dedicated quality-form preview may redirect the app root", () => {

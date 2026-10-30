@@ -123,7 +123,9 @@ test("missing, malformed and future cooling never produce neglect", () => {
 
 test("the cellar pipeline keeps the weekday and cold-stage guards", () => {
     const recommendationSource = read("../src/SERVICES/cellering/calculateCelleringRecomendations.ts");
-    assert.match(recommendationSource, /stage\.name === "קר" && shouldShowNeglectedTank\(today\)/);
+    assert.match(recommendationSource, /const coldNeglect = stage\.name === "קר"/);
+    assert.match(recommendationSource, /showColdNeglect = coldNeglect !== null && shouldShowNeglectedTank\(today\)/);
+    assert.match(recommendationSource, /autoIgnoredReason: coldNeglect !== null/);
     assert.match(recommendationSource, /evaluateColdTankNeglect\(sortedMeasurements\)/);
     assert.doesNotMatch(recommendationSource, /daysSinceLastAction/);
 });

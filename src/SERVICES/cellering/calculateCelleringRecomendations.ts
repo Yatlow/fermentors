@@ -8,7 +8,7 @@ import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshol
 import { shouldShowNeglectedTank } from "./neglectWeekday";
 import { evaluateColdTankNeglect } from "./neglectAfterCooling";
 import { hasCellarActionOnDate } from "./cellarActionState";
-import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext } from "./carbonationRetestPolicy";
+import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext, shouldRecommendCarbonationRetestOnDate } from "./carbonationRetestPolicy";
 import { hasStablePlatoForCooling } from "./coolingPlatoStability";
 import { yeastDropAllowsCooling } from "./coolingYeastTiming";
 import { carbonationPressureContext, firstInRangePressureAdvice } from "./carbonationPressureInsights";
@@ -826,7 +826,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         display: false,
         req: false,
         reason: undefined as string | undefined,
-        importance: 1
+        importance: 1,
+        autoIgnoredReason: null as string | null,
     };
 
     const hasCarbonationAfterCooling =
@@ -1041,7 +1042,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             );
 
             if (lastCarbSpec.outOfSpec) {
-                if (retestPolicy.due) {
+                if (retestPolicy.due && shouldRecommendCarbonationRetestOnDate(todayDate, lastCarbSpec.importance)) {
                     requiresCarbTest.req = true;
                     requiresCarbTest.display = true;
                     requiresCarbTest.importance = lastCarbSpec.importance;
@@ -1058,12 +1059,18 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     retestPolicy.waitReason === "tested_today" ||
                     retestPolicy.waitReason === "cadence"
                 ) {
-                    // A pressure correction needs two full days to equilibrate.
-                    // Bottom carbonation is the exception: it may be re-tested
-                    // the next day. In either case do not let Sunday/Wednesday
-                    // routine rules create an earlier duplicate test.
+                    // Respect the treatment waiting period and the Friday
+                    // importance gate (only severity 3 is actionable on Friday).
+                    // Do not let older positional or weekly rules reopen a
+                    // moderate retest that was intentionally deferred.
                     requiresCarbTest.req = false;
                     requiresCarbTest.display = false;
+                    if (retestPolicy.due && !shouldRecommendCarbonationRetestOnDate(todayDate, lastCarbSpec.importance)) {
+                        requiresCarbTest.autoIgnoredReason = "התעלמות אוטומטית - יום שישי";
+                        requiresCarbTest.importance = lastCarbSpec.importance;
+                        requiresCarbTest.reason = carbonationRetestDueReason(retestPolicy) ??
+                            "מומלץ לבצע בדיקת גיזוז חוזרת";
+                    }
                 }
             }
         }
@@ -1101,20 +1108,29 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // Start the five-day cold neglect clock at the latest ACTUAL cooling.
     // Older fermentation actions must not make a newly cooled tank look neglected.
     // A completed yeast drop or carbonation test after cooling resets this clock.
-    const coldNeglect =
-        stage.name === "קר" && shouldShowNeglectedTank(today)
-            ? evaluateColdTankNeglect(sortedMeasurements)
-            : null;
+    // Evaluate neglected tanks on weekends too, but preserve weekday
+    // actionability; expose why an otherwise actionable alert was suppressed.
+    const coldNeglect = stage.name === "קר"
+        ? evaluateColdTankNeglect(sortedMeasurements)
+        : null;
+    const showColdNeglect = coldNeglect !== null && shouldShowNeglectedTank(today);
     const neglectedStatus = {
-        display: coldNeglect !== null,
-        req: coldNeglect !== null,
+        display: showColdNeglect,
+        req: showColdNeglect,
         importance: coldNeglect?.importance ?? 0,
         reason: coldNeglect?.reason ?? "",
+        autoIgnoredReason: coldNeglect !== null && (today === 5 || today === 6)
+            ? `התעלמות אוטומטית - יום ${today === 5 ? "שישי" : "שבת"}`
+            : null,
     };
     // Completing a yeast drop today must never unlock cooling on the same
     // day. Check dated, completed actions rather than any mention of yeast.
     const coolingYeastReady = yeastDropAllowsCooling(sortedMeasurements, todayDate);
+    // A previous day's Plato is never sufficient, even when the latest tank
+    // report is today's temperature/pressure or the yeast history is ready.
+    const todayPlato = latestNumericOnDate("plato", todayDate);
     const readyToCoolDown = (
+        todayPlato !== null &&
         hasStablePlatoForCooling(sortedMeasurements) &&
         stage.name === "בתסיסה" &&
         coolingYeastReady
@@ -1122,9 +1138,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     let readyToCoolDownText = "";
     let coolDownDisplay = readyToCoolDown;
     let dispCoolDownGenerallRec = false;
-    if (!readyToCoolDown && lastMeasurement?.plato && stage.name === "בתסיסה") {
+    if (!readyToCoolDown && todayPlato !== null && stage.name === "בתסיסה") {
         readyToCoolDownText = "המיכל עוד לא מוכן לקירור -עדיין לא הסתיימה התסיסה"
-        if (Number(lastMeasurement.plato) < 5 && coolingYeastReady) coolDownDisplay = true;
+        if (todayPlato < 5 && coolingYeastReady) coolDownDisplay = true;
     }
     if (readyToCoolDown) {
         if (CooldDate) {

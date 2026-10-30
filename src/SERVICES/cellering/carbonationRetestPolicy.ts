@@ -54,13 +54,28 @@ function hasOrdinaryPressureAdjustment(note: unknown): boolean {
 }
 
 /**
+ * Presentation policy: keep severe (importance 3) carbonation retests visible
+ * on Fridays. Less urgent repeat tests are deferred, without resetting their
+ * elapsed treatment/testing interval.
+ */
+export function shouldRecommendCarbonationRetestOnDate(
+  todayDate: string,
+  importance: number,
+): boolean {
+  const date = dayNumber(todayDate);
+  if (date === null) return false;
+  return new Date(date * 86400000).getUTCDay() !== 5 || importance >= 3;
+}
+
+/**
  * Operational retest cadence after an out-of-spec carbonation reading:
  * - ordinary pressure correction: retest once the calendar-date difference is 2
  *   (for example 01/01 23:59 -> 03/01 00:00 is already due);
  * - completed bottom carbonation: retest from the next day;
  * - no treatment recorded: retest once the carbonation reading is 2 days old.
  *
- * The caller decides whether the last carbonation is actually out of spec.
+ * The caller decides whether the last carbonation is actually out of spec
+ * and applies the weekday/severity presentation policy separately.
  */
 export function carbonationRetestPolicy(
   measurements: CarbonationRetestMeasurement[],

@@ -497,6 +497,25 @@
     margin-top: 1px;
 }
 
+.health-ignored-action .health-ignored-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.health-ignored-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 5px;
+}
+
+.health-ignored-copy small {
+    font-size: 0.7rem;
+    color: #991b1b;
+    line-height: 1.4;
+    padding-inline-start: 20px;
+}
+
 .health-restore-button {
     flex: 0 0 auto;
     display: inline-flex;

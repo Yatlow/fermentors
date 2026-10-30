@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 const output = mkdtempSync(join(tmpdir(), "brewery-dashboard-tests-"));
 const tests = [
   "health-dashboard-model",
+  "auto-ignored-cellar-recommendations",
   "cellar-measurement-badge",
   "cellar-grace",
   "batch-timeline-model",
