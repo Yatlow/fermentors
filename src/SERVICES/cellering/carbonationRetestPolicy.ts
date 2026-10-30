@@ -81,7 +81,7 @@ export function carbonationRetestPolicy(
   measurements: CarbonationRetestMeasurement[],
   todayDate: string,
 ): CarbonationRetestPolicy {
-   let lastCarbIndex = -1;
+  let lastCarbIndex = -1;
   let lastCarbonation: number | null = null;
 
   // API/Firestore measurements are not guaranteed to arrive chronologically.
