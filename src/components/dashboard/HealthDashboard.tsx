@@ -41,6 +41,7 @@ import {
     type ScheduledCellarRecommendation,
     type ScheduledCellarActionType,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
+import { automaticIgnoredRecommendationsForTank, type AutomaticallyIgnoredCellarRecommendation } from "../../SERVICES/cellering/autoIgnoredCellarRecommendations";
 import {
     ignoreCellarRecommendation,
     isRecommendationIgnored,
@@ -109,6 +110,7 @@ type DailyActionProgress = {
 
 type CellarAnalysis = {
     alerts: HealthAlert[];
+    autoIgnored: AutomaticallyIgnoredCellarRecommendation[];
     scoreRecommendations: ScoredRecommendation[];
     completedActions: CompletedCellarAction[];
     dailyActions: DailyCellarAction[];
@@ -132,6 +134,7 @@ const EMPTY_DAILY_ACTION_PROGRESS: DailyActionProgress = {
 
 const EMPTY_ANALYSIS: CellarAnalysis = {
     alerts: [],
+    autoIgnored: [],
     scoreRecommendations: [],
     completedActions: [],
     dailyActions: [],
@@ -488,6 +491,17 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
                         const now = new Date();
                         const today = localDateKey(now);
+                        const autoIgnored = automaticIgnoredRecommendationsForTank({
+                            tankNumber: number,
+                            batchNumber: String(tank.batchNumber),
+                            ignoredDate: today,
+                            recommendations,
+                        }).filter((row) => !isRecommendationIgnored(
+                            ignoredRecommendations,
+                            row.tankNumber,
+                            row.batchNumber,
+                            row.recommendationKey,
+                        ));
                         const day = now.getDay();
                         const todayRows = measurements.filter(
                             (measurement) => measurementDateKey(measurement) === today
@@ -834,6 +848,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         return {
                             included: true,
                             alerts: tankAlerts,
+                            autoIgnored,
                             scoreRecommendations,
                             completedActions,
                             dailyActions,
@@ -914,6 +929,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
             if (cancelled) return;
             setAnalysis({
+                autoIgnored: eligibleResults.flatMap((result) => "autoIgnored" in result ? result.autoIgnored : []),
                 alerts: eligibleResults
                     .flatMap((result) => result.alerts)
                     .sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity]),
@@ -1051,6 +1067,14 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         info: analysis.alerts.filter((alert) => alert.severity === "info").length,
     }), [analysis.alerts]);
 
+    const ignoredForDisplay = useMemo(() => [
+        ...ignoredRecommendations.map((row) => ({
+            ...row,
+            autoReason: null as string | null,
+        })),
+        ...analysis.autoIgnored,
+    ], [ignoredRecommendations, analysis.autoIgnored]);
+
     const groupedDailyActions = useMemo(() => {
         const grouped = new Map<string, { tankNumber: string; titles: string[]; detail?: string }>();
         analysis.dailyActions.forEach((action) => {
@@ -1187,27 +1211,30 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         </section>
                     )}
 
-                    {ignoredRecommendations.length > 0 && (
+                    {ignoredForDisplay.length > 0 && (
                         <section className="health-ignored-actions" aria-label="המלצות שסומנו להתעלם היום">
                             <strong>סומן להתעלם</strong>
                             <div className="health-ignored-actions-list">
-                                {ignoredRecommendations.map((row) => (
+                                {ignoredForDisplay.map((row) => (
                                     <div className="health-ignored-action" key={row.id}>
                                         <span>
                                             <LightbulbOff size={15} aria-hidden="true" />
                                             מיכל {row.tankNumber} · {recommendationShortLabel(row.recommendationKey, row.title)}
+                                            {row.autoReason && <small>{row.autoReason}</small>}
                                         </span>
-                                        <button
-                                            type="button"
-                                            className="health-restore-button"
-                                            disabled={ignoreSavingId === row.id}
-                                            onClick={() => void restoreIgnored(row)}
-                                            title="החזר המלצה"
-                                            aria-label={`החזר המלצה למיכל ${row.tankNumber}`}
-                                        >
-                                            <Undo2 size={15} aria-hidden="true" />
-                                            החזר
-                                        </button>
+                                        {!row.autoReason && (
+                                            <button
+                                                type="button"
+                                                className="health-restore-button"
+                                                disabled={ignoreSavingId === row.id}
+                                                onClick={() => void restoreIgnored(row)}
+                                                title="החזר המלצה"
+                                                aria-label={`החזר המלצה למיכל ${row.tankNumber}`}
+                                            >
+                                                <Undo2 size={15} aria-hidden="true" />
+                                                החזר
+                                            </button>
+                                        )}
                                     </div>
                                 ))}
                             </div>
