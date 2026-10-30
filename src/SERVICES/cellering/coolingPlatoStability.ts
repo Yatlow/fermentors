@@ -4,7 +4,8 @@ export type PlatoCoolingMeasurement = { id?: string | number | null; time?: stri
  * Cooling readiness is based on dated Plato samples, never unrelated pressure
  * or temperature reports. Two equal samples at least 48h apart suffice; the
  * original three-sample route also remains available. Any intervening Plato
- * change blocks both routes. Last Plato must be no older than 24h.
+ * change blocks both routes. The latest valid Plato must be measured today,
+ * not just within the past 24h: a pressure-only report cannot clear this guard.
  */
 export function hasStablePlatoForCooling(
     measurements: PlatoCoolingMeasurement[],
@@ -32,6 +33,10 @@ export function hasStablePlatoForCooling(
     }).sort((a, b) => a.date - b.date);
     if (samples.length < 2) return false;
     const latest = samples[samples.length - 1];
+    const latestDate = new Date(latest.date);
+    if (latestDate.getFullYear() !== now.getFullYear() ||
+        latestDate.getMonth() !== now.getMonth() ||
+        latestDate.getDate() !== now.getDate()) return false;
     const age = now.getTime() - latest.date;
     if (age < 0 || age > 24 * 60 * 60 * 1000) return false;
     // Find the earliest point in the uninterrupted equal-Plato suffix.
