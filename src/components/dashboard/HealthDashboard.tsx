@@ -1048,11 +1048,30 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         if (!cellarStateTankId) return;
         const today = localDateKey(new Date());
         let storedDay: string | null = null;
+        let acknowledgedScheduledIds: string[] = [];
+        // The marker retains the scheduled work present at the last 100%
+        // achievement. Only NEW scheduled action IDs can re-arm the celebration
+        // after a genuine below-100 -> 100 cycle.
+        const scheduledIds = [...new Set([
+            ...scheduledRecommendations,
+            ...completedScheduledToday,
+        ].map((row) => row.id))].sort();
         try {
-            storedDay = window.localStorage.getItem(CELLAR_CELEBRATION_ACK_KEY);
+            const raw = window.localStorage.getItem(CELLAR_CELEBRATION_ACK_KEY);
+            if (raw) {
+                try {
+                    const parsed = JSON.parse(raw) as { day?: string; scheduledIds?: string[] };
+                    storedDay = parsed.day ?? null;
+                    acknowledgedScheduledIds = Array.isArray(parsed.scheduledIds) ? parsed.scheduledIds : [];
+                } catch {
+                    storedDay = raw; // Backward-compatible once-per-day marker.
+                }
+            }
         } catch {
             // A ref still prevents repeated celebrations in this session.
         }
+        const newScheduledWork = storedDay === today &&
+            scheduledIds.some((id) => !acknowledgedScheduledIds.includes(id));
         const decision = evaluateCellarCelebration({
             score: healthScore,
             analyzedDay: analysis.analyzedDay,
@@ -1060,6 +1079,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             previousSettledScore: previousSettledScoreRef.current,
             persistedCompletionDay,
             locallyAcknowledgedDay: storedDay === today || locallyCelebratedDayRef.current === today ? today : null,
+            newScheduledWorkSinceAcknowledgement: newScheduledWork && previousSettledScoreRef.current?.day === today,
             hasWorkRecordedToday: hasRecordedWorkToday,
             analyzing,
         });
@@ -1068,7 +1088,10 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
         locallyCelebratedDayRef.current = today;
         try {
-            window.localStorage.setItem(CELLAR_CELEBRATION_ACK_KEY, today);
+            window.localStorage.setItem(CELLAR_CELEBRATION_ACK_KEY, JSON.stringify({
+                day: today,
+                scheduledIds,
+            }));
         } catch {
             // In-memory acknowledgement remains effective.
         }
@@ -1089,6 +1112,8 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         hasRecordedWorkToday,
         persistedCompletionDay,
         cellarStateTankId,
+        scheduledRecommendations,
+        completedScheduledToday,
     ]);
 
     // Preserve the legacy live is100 field for existing consumers, but NEVER
