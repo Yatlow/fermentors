@@ -98,7 +98,7 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
     } catch { return new Set(); }
   });
   useEffect(() => {
-    if (!canEdit || data.loading || !readScope.pallets || tab !== "calendar") return;
+    if (!canEdit || data.loading || !readScope.pallets) return;
     let cancelled = false;
     void pendingShipmentSubLabelReviews(pallets)
       .then((reviews) => {
@@ -326,7 +326,7 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
         {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={identityAlignedPlans} settings={settings} actuals={actuals} today={today}/>} 
         {tab === "review" && <PlanningReview settings={settings} plans={identityAlignedPlans} actuals={actuals} shipments={data.actualShipments} snapshots={data.snapshots} error={data.snapshotError} today={today}/>} 
       </>}
-      {specialPalletReview && tab === "calendar" && canEdit && (
+      {specialPalletReview && canEdit && (
         <div className="bp-inventory-dialog-backdrop">
           <section className="bp-modal bp-planning-scroll-modal" role="dialog" aria-modal="true"
             aria-labelledby="bp-special-pallet-title" style={{ width: "min(92vw, 580px)", maxWidth: 580 }}>
@@ -340,17 +340,17 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
               <>
                 <p>המשטח לא יסומן אוטומטית. האם לשנות את החלטת המשלוח ולסמן משטח אחר במקום?</p>
                 <div className="bp-modal-actions" style={{ flexWrap: "wrap" }}>
-                  {specialPalletReview.alternativePalletIds.map((id) => (
-                    <button key={id} type="button" className="btn-primary" disabled={specialPalletBusy}
-                      onClick={() => void approveSpecialPallet(id)}>
-                      סמן משטח חלופי {id.slice(0, 8)}
+                  {specialPalletReview.alternativePallets.map((alternative) => (
+                    <button key={alternative.id} type="button" className="btn-primary" disabled={specialPalletBusy}
+                      onClick={() => void approveSpecialPallet(alternative.id)}>
+                      סמן {alternative.name} · {alternative.quantity} יח׳ · תוקף {alternative.expiry || "לא ידוע"}
                     </button>
                   ))}
                   <button type="button" className="btn-secondary" onClick={() => {
                     skipSpecialPalletReview();
                     onTabChange("calendar");
                     setMessage("תווית המשנה לא אושרה. יש לערוך את החלטת המשלוח ולבחור משטח מתאים.");
-                  }}>עריכת החלטת משלוח</button>
+                  }}>עבור לתכנון המשלוח</button>
                   <button type="button" className="btn-secondary" onClick={skipSpecialPalletReview}>השאר ללא סימון</button>
                 </div>
               </>
