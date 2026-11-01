@@ -347,6 +347,7 @@ function TankCard({
   const [showQuickReport, setShowQuickReport] = useState(false);
   const [quickReportInitialType, setQuickReportInitialType] = useState("");
   const [quickReportPressureDecision, setQuickReportPressureDecision] = useState<QuickReportPressureDecision | null>(null);
+  const [quickReportInitialPressureDirection, setQuickReportInitialPressureDirection] = useState<"העלאת" | "הורדת" | null>(null);
   const [quickReportPosition, setQuickReportPosition] = useState<{ top: number; left: number } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [specificTankNote, setSpecificTankNote] = useState({ note: "", edit: false })
@@ -613,10 +614,11 @@ function TankCard({
 
   useEffect(() => {
     const openFromRecommendation = (event: Event) => {
-      const detail = (event as CustomEvent<{ tankNumber: string; noteType: string; pressureDecision?: QuickReportPressureDecision; anchorRect?: { top: number; left: number; right: number; bottom: number } }>).detail;
+      const detail = (event as CustomEvent<{ tankNumber: string; noteType: string; pressureDecision?: QuickReportPressureDecision; initialPressureDirection?: "העלאת" | "הורדת"; anchorRect?: { top: number; left: number; right: number; bottom: number } }>).detail;
       if (String(tank.tankNumber) !== detail?.tankNumber) return;
       setQuickReportInitialType(detail.noteType);
       setQuickReportPressureDecision(detail.noteType === "לחץ" ? detail.pressureDecision ?? null : null);
+      setQuickReportInitialPressureDirection(detail.noteType === "לחץ" ? detail.initialPressureDirection ?? null : null);
       setQuickReportPosition(detail.anchorRect ? computePopupPosition(detail.anchorRect as DOMRect) : null);
       setShowQuickReport(true);
     };
@@ -627,6 +629,7 @@ function TankCard({
   const handleOpenQuickReport = (event: React.MouseEvent<HTMLButtonElement>) => {
     setQuickReportInitialType("");
     setQuickReportPressureDecision(null);
+    setQuickReportInitialPressureDirection(null);
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
     setQuickReportPosition(computePopupPosition(rect));
@@ -1039,7 +1042,8 @@ function TankCard({
           position={quickReportPosition}
           initialNoteType={quickReportInitialType}
           initialPressureDecision={quickReportPressureDecision}
-          onClose={() => { setShowQuickReport(false); setQuickReportPosition(null); setQuickReportPressureDecision(null); }}
+          initialPressureDirection={quickReportInitialPressureDirection}
+          onClose={() => { setShowQuickReport(false); setQuickReportPosition(null); setQuickReportPressureDecision(null); setQuickReportInitialPressureDirection(null); }}
         />
       )}
 
