@@ -107,7 +107,58 @@ try {
       updatedAt: serverTimestamp(), updatedBy: uid,
     });
   });
+  // Marked stock quantity is editable, but never with an unguarded write.
   await assertFails(updateDoc(palletRef, { quantity: 12, updatedAt: serverTimestamp() }));
+  await runTransaction(db, async (tx) => {
+    const guardNow = await tx.get(guard);
+    const palletNow = await tx.get(palletRef);
+    if (palletNow.data()?.quantity !== 20) throw new Error('unexpected pre-edit quantity');
+    tx.update(palletRef, { quantity: 12, heightCm: 73, updatedAt: serverTimestamp() });
+    tx.update(guard, {
+      revision: guardNow.data().revision + 1,
+      updatedAt: serverTimestamp(), updatedBy: uid,
+    });
+  });
+  await assertFails(updateDoc(palletRef, { quantity: 13, updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(palletRef, { beerStyle: 'Lager', updatedAt: serverTimestamp() }));
+  // Advancing the guard cannot be used as a loophole to change lot identity.
+  await assertFails(runTransaction(db, async (tx) => {
+    const guardNow = await tx.get(guard);
+    await tx.get(palletRef);
+    tx.update(palletRef, { beerStyle: 'Lager', quantity: 13, updatedAt: serverTimestamp() });
+    tx.update(guard, {
+      revision: guardNow.data().revision + 1,
+      updatedAt: serverTimestamp(), updatedBy: uid,
+    });
+  }));
+  // An automatically reserved pallet follows the same quantity-edit rule
+  // without losing its planned truck identity.
+  await runTransaction(db, async (tx) => {
+    const guardNow = await tx.get(guard);
+    await tx.get(palletRef);
+    tx.update(palletRef, {
+      autoReservationWeek: '2026-11-01',
+      autoReservationTruckId: 'truck-1', updatedAt: serverTimestamp(),
+    });
+    tx.update(guard, {
+      revision: guardNow.data().revision + 1,
+      updatedAt: serverTimestamp(), updatedBy: uid,
+    });
+  });
+  await runTransaction(db, async (tx) => {
+    const guardNow = await tx.get(guard);
+    const palletNow = await tx.get(palletRef);
+    if (palletNow.data()?.autoReservationTruckId !== 'truck-1') {
+      throw new Error('automatic reservation identity lost');
+    }
+    tx.update(palletRef, { quantity: 15, heightCm: 73, updatedAt: serverTimestamp() });
+    tx.update(guard, {
+      revision: guardNow.data().revision + 1,
+      updatedAt: serverTimestamp(), updatedBy: uid,
+    });
+  });
+  await assertFails(updateDoc(palletRef, { quantity: 99, updatedAt: serverTimestamp() }));
+  console.log('PASS guarded marked-pallet quantity edits preserve reservation identity and prohibit other changes');
   await assertFails(updateDoc(palletRef, {
     zone: 'shipped', markedForShipment: false, updatedAt: serverTimestamp(),
   }));

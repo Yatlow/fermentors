@@ -66,6 +66,13 @@ export default function PalletEditModal({ pallet, onClose, onDone }: { pallet: P
                 </div>
 
                 <div className="edit-warning-box"><span>שים לב:</span> שינוי סגנון, אצווה או תאריך תפוגה משנה מידע תפעולי.</div>
+                {pallet.markedForShipment && (
+                    <div className="edit-warning-box">
+                        <span>המשטח מסומן למשלוח:</span> אפשר לתקן את הכמות כל עוד לא נשלח.
+                        הכמות המתוקנת תיכלל בחישובי המלאי והמשלוח. אם נוצר חוסר מול התכנון, הוא יוצג בבדיקת המשלוח.
+                        לשינוי פרטי אצווה או מוצר יש להסיר קודם את הסימון.
+                    </div>
+                )}
 
                 <label>סוג פריט</label>
                 <select className="AddPalletSelect" value={itemType} onChange={(e) => setItemType(e.target.value as PalletItemType)}>
