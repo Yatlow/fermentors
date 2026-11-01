@@ -27,7 +27,7 @@ import { pushCurrentDataToFirestore } from "../../SERVICES/getAndPost/pushCurren
 import PackagingPalletsModal from "../cooler/PackagingPalletsModal";
 import type { PackagingJobInput } from "../../SERVICES/cooler/usePackagingPalletsFlow";
 import { CalculatorIconButton, CalculatorModal } from "../tools/BrewingMeasurementCalculators";
-import { upsertMeasurementInCache } from "../../SERVICES/getAndPost/gettAllDataByBatch";
+import { getMeasurementsByBatch, upsertMeasurementInCache } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import {
     Bubbles,
     BottleWine,
@@ -119,6 +119,26 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
     const [packagingJob, setPackagingJob] = useState<PackagingJobInput | null>(null);
     const submitInFlightRef = useRef(false);
 
+    // Dry hop is a once-per-batch physical action. Do not expose the quick
+    // report until the batch history has been checked; never rely on the
+    // current tank number, since a tank can be reused for another batch.
+    const [dryHopStatus, setDryHopStatus] = useState<"checking" | "available" | "alreadyDone" | "unavailable">("checking");
+    const dryHopBatch = String(tank.batchNumber ?? "").replace("#", "").trim();
+    useEffect(() => {
+        let cancelled = false;
+        setDryHopStatus("checking");
+        if (!dryHopBatch) { setDryHopStatus("unavailable"); return; }
+        void getMeasurementsByBatch(dryHopBatch)
+            .then((rows) => {
+                if (!cancelled) setDryHopStatus(rows.some((row) =>
+                    /דרייהופ|הכנסת כשות 4|dry\\s*hop|כשות/i.test(String(row.notes ?? ""))
+                ) ? "alreadyDone" : "available");
+            })
+            .catch(() => { if (!cancelled) setDryHopStatus("unavailable"); });
+        return () => { cancelled = true; };
+    }, [dryHopBatch]);
+    const dryHopAllowed = dryHopStatus === "available";
+
     const isSending = status === "sending";
     const sourceIdentity = `${tank.id}:${String(tank.batchNumber ?? "").replace("#", "").trim()}`;
     const sourceIdentityRef = useRef(sourceIdentity);
@@ -161,12 +181,13 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
     }
 
     useEffect(() => {
-        if (initialNoteType) selectNoteType(initialNoteType);
+        if (initialNoteType && (initialNoteType !== "דרייהופ" || dryHopAllowed)) selectNoteType(initialNoteType);
         // Prefill the same defaults as choosing the report type manually.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [initialNoteType]);
+    }, [initialNoteType, dryHopAllowed]);
 
     function selectNoteType(newType: string) {
+        if (newType === "דרייהופ" && !dryHopAllowed) return;
         setNoteType(newType);
         setReportTypeOpen(false);
         resetValues();
@@ -251,6 +272,21 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
 
     async function submitNote() {
         if (submitInFlightRef.current) return;
+        if (noteType === "דרייהופ") {
+            try {
+                const latest = await getMeasurementsByBatch(dryHopBatch, { forceRefresh: true });
+                if (latest.some((row) => /דרייהופ|הכנסת כשות 4|dry\\s*hop|כשות/i.test(String(row.notes ?? "")))) {
+                    setDryHopStatus("alreadyDone");
+                    setStatus("error");
+                    setErrorMsg("כבר בוצע דרייהופ לאצווה זו. לא ניתן לדווח שוב.");
+                    return;
+                }
+            } catch {
+                setStatus("error");
+                setErrorMsg("לא ניתן לאמת היסטוריית דרייהופ. הדיווח נחסם למניעת כפילות.");
+                return;
+            }
+        }
         const noteText = buildNoteText();
         if (noteType !== "גיזוז" && !noteText) return;
 
@@ -461,14 +497,14 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
             ? (!!packagingType && amount !== "") || isEmpty
             : noteType === "גיזוז"
                 ? value !== ""
-                : buildNoteText() !== null;
+                : (noteType !== "דרייהופ" || dryHopAllowed) && buildNoteText() !== null;
 
     const dryHopCategory = noteType === "דרייהופ" ? getDryHopStyleCategory(tank.beerStyle) : null;
     const dryHopCalc = dryHopCategory ? calcDryHopDose(dryHopCategory, tank.beerVolume) : null;
     const dryHopPressure = specs ? getClosingPressureForStyle(tank.beerStyle, specs) : null;
     const availableNoteTypes = NOTE_TYPES
         .filter((t) => t.stage === "both" || t.stage === stage)
-        .filter((t) => t.value !== "דרייהופ" || isDryHopAllowedForStyle(tank.beerStyle))
+        .filter((t) => t.value !== "דרייהופ" || (isDryHopAllowedForStyle(tank.beerStyle) && dryHopAllowed))
         .filter((t) => t.value !== "אריזה" || isColdTank);
     const selectedNoteType = availableNoteTypes.find((type) => type.value === noteType);
     const SelectedNoteIcon = selectedNoteType?.icon;
