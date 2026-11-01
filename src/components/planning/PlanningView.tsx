@@ -85,6 +85,25 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   const identityAlignedPlans = useMemo(() =>
     withStablePackagingIdentity(plans, tankNumbersById), [plans, tankNumbersById]);
   const [message, setMessage] = useState("");
+  const [confirmation, setConfirmation] = useState<{ title: string; message: string } | null>(null);
+  const confirmationResolver = useRef<((approved: boolean) => void) | null>(null);
+  function confirmPlanning(message: string): Promise<boolean> {
+    if (confirmationResolver.current) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      confirmationResolver.current = resolve;
+      setConfirmation({ title: "אישור שינוי בתכנון", message });
+    });
+  }
+  function closePlanningConfirmation(approved: boolean) {
+    const resolve = confirmationResolver.current;
+    confirmationResolver.current = null;
+    setConfirmation(null);
+    resolve?.(approved);
+  }
+  useEffect(() => () => {
+    confirmationResolver.current?.(false);
+    confirmationResolver.current = null;
+  }, []);
   const availabilityIssues = useMemo(() => data.loading || !readScope.pallets || !readScope.actuals ? [] : auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments), [data.loading, readScope.pallets, readScope.actuals, settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments]);
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
   const executionPlans = useMemo(() => (tab === "calendar" ? plansAfterActualPackagingCompletion(identityAlignedPlans, settings.products, actuals, productionTanks) : identityAlignedPlans), [tab, identityAlignedPlans, settings.products, actuals, productionTanks]);
@@ -149,7 +168,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     if (mixedDays.length) {
       const detail = mixedDays.map(({ date, crates, kegs }) =>
         `• ${date}: ${crates} ארגזים ו־${kegs} חביות`).join("\n");
-      const approved = window.confirm(
+      const approved = await confirmPlanning(
         "⚠️ אישור שילוב אריזות באותו יום\n\n" +
         detail +
         "\n\nזהו שילוב של אריזת בקבוקים וחביות באותה משמרת. " +
@@ -171,7 +190,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       if (futureShortages.length) {
         const description = futureShortages.map((increase) =>
           "• " + describePlanningShortageIncrease(increase, settings.products)).join("\n");
-        const accepted = window.confirm(
+        const accepted = await confirmPlanning(
           "⚠️ שינוי זה ייצור או יגדיל חוסר במשלוחים בשבועות מאוחרים:\n\n" +
           description +
           "\n\nאפשר לשמור את התכנון, אך המשלוחים המפורטים יישארו בלתי מכוסים עד שתעודכן תוכנית האריזה או המלאי.\n\nלאשר שמירה למרות החוסרים?"
@@ -184,7 +203,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     const hasNewShipment = (canonical.deliveries ?? []).some((delivery) => delivery.quantity > 0);
     const previousWeekHasShipment = (priorWeek?.deliveries ?? []).some((delivery) => delivery.quantity > 0);
     if (shipmentDecisionChanged && hasNewShipment && canonical.id > weekStart(today) && !previousWeekHasShipment) {
-      const accepted = window.confirm(
+      const accepted = await confirmPlanning(
         `שים לב: מתוכנן משלוח בשבוע ${canonical.id}, אך בשבוע הקודם (${priorWeekId}) אין משלוח מתוכנן.\\nייתכן שהוחמץ שבוע בתכנון.\\n\\nהאם לשמור בכל זאת?`
       );
       if (!accepted) throw new Error("השמירה בוטלה לבקשתך. לא בוצע שינוי.");
@@ -255,6 +274,22 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
         {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={identityAlignedPlans} settings={settings} actuals={actuals} today={today}/>} 
         {tab === "review" && <PlanningReview settings={settings} plans={identityAlignedPlans} actuals={actuals} shipments={data.actualShipments} snapshots={data.snapshots} error={data.snapshotError} today={today}/>} 
       </>}
+      {confirmation && (
+        <div className="bp-inventory-dialog-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) closePlanningConfirmation(false);
+        }}>
+          <section className="bp-modal bp-planning-scroll-modal" role="dialog" aria-modal="true"
+            aria-labelledby="bp-confirmation-title" aria-describedby="bp-confirmation-description"
+            style={{ maxWidth: 560, width: "min(92vw, 560px)" }}>
+            <h3 id="bp-confirmation-title">{confirmation.title}</h3>
+            <p id="bp-confirmation-description" style={{ whiteSpace: "pre-line", lineHeight: 1.7 }}>{confirmation.message}</p>
+            <div className="bp-modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => closePlanningConfirmation(false)}>ביטול</button>
+              <button type="button" className="btn-primary" onClick={() => closePlanningConfirmation(true)}>אישור ושמירה</button>
+            </div>
+          </section>
+        </div>
+      )}
       {inventoryInputOpen && tab === "fiveWeeks" && (
         <div className="bp-inventory-dialog-backdrop" onMouseDown={(event) => {
           if (event.target === event.currentTarget) setInventoryInputOpen(false);
