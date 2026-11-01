@@ -135,7 +135,22 @@ service cloud.firestore {
           resource.data.get('markedForShipment', false) != true ||
           !request.resource.data.diff(resource.data).affectedKeys().hasAny([
             'quantity','beerStyle','itemType','batchNumber','expiryDateStr'
-          ])
+          ]) ||
+          // A reserved pallet can have its physical quantity corrected before
+          // dispatch, but only with the shared shipment reservation guard.
+          // Product/lot identity remains immutable while reserved.
+          (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'quantity','heightCm','updatedAt','subLabel'
+            ])
+            && request.resource.data.quantity is int
+            && request.resource.data.quantity > 0
+            && (
+              (request.resource.data.itemType == 'crates' && request.resource.data.quantity <= 84) ||
+              (request.resource.data.itemType == 'kegs' && request.resource.data.quantity <= 20)
+            )
+            && markingGuardAdvanced()
+          )
         );
       // A marked pallet must be unmarked through the guarded workflow before
       // deletion. Shipped pallet documents are immutable traceability evidence.
