@@ -29,6 +29,7 @@ import { nextShipmentMarkingRevision, readShipmentMarkingRevision,
 import { expiryIso, palletQuantity } from "./shipmentPicking";
 import { shipmentDecisionPickOptions } from "./shipmentDecisionPicking";
 import { autoReservationWeek, isDispatchInReservationWeek } from "./shipmentReservationWeek";
+import { hasPalletSubLabel, splitShipmentAutoPicks } from "./shipmentSubLabelPolicy";
 
 const PICKABLE_ZONES: PalletZone[] = ["cooler", "pending", "bottleRoom"];
 
@@ -45,10 +46,6 @@ export function isPlanningShipmentPickZone(zone: PalletZone): boolean {
 
 function skuForPallet(pallet: Pick<Pallet, "beerStyle" | "itemType">): string | null {
   return getCatalogEntry(pallet.beerStyle, pallet.itemType)?.sku ?? null;
-}
-
-export function hasPalletSubLabel(pallet: Pick<Pallet, "subLabel">): boolean {
-  return String(pallet.subLabel ?? "").trim().length > 0;
 }
 
 function palletSize(itemType: Pallet["itemType"]): number {
@@ -310,7 +307,7 @@ export async function reserveNewPalletsForNearestShipment(
     // continue auto-marking only the other approved ordinary picks.
     const proposed = pickForMissing(candidates, missingBefore,
       [...manualReservations, ...newAutoPicks]);
-    const selected = proposed.filter((pallet) => !hasPalletSubLabel(pallet));
+    const selected = splitShipmentAutoPicks(proposed).ordinary;
     const selectedPhysical = selected.reduce((sum, pallet) =>
       sum + palletQuantity(pallet), 0);
     const missingAfter = Math.max(0, missingBefore - selectedPhysical);
