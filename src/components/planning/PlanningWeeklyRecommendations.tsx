@@ -24,7 +24,7 @@ import {
     type Tank,
     type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
-import { futureTanks, openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
+import { futureTanks, forecastableProductionPlans, openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, isCoreStyle, CORE_STYLES, formatPalletCount } from "../../SERVICES/planning/planningPresentation";
 import { projectedPallets, truckPlanningGroupKey } from "../../SERVICES/planning/truckPlanner";
 import { nominalPlanningUnits } from "../../SERVICES/planning/shipmentRecommendation";
@@ -147,7 +147,10 @@ export default function PlanningWeeklyRecommendations({
         (p.monthly > 0 && isCoreStyle(p.style)) || current.deliveries?.some((d) => d.productId === p.id && d.quantity > 0),
     );
     const product = (id: string) => settings.products.find((p) => p.id === id);
-    const packagingTankPool = useMemo(() => futureTanks(tanks, plans, settings), [tanks, plans, settings]);
+    const packagingTankPool = useMemo(
+        () => futureTanks(tanks, forecastableProductionPlans(tanks, plans, today), settings),
+        [tanks, plans, settings, today],
+    );
     const packagingTankById = (id: string) => packagingTankPool.find((tank) => tank.id === id);
 
     const holidaysThisWeek = holidays.filter((h) => h.date >= week && h.date <= model.weekEnd);
