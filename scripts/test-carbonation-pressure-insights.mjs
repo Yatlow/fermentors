@@ -166,6 +166,24 @@ test("only real in-range dates up to today end the first-acceptable-carbonation 
     ], today, inRange), true);
 });
 
+test("an explicit hold resolves today's carbonation intervention without changing pressure", async () => {
+    const actionSource = ts.transpileModule(read("../src/SERVICES/cellering/cellarActionState.ts"), {
+        compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const { hasCellarActionOnDate } = await import(
+        "data:text/javascript;base64," + Buffer.from(actionSource).toString("base64")
+    );
+    const note = "השארת לחץ ללא שינוי לאחר בדיקת גיזוז. החלטת סלרינג להמתין ללא שינוי לחץ.";
+    const history = [
+        { id: "2026-10-27_1000", notes: note },
+        { id: "2026-10-28_0810", carbonation: 2.3, pressure: 0.7, notes: "" },
+    ];
+    assert.equal(hasCellarActionOnDate(history, today, ["השארת לחץ ללא שינוי"]), false);
+    history.push({ id: "2026-10-28_1240", notes: note });
+    assert.equal(hasCellarActionOnDate(history, today, ["השארת לחץ ללא שינוי"]), true);
+    assert.equal(hasCellarActionOnDate(history, today, ["העלאת לחץ", "הורדת לחץ"]), false);
+});
+
 test("before the first in-range carbonation reading, the existing generic rule stays in force", () => {
     const history = [
         carb("2026-10-25_0900", 2.1, 0.8),
