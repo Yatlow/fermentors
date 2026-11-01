@@ -47,6 +47,10 @@ function skuForPallet(pallet: Pick<Pallet, "beerStyle" | "itemType">): string | 
   return getCatalogEntry(pallet.beerStyle, pallet.itemType)?.sku ?? null;
 }
 
+export function hasPalletSubLabel(pallet: Pick<Pallet, "subLabel">): boolean {
+  return String(pallet.subLabel ?? "").trim().length > 0;
+}
+
 function palletSize(itemType: Pallet["itemType"]): number {
   return itemType === "crates" ? 84 : 20;
 }
@@ -301,8 +305,12 @@ export async function reserveNewPalletsForNearestShipment(
       expiryIso(pallet.expiryDateStr)! >= expiryCutoff,
     );
 
-    const selected = pickForMissing(candidates, missingBefore,
+    // Do not silently replace an earlier-expiring sub-labeled pallet with
+    // ordinary stock. Hold that physical pallet for explicit planner review;
+    // continue auto-marking only the other approved ordinary picks.
+    const proposed = pickForMissing(candidates, missingBefore,
       [...manualReservations, ...newAutoPicks]);
+    const selected = proposed.filter((pallet) => !hasPalletSubLabel(pallet));
     const selectedPhysical = selected.reduce((sum, pallet) =>
       sum + palletQuantity(pallet), 0);
     const missingAfter = Math.max(0, missingBefore - selectedPhysical);
@@ -380,6 +388,65 @@ export async function reserveNewPalletsForNearestShipment(
   };
   console.info("Shipment reservation sync", result);
   return result;
+}
+
+export type ShipmentSubLabelReview = {
+  palletId: string;
+  subLabel: string;
+  productId: string;
+  quantity: number;
+  dispatchDate: string;
+  truckId: string;
+  alternativePalletIds: string[];
+};
+
+/** Read-only preview of special-label pallets the FEFO picker wants to ship.
+ * This uses the same planned departure, quantity and truck-capacity rules as
+ * automatic reservation. A preview NEVER changes the shipment ledger.
+ */
+export async function pendingShipmentSubLabelReviews(pallets: Pallet[]): Promise<ShipmentSubLabelReview[]> {
+  const planned = await nearestPlannedDelivery(dateKey(new Date()));
+  if (!planned?.length) return [];
+  const cutoff = planned[0].dispatchDate;
+  const effectivePallets = pallets.map((pallet) =>
+    pallet.autoReservationWeek && pallet.markedForShipment
+      ? { ...pallet, markedForShipment: false } : pallet,
+  );
+  const manualReservations = effectivePallets.filter((pallet) =>
+    pallet.markedForShipment && pallet.zone !== "shipped",
+  );
+  const picked: Pallet[] = [];
+  const reviews: ShipmentSubLabelReview[] = [];
+  for (const line of planned) {
+    const matching = effectivePallets.filter((pallet) =>
+      pallet.zone !== "shipped" && palletQuantity(pallet) > 0 &&
+      skuForPallet(pallet) === line.productId &&
+      !!expiryIso(pallet.expiryDateStr) && expiryIso(pallet.expiryDateStr)! >= cutoff,
+    );
+    const premarked = matching.filter((pallet) => pallet.markedForShipment);
+    const missing = Math.max(0, line.quantity -
+      premarked.reduce((sum, pallet) => sum + palletQuantity(pallet), 0));
+    const candidates = matching.filter((pallet) =>
+      !pallet.markedForShipment && isPlanningShipmentPickZone(pallet.zone));
+    const proposed = pickForMissing(candidates, missing, [...manualReservations, ...picked]);
+    picked.push(...proposed);
+    for (const pallet of proposed.filter(hasPalletSubLabel)) {
+      reviews.push({
+        palletId: pallet.id,
+        subLabel: String(pallet.subLabel).trim(),
+        productId: line.productId,
+        quantity: pallet.quantity,
+        dispatchDate: line.dispatchDate,
+        truckId: line.truckId,
+        alternativePalletIds: candidates
+          .filter((alternative) => alternative.id !== pallet.id &&
+            !hasPalletSubLabel(alternative) &&
+            !proposed.some((selected) => selected.id === alternative.id))
+          .map((alternative) => alternative.id),
+      });
+    }
+  }
+  return reviews;
 }
 
 /** Backwards-compatible full re-evaluation used by existing callers. */
