@@ -650,6 +650,61 @@ export function reconcilePhysicalCycleEmptying(
     ? { ...cycle, emptyDate: release.emptyDate! } : cycle);
 }
 
+/** Common tank-availability gate for the brew picker and weekly forecasts.
+ * Reconcile an evidenced physical emptying with the projected canonical
+ * schedule before checking overlap; neither a stale forecast batch number nor
+ * a different UI projection is allowed to hide a released tank.
+ */
+export function releasedTankCanHostBrew(
+  cycles: TankScheduleCycle[],
+  source: TankSource | undefined,
+  tank: Tank | undefined,
+  release: Release,
+  today: string,
+  brewDate: string,
+  readyDate: string,
+  ignoredCycleIds: ReadonlySet<string> = new Set<string>(),
+): boolean {
+  if (!release.date || brewDate < release.date) return false;
+  const reconciled = reconcilePhysicalCycleEmptying(cycles, source, tank, release, today);
+  return tankCanHostCycle(
+    reconciled.filter((cycle) => !ignoredCycleIds.has(cycle.cycleId)),
+    brewDate,
+    readyDate,
+  );
+}
+
+/** The same Monday-Wednesday window used to select actual brew shifts.
+ * Saved assignments within the edited week are ignored only by stable ID:
+ * they remain subject to the full overlap check when the plan is saved.
+ */
+export function assignableTankReleasesForWeek(
+  releases: Release[],
+  schedules: Map<string, TankScheduleCycle[]>,
+  sources: TankSource[],
+  tanks: Tank[],
+  today: string,
+  week: string,
+  editedWeekCycleIds: ReadonlySet<string> = new Set<string>(),
+): Release[] {
+  const firstBrewDay = addDays(week, 1);
+  const lastBrewDay = addDays(week, 3);
+  return releases.filter((release) => {
+    if (!release.date || release.date > lastBrewDay) return false;
+    const brewDate = release.date > firstBrewDay ? release.date : firstBrewDay;
+    return releasedTankCanHostBrew(
+      schedules.get(release.tankId) ?? [],
+      sources.find((source) => source.id === release.tankId),
+      tanks.find((tank) => tank.id === release.tankId),
+      release,
+      today,
+      brewDate,
+      brewDate,
+      editedWeekCycleIds,
+    );
+  });
+}
+
 function conflictingTankCycle(
   cycles: TankScheduleCycle[], brewDate: string, readyDate: string, ignoreId: string,
 ): TankScheduleCycle | undefined {
