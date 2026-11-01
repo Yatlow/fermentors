@@ -1209,8 +1209,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // measurement in Sheets. Prefer the freshest timestamped source.
     const sourceTank = brews.find((tank) => String(tank.tankNumber) === String(tankNumber));
     const liveData = sourceTank?.currentData as
-        ({ pressure?: unknown; pressureUpdatedAt?: unknown } | null | undefined);
-    const currentLivePressure = livePressureReading(liveData);
+        ({ pressure?: unknown; pressureUpdatedAt?: unknown; pressureBatchNumber?: unknown } | null | undefined);
+    const normalizeBatch = (value: unknown) => String(value ?? "").replace(/^#/, "").trim();
+    const pressureBelongsToBatch = !normalizeBatch(liveData?.pressureBatchNumber) ||
+        normalizeBatch(liveData?.pressureBatchNumber) === normalizeBatch(sourceTank?.batchNumber);
+    const currentLivePressure = pressureBelongsToBatch ? livePressureReading(liveData) : null;
     const actualAdvicePressure = preferredPressureReading(sortedMeasurements, todayDate, currentLivePressure);
     const advicePressureContext = actualAdvicePressure?.date === todayDate
         ? `לחץ במיכל: ${actualAdvicePressure.value} bar`
