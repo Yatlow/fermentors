@@ -80,6 +80,9 @@ assert.match(health, /alert\.pressureSuggestion === "lower"[\s\S]*?\? "דווח 
 assert.match(health, /alert\.pressureSuggestion === "raise" \? "דווח העלאת לחץ" : "דווח שינוי לחץ"/);
 assert.match(health, /initialPressureDirection: alert\.pressureSuggestion === "lower"/);
 assert.match(health, /noteType: "השארת לחץ"/);
+assert.match(health, /noteType === "לחץ" && alert\.pressureSuggestion/);
+assert.match(health, /alert\.pressureSuggestion === "lower" \? "דווח הורדת לחץ" : "דווח העלאת לחץ"/,
+  "post-first deviation must expose only the specific recommended pressure direction");
 assert.match(quick, /case "השארת לחץ": return holdPressureConfirmed/);
 assert.match(quick, /const isPressureAction = noteType === "לחץ"/);
 assert.doesNotMatch(quick, /const isPressureAction = noteType === "השארת לחץ"/);
