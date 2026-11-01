@@ -42,3 +42,21 @@ export function carbonationSpecKey(beerStyle: string | number | null | undefined
     const style = String(beerStyle ?? "").trim().toLowerCase();
     return /חורף|winter/.test(style) ? "חורף" : style.split(/\s+/)[0];
 }
+
+/**
+ * All readers of the cellar specs (one-shot and live Firestore listeners) must
+ * receive the same defaults. Stored settings always win over defaults.
+ */
+export function withCellarSpecDefaults(specs: SpecChart): SpecChart {
+    return {
+        ...specs,
+        fermentationEndPlato: {
+            ...DEFAULT_FERMENTATION_END_PLATO,
+            ...(specs.fermentationEndPlato || {}),
+        },
+        carbonation: {
+            "חורף": WINTER_CARBONATION_TARGET,
+            ...(specs.carbonation || {}),
+        },
+    };
+}
