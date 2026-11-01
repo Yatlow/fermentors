@@ -2,18 +2,16 @@ import BeerLoader from "./../general/Loading";
 import { useEffect, useRef, useState } from "react";
 import { writeReadingsToSheets, type writeReadingResult } from "../../SERVICES/getAndPost/writeReadingToSheets";
 import type { Fermentor, NewReading, ReadingToSend } from "../../App";
-import { calcCelleringRecomendations, type Measurement } from "../../SERVICES/cellering/calculateCelleringRecomendations";
+import type { Measurement } from "../../SERVICES/cellering/calculateCelleringRecomendations";
+import HealthDashboard from "../dashboard/HealthDashboard";
 import {
     dueScheduledForTank,
-    scheduledActionLabel,
-    scheduledRecommendationCompletionDate,
     setScheduledCellarRecommendationStatus,
     subscribeScheduledCellarRecommendations,
     type ScheduledCellarRecommendation,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getMeasurementsByBatch } from "../../SERVICES/getAndPost/gettAllDataByBatch";
-import { mergeOptimisticMeasurementIntoHistory } from "../../SERVICES/getAndPost/measurementHistoryModel";
 import { updatePackagingInfo } from "../../SERVICES/cellering/updatePackagingInfo";
 import { cellarMeasurementWarnings } from "../../SERVICES/cellering/cellarMeasurementWarnings";
 import { resolveFinalPackagingTotal } from "../../SERVICES/cellering/resolveFinalPackagingTotal";
@@ -36,20 +34,6 @@ export type SendMessurmentsHeaderProps = {
     specs: SpecChart | null,
 }
 
-type RecommendationsByTank = Record<
-    string,
-    Awaited<ReturnType<typeof calcCelleringRecomendations>> | null
->;
-
-type Recommendation = {
-    req: boolean;
-    reason?: string;
-    importance: number;
-    display: boolean;
-};
-
-
-
 export default function SendMessurmentsHeader({
     brews,
     newReadings,
@@ -71,9 +55,7 @@ export default function SendMessurmentsHeader({
     });
     const [sendResults, setSendResults] = useState<writeReadingResult[]>([]);
     const [showSendStatus, setShowSendStatus] = useState(false);
-    const [rcs, setRcs] = useState<RecommendationsByTank>({});
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
-    const [completedScheduledIds, setCompletedScheduledIds] = useState<Set<string>>(new Set());
 
     // חדש: מתריע אם הכתיבה בפועל לגיליון נכשלה ברקע, אחרי שכבר הוצגו המלצות למשתמש
     const [writeWarning, setWriteWarning] = useState<writeReadingResult[] | null>(null);
@@ -137,76 +119,11 @@ export default function SendMessurmentsHeader({
         }
     };
 
-    const handleRecClick = async () => {
+    const handleRecClick = () => {
         setShowSendStatus(false);
-        if (!specs) {
-            console.warn("Specs are not loaded yet");
-            return;
-        }
-        try {
-            try {
-                setSendingReading("getRecs")
-                const getRecs = async () => {
-                    const fullTanks = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1);
-                    const completedIds = new Set<string>();
-                    const entries = await Promise.all(
-                        fullTanks.map(async (tank: Fermentor) => {
-                            const messurments = await getMeasurementsByBatch(tank.batchNumber ?? "");
-                            dueScheduledForTank(
-                                scheduledRecommendations,
-                                tank.tankNumber,
-                                tank.batchNumber,
-                            ).forEach((row) => {
-                                if (scheduledRecommendationCompletionDate(row, messurments)) {
-                                    completedIds.add(row.id);
-                                }
-                            });
-                            if (!tank.stage) {
-                                console.warn(
-                                    "Cannot calculate recommendations: tank stage is missing",
-                                    tank.id,
-                                    tank.tankNumber
-                                );
-
-                                return [tank.tankNumber, null] as const;
-                            }
-                            const rec = await calcCelleringRecomendations(
-                                messurments,
-                                tank?.beerStyle,
-                                // tank?.batchNumber ?? "",
-                                tank?.brewDate ?? "",
-                                specs,
-                                tank.stage,
-                                Number(tank.tankNumber),
-                                false,
-                                brews
-                            ).catch((err) => {
-                                console.error("Failed for tank", tank.id, tank.tankNumber, err);
-                                return null;
-                            });
-                            return [tank.tankNumber, rec] as const;
-                        })
-                    );
-
-                    const recomendations: RecommendationsByTank =
-                        Object.fromEntries(entries);
-
-                    return { recommendations: recomendations, completedIds };
-                };
-                const { recommendations, completedIds } = await getRecs();
-
-                setCompletedScheduledIds(completedIds);
-                setRcs(recommendations);
-                setSendingReading("sent");
-                setSendingReading(Object.keys(recommendations).length ? "sent" : "error");
-
-            } catch (error) {
-                console.error("Failed to update database:", error);
-            }
-        } catch (error) {
-            setSendResults([]);
-            setSendingReading("error");
-        }
+        if (!specs) return;
+        // The metric itself is the sole source of truth and visual presentation.
+        setSendingReading("sent");
     };
 
     function buildMeasurementId(date: Date = new Date()) {
@@ -217,19 +134,6 @@ export default function SendMessurmentsHeader({
         const mm = String(date.getMinutes()).padStart(2, "0");
         return `${y}-${m}-${d}_${hh}${mm}`;
     };
-
-    function mergeReadingIntoMeasurements(
-        measurements: Measurement[],
-        newReading: Measurement
-    ): Measurement[] {
-        // Sheet rows and Firestore documents now have one canonical record per
-        // day. Reuse the same history model as the listener/optimistic cache so
-        // appending notes never drops earlier same-day measurements or actions.
-        return mergeOptimisticMeasurementIntoHistory(measurements, {
-            ...newReading,
-            id: newReading.id ?? buildMeasurementId(),
-        });
-    }
 
     async function resolveScheduledActionsForSuccessfulReadings(
         readings: ReadingToSend[],
@@ -450,58 +354,10 @@ export default function SendMessurmentsHeader({
         // בלי לחכות שהכתיבה בפועל תסתיים.
         // ------------------------------------------------------------
         if (isFastPath && specs) {
-            try {
-                let fullTanks = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1);
-                if (reportName === "חם") {
-                    fullTanks = fullTanks.filter((fv) => fv.stage?.name === "חם" || Number(fv.currentData?.temp) > 9);
-                }
-
-                const entries = await Promise.all(
-                    fullTanks.map(async (tank: Fermentor) => {
-                        const messurments = await getMeasurementsByBatch(tank.batchNumber ?? "");
-
-                        if (!tank.stage || !tank.brewDate) {
-                            console.warn(
-                                "Cannot calculate recommendations: stage or brew date is missing",
-                                tank.id,
-                                tank.tankNumber
-                            );
-                            return [tank.tankNumber, null] as const;
-                        }
-
-                        const newReadingForTank = readingsToSend.find(
-                            (r) => Number(r.tankNumber) === Number(tank.tankNumber)
-                        );
-
-                        const messurmentsWithToday = newReadingForTank
-                            ? mergeReadingIntoMeasurements(messurments, newReadingForTank)
-                            : messurments;
-
-                        const rec = await calcCelleringRecomendations(
-                            messurmentsWithToday,
-                            tank.beerStyle,
-                            // tank.batchNumber ?? "",
-                            tank.brewDate ?? "",
-                            specs,
-                            tank.stage!,
-                            Number(tank.tankNumber),
-                            false,
-                            brews
-                        ).catch((err) => {
-                            console.error("Failed for tank", tank.id, tank.tankNumber, err);
-                            return null;
-                        });
-
-                        return [tank.tankNumber, rec] as const;
-                    })
-                );
-                setRcs(Object.fromEntries(entries));
-                setSendingReading("sent");
-                setNewReadings({});
-            } catch (error) {
-                console.error("Failed to compute recommendations:", error);
-                setSendingReading("error");
-            }
+            // The shared HealthDashboard listens to measurement cache updates.
+            // Never compute a second, inconsistent list of recommendations here.
+            setSendingReading("sent");
+            setNewReadings({});
         }
 
         // ------------------------------------------------------------
@@ -773,92 +629,6 @@ export default function SendMessurmentsHeader({
         canSend = Object.keys(newReadings).length < 1 || !!hasIncompleteNotes;
     }
 
-    const getActiveRecommendations = (
-        tankNumber: string | number
-    ): Recommendation[] => {
-
-        const rec = rcs[String(tankNumber)];
-
-        if (!rec) {
-            return [];
-        }
-
-        const natural = [
-            rec.lastMessurmentUpToDate,
-            rec.requiresDryHop,
-            rec.requiresPresureClose,
-            rec.requiresWarmYeastDrop,
-            rec.requiersYeastDropAfterCooling,
-            rec.requiresCarbTest,
-            rec.requiredBottomCarbonation,
-            rec.requiersDiacytelRest,
-            rec.neglectedStatus,
-            rec.requiresToCoolDown,
-            rec.requiredPressureAdjustment,
-            rec.requiresWarmYeastDropCompletion,
-            rec.requiresColdYeastDropCompletion,
-            rec.requiiersWedYeastDropOnThus,
-        ]
-            .filter(Boolean)
-            .map((recommendation) => ({
-                req: Boolean(recommendation.req),
-                reason: recommendation.reason,
-                importance: recommendation.importance,
-                display:
-                    "display" in recommendation
-                        ? Boolean(recommendation.display)
-                        : false,
-            }))
-            .filter((recommendation) => recommendation.req)
-            .filter((recommendation) => recommendation.display);
-
-        const tank = brews.find((candidate) => String(candidate.tankNumber) === String(tankNumber));
-        const naturalCarb = Boolean(rec.requiresCarbTest?.req && rec.requiresCarbTest?.display);
-        const naturalYeast = Boolean(
-            (rec.requiresWarmYeastDrop?.req && rec.requiresWarmYeastDrop?.display) ||
-            (rec.requiersYeastDropAfterCooling?.req && rec.requiersYeastDropAfterCooling?.display) ||
-            (rec.requiresWarmYeastDropCompletion?.req && rec.requiresWarmYeastDropCompletion?.display) ||
-            (rec.requiresColdYeastDropCompletion?.req && rec.requiresColdYeastDropCompletion?.display) ||
-            (rec.requiiersWedYeastDropOnThus?.req && rec.requiiersWedYeastDropOnThus?.display)
-        );
-        const manual = tank
-            ? dueScheduledForTank(
-                scheduledRecommendations,
-                tank.tankNumber,
-                tank.batchNumber,
-              )
-                .filter((row) => !completedScheduledIds.has(row.id))
-                .filter((row) => row.actionType === "carbTest" ? !naturalCarb : row.actionType === "yeastDrop" ? !naturalYeast : true)
-                .map((row) => ({
-                    req: true,
-                    reason: `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
-                    importance: 3,
-                    display: true,
-                }))
-            : [];
-
-        return [...natural, ...manual].sort((a, b) => b.importance - a.importance);
-    };
-
-    function getDailyActionRecommendation() {
-        for (const recommendation of Object.values(rcs)) {
-            if (recommendation?.requiresDailyActions?.req) {
-                return recommendation.requiresDailyActions;
-            }
-        }
-
-        return null;
-    };
-
-    const dailyActionRecommendation = getDailyActionRecommendation();
-
-    const hasRecommendations = brews.some((tank) => {
-        if (Number(tank.tankNumber) === 1) return false;
-        if (Number(tank.action) !== 1) return false;
-
-        return getActiveRecommendations(tank.tankNumber ?? "").length > 0;
-    });
-
     return (
         <>
             <div className="volumeCounter">
@@ -961,14 +731,7 @@ export default function SendMessurmentsHeader({
                                                 }
                                             </p>
                                         )}
-                                        {hasRecommendations && (<>
-                                            <p>מצורפות המלצות לסלרינג!</p>
-                                            <p>יש להסתכל בדף בישול של כל מיכל ולוודא את ההמלצה!</p>
-                                        </>)}
-                                        {!hasRecommendations && (<>
-                                            <p>אין המלצות סלרינג!</p>
-                                            <p>כל הכבוד, נראה שהמיכלים מטופלים היטב!</p>
-                                        </>)}
+                                        <p>המלצות ופעולות מעודכנות לפי מדד הסלרינג.</p>
 
                                     </div>
 
@@ -981,74 +744,7 @@ export default function SendMessurmentsHeader({
                                         </div>
                                     )}
 
-                                    {dailyActionRecommendation?.req && (
-                                        <div className="daily-recommendation">
-                                            <div className="daily-recommendation-title">
-                                                🔔 פעולה יומית
-                                            </div>
-
-                                            <div className="daily-recommendation-reason">
-                                                {dailyActionRecommendation.reason}
-                                            </div>
-                                        </div>
-                                    )}
-
-
-                                    <div className="tank-recommendations-list">
-
-                                        {brews
-                                            .filter(
-                                                (tank) =>
-                                                    Number(tank.tankNumber) !== 1 &&
-                                                    Number(tank.action) === 1
-                                            )
-                                            .map((tank) => {
-                                                const recommendations =
-                                                    getActiveRecommendations(tank.tankNumber ?? "");
-
-                                                if (recommendations.length){
-                                                    return (
-                                                        <div
-                                                            key={tank.id}
-                                                            className={`tank-recommendation-card recommendation-${tank.stage?.className}`}
-                                                        >
-
-                                                            <div className="tank-recommendation-header recomendations_cell">
-
-                                                                <p>
-                                                                    מיכל {tank.tankNumber}- {tank.beerStyle}
-                                                                </p>
-
-                                                                <span
-                                                                    className={
-                                                                        `rec-label-${tank.stage?.name === "בתסיסה" ? "fermenting" : "cold"}`
-                                                                    }
-                                                                >
-                                                                    {tank.stage?.icon} {tank.stage?.name}
-                                                                </span>
-
-                                                            </div>
-
-
-                                                            <div className="tank-recommendations">
-
-                                                                {recommendations.map(
-                                                                    (recommendation, index) => (
-                                                                        <div
-                                                                            key={index}
-                                                                            className={`recommendation-cell level-${recommendation.importance}`}
-                                                                        >
-                                                                            {recommendation.reason}
-                                                                        </div>
-                                                                    )
-                                                                )}
-
-                                                            </div>
-                                                        </div>
-                                                    );}
-                                            })}
-
-                                    </div>
+                                    <HealthDashboard brews={brews} specs={specs} recommendationsOnly />
 
                                     <p>{""}</p>
                                 </div>

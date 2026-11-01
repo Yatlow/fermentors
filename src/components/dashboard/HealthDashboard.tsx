@@ -41,6 +41,7 @@ import {
     subscribeScheduledCellarRecommendations,
     type ScheduledCellarRecommendation,
     type ScheduledCellarActionType,
+    type PressureChangeDirection,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import { automaticIgnoredRecommendationsForTank, partitionAutomaticallyIgnoredRecommendations, type AutomaticallyIgnoredCellarRecommendation } from "../../SERVICES/cellering/autoIgnoredCellarRecommendations";
 import {
@@ -65,6 +66,8 @@ type HealthAlert = {
     batchNumber?: string;
     recommendationKey?: string;
     scheduledActionType?: ScheduledCellarActionType | "ventAdjust";
+    pressureDirection?: PressureChangeDirection;
+    targetPressure?: number;
     importance?: number;
     dismissible?: boolean;
     userDecision?: boolean;
@@ -72,6 +75,8 @@ type HealthAlert = {
 
 type Recommendation = {
     actionType?: ScheduledCellarActionType | "ventAdjust";
+    pressureDirection?: PressureChangeDirection;
+    targetPressure?: number;
     req?: boolean | "" | 0 | null;
     display?: boolean;
     reason?: string;
@@ -126,6 +131,7 @@ type CellarAnalysis = {
 type Props = {
     brews: Fermentor[];
     specs: SpecChart | null;
+    recommendationsOnly?: boolean;
 };
 
 const EMPTY_DAILY_ACTION_PROGRESS: DailyActionProgress = {
@@ -230,8 +236,8 @@ const severityOrder: Record<Severity, number> = {
     info: 1,
 };
 
-export default function HealthDashboard({ brews, specs, onRecommendedTanksChange, onOpenRecommendationCountChange, onPendingMeasurementTanksChange }: Props & { onPendingMeasurementTanksChange?: (tankNumbers: string[]) => void; onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
-    const [expanded, setExpanded] = useState(false);
+export default function HealthDashboard({ brews, specs, recommendationsOnly = false, onRecommendedTanksChange, onOpenRecommendationCountChange, onPendingMeasurementTanksChange }: Props & { onPendingMeasurementTanksChange?: (tankNumbers: string[]) => void; onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
+    const [expanded, setExpanded] = useState(recommendationsOnly);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
     const [analyzing, setAnalyzing] = useState(true);
     const hasCompletedInitialAnalysis = useRef(false);
@@ -737,6 +743,8 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                     display: true,
                                     importance: 3,
                                     actionType: row.actionType,
+                                    pressureDirection: row.actionType === "pressureChange" ? row.pressureDirection : undefined,
+                                    targetPressure: row.actionType === "pressureChange" ? row.targetPressure : undefined,
                                     userDecision: row.source === "user" || row.actionType === "pressureChange",
                                     reason: conflict || (
                                         row.source === "user" || row.actionType === "pressureChange"
@@ -766,6 +774,8 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                 batchNumber: String(tank.batchNumber),
                                 recommendationKey: recommendation.recommendationKey,
                                 scheduledActionType: recommendation.actionType,
+                                pressureDirection: recommendation.pressureDirection,
+                                targetPressure: recommendation.targetPressure,
                                 importance,
                                 dismissible: true,
                                 userDecision: recommendation.userDecision,
@@ -1045,7 +1055,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     // Firestore write: no quick report, listener refresh, remount or close can
     // open the modal again for the same day.
     useEffect(() => {
-        if (!cellarStateTankId) return;
+        if (recommendationsOnly || !cellarStateTankId) return;
         const today = localDateKey(new Date());
         let storedDay: string | null = null;
         let acknowledgedScheduledIds: string[] = [];
@@ -1117,6 +1127,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         cellarStateTankId,
         scheduledRecommendations,
         completedScheduledToday,
+        recommendationsOnly,
     ]);
 
     // Preserve the legacy live is100 field for existing consumers, but NEVER
@@ -1124,7 +1135,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     // avoid a broad brews dependency that used to cancel the timer on unrelated
     // Firestore snapshots.
     useEffect(() => {
-        if (analyzing || !cellarStateTankId ||
+        if (recommendationsOnly || analyzing || !cellarStateTankId ||
             analysis.analyzedDay !== localDateKey(new Date())) return;
         const desiredIs100 = healthScore === 100;
         if (persistedHealthIs100 === desiredIs100) return;
@@ -1143,6 +1154,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         analysis.analyzedDay,
         cellarStateTankId,
         persistedHealthIs100,
+        recommendationsOnly,
     ]);
 
     const counts = useMemo(() => ({
@@ -1238,7 +1250,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
     return (
         <>
-        <BeerCelebration open={celebrationOpen} onClose={() => setCelebrationOpen(false)} />
+        {!recommendationsOnly && <BeerCelebration open={celebrationOpen} onClose={() => setCelebrationOpen(false)} />}
         <section className={`health-dashboard health-${overallClass}`} dir="rtl">
             <button
                 type="button"
@@ -1421,7 +1433,24 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                         "דיאציטיל": { label: "דווח מנוחת דיאצטיל", Icon: ThermometerSun },
                                     };
                                     const ui = actionUI[noteType];
-                                    return noteType && available && ui ? <button type="button" className="health-quick-report-button" onClick={(event) => window.dispatchEvent(new CustomEvent("cellar-open-quick-report", { detail: { tankNumber: String(alert.tankNumber), noteType, anchorRect: event.currentTarget.getBoundingClientRect().toJSON() } }))}><ui.Icon size={16} aria-hidden="true" />{ui.label}</button> : null;
+                                    return noteType && available && ui ? <button type="button" className="health-quick-report-button" onClick={(event) => window.dispatchEvent(new CustomEvent("cellar-open-quick-report", { detail: {
+                                        tankNumber: String(alert.tankNumber),
+                                        noteType,
+                                        // An exact selected scheduled pressure decision only. Other pressure advice
+                                        // and ordinary reports keep their standard empty/editable fields.
+                                        pressureDecision: noteType === "לחץ" &&
+                                            alert.scheduledActionType === "pressureChange" &&
+                                            alert.recommendationKey?.startsWith("scheduled-")
+                                            ? {
+                                                tankNumber: String(alert.tankNumber),
+                                                batchNumber: String(alert.batchNumber ?? ""),
+                                                recommendationId: alert.recommendationKey,
+                                                pressureDirection: alert.pressureDirection,
+                                                targetPressure: alert.targetPressure,
+                                            }
+                                            : undefined,
+                                        anchorRect: event.currentTarget.getBoundingClientRect().toJSON(),
+                                    } }))}><ui.Icon size={16} aria-hidden="true" />{ui.label}</button> : null;
                                 })()}
                                 {alert.dismissible && (
                                     <button

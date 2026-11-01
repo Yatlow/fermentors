@@ -72,3 +72,16 @@ export function buildDryHopNoteText(grams: number, hopType: string, closingPress
     const pressureText = closingPressure !== null && closingPressure !== "" ? String(closingPressure) : "—";
     return `הכנסת כשות 4. דרייהופ. ${gramsText} גרם של ${hopType}. סגירת לחץ, כיוון פורק ל${pressureText} bar`;
 }
+/** Deliberate extra hop charge. Kept distinct from the automatic fourth hop;
+ * the physical hop table writer appends a new free numbered entry.
+ */
+export function buildAdditionalDryHopNoteText(
+    grams: number,
+    hopType: string,
+    closingPressure: number | string | null,
+    reason: string,
+): string {
+    const amount = Math.round(grams);
+    const pressure = closingPressure === null || closingPressure === "" ? "—" : String(closingPressure);
+    return `דרייהופ נוסף (חריג). הכנסת כשות נוספת: ${amount} גרם של ${hopType}. סגירת לחץ, כיוון פורק ל${pressure} bar. סיבה: ${reason.trim()}`;
+}

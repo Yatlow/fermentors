@@ -19,6 +19,7 @@ import type {
 import FermentorInfoBox from "./FermentorInfoBox";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import QuickTankReportBox from "./QuickTankReportBox";
+import type { QuickReportPressureDecision } from "../../SERVICES/cellering/quickReportPressureDecision";
 import BatchHistoryChart from "./Batchhistorychart";
 import { Pencil, MessageCirclePlus, SaveCheck } from 'lucide-react';
 import { updateSpecficNote } from "../../SERVICES/cellering/updateSpecficNote";
@@ -345,6 +346,7 @@ function TankCard({
   const infoButtonRef = useRef<HTMLButtonElement | null>(null);
   const [showQuickReport, setShowQuickReport] = useState(false);
   const [quickReportInitialType, setQuickReportInitialType] = useState("");
+  const [quickReportPressureDecision, setQuickReportPressureDecision] = useState<QuickReportPressureDecision | null>(null);
   const [quickReportPosition, setQuickReportPosition] = useState<{ top: number; left: number } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [specificTankNote, setSpecificTankNote] = useState({ note: "", edit: false })
@@ -611,9 +613,10 @@ function TankCard({
 
   useEffect(() => {
     const openFromRecommendation = (event: Event) => {
-      const detail = (event as CustomEvent<{ tankNumber: string; noteType: string; anchorRect?: { top: number; left: number; right: number; bottom: number } }>).detail;
+      const detail = (event as CustomEvent<{ tankNumber: string; noteType: string; pressureDecision?: QuickReportPressureDecision; anchorRect?: { top: number; left: number; right: number; bottom: number } }>).detail;
       if (String(tank.tankNumber) !== detail?.tankNumber) return;
       setQuickReportInitialType(detail.noteType);
+      setQuickReportPressureDecision(detail.noteType === "לחץ" ? detail.pressureDecision ?? null : null);
       setQuickReportPosition(detail.anchorRect ? computePopupPosition(detail.anchorRect as DOMRect) : null);
       setShowQuickReport(true);
     };
@@ -623,6 +626,7 @@ function TankCard({
 
   const handleOpenQuickReport = (event: React.MouseEvent<HTMLButtonElement>) => {
     setQuickReportInitialType("");
+    setQuickReportPressureDecision(null);
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
     setQuickReportPosition(computePopupPosition(rect));
@@ -1034,7 +1038,8 @@ function TankCard({
           specs={specs}
           position={quickReportPosition}
           initialNoteType={quickReportInitialType}
-          onClose={() => { setShowQuickReport(false); setQuickReportPosition(null); }}
+          initialPressureDecision={quickReportPressureDecision}
+          onClose={() => { setShowQuickReport(false); setQuickReportPosition(null); setQuickReportPressureDecision(null); }}
         />
       )}
 

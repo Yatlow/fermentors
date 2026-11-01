@@ -108,6 +108,21 @@ test("empty carbonation measurements do not count as earlier valid readings", ()
     ], today, inRange)?.direction, "lower");
 });
 
+test("first in-range recommendation describes the first arrival, not the first test", () => {
+    const engine = read("../src/SERVICES/cellering/calculateCelleringRecomendations.ts");
+    assert.match(engine, /הגיזוז הגיע לראשונה לטווח התקין/);
+    assert.doesNotMatch(engine, /בדיקת הגיזוז הראשונה בטווח התקין/);
+    const earlierMeasurements = [
+        carb("2026-10-25_0919", 2.29, 1.4),
+        carb("2026-10-27_0823", 2.39, 1.15),
+        carb("2026-10-28_0856", 2.48, 1.0),
+    ];
+    assert.equal(
+        firstInRangePressureAdvice(earlierMeasurements, "2026-10-28", inRange)?.direction,
+        "lower",
+    );
+});
+
 test("account switch and carbonation recommendations stay wired", () => {
     const source = read("../src/SERVICES/cellering/calculateCelleringRecomendations.ts");
     const app = read("../src/App.tsx");

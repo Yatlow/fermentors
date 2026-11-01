@@ -155,7 +155,13 @@ function smartAction0IsDue_(fermentor, now) {
 function smartRunNightAction0Guard_(projectId, now) {
   const matches = smartGetAction0Fermentors_(projectId);
   const due = matches.filter(function (fermentor) {
-    return smartAction0IsDue_(fermentor, now);
+    // Also reconcile a previously displayed live stage even if the planned
+    // brew date is in the future. This covers removal of a trial/test time
+    // within one five-minute night trigger without a full expensive cycle.
+    const previousProgress = fermentor && fermentor.data && fermentor.data.brewProgress;
+    return smartAction0IsDue_(fermentor, now) ||
+      !!(previousProgress && (previousProgress.stageName ||
+        previousProgress.stageStartTimeText || previousProgress.stageEndTimeText));
   });
 
   let processed = 0;

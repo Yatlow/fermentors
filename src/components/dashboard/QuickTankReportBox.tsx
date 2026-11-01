@@ -6,7 +6,9 @@ import { writeReadingsToSheets } from "../../SERVICES/getAndPost/writeReadingToS
 import { updatePackagingInfo } from "../../SERVICES/cellering/updatePackagingInfo";
 import { resolveFinalPackagingTotal } from "../../SERVICES/cellering/resolveFinalPackagingTotal";
 import { getQuickReportPressureDefault } from "../../SERVICES/cellering/quickReportDefaults";
+import { pressurePrefillFromScheduledDecision, type QuickReportPressureDecision } from "../../SERVICES/cellering/quickReportPressureDecision";
 import { assignDryHopToHopsTable } from "../../SERVICES/cellering/assignDryHop";
+import { dryHopActionCount } from "../../SERVICES/cellering/dryHopHistory";
 import {
     isDryHopAllowedForStyle,
     getDryHopStyleCategory,
@@ -16,6 +18,7 @@ import {
     getHopAa,
     isValidHopAa,
     buildDryHopNoteText,
+    buildAdditionalDryHopNoteText,
 } from "../../SERVICES/cellering/dryHopLogic";
 import {
     DEFAULT_BOTTOM_CARBONATION_PRESSURE,
@@ -27,7 +30,7 @@ import { pushCurrentDataToFirestore } from "../../SERVICES/getAndPost/pushCurren
 import PackagingPalletsModal from "../cooler/PackagingPalletsModal";
 import type { PackagingJobInput } from "../../SERVICES/cooler/usePackagingPalletsFlow";
 import { CalculatorIconButton, CalculatorModal } from "../tools/BrewingMeasurementCalculators";
-import { upsertMeasurementInCache } from "../../SERVICES/getAndPost/gettAllDataByBatch";
+import { getMeasurementsByBatch, upsertMeasurementInCache } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import {
     Bubbles,
     BottleWine,
@@ -50,6 +53,7 @@ type QuickTankReportBoxProps = {
     onClose: () => void;
     position: { top: number; left: number } | null;
     initialNoteType?: string;
+    initialPressureDecision?: QuickReportPressureDecision | null;
 };
 
 export const RobotVacuum = createLucideIcon("RobotVacuum", [
@@ -77,6 +81,7 @@ const NOTE_TYPES: QuickReportType[] = [
     { value: "דיאציטיל", label: "מנוחת דיאצטיל", stage: "warm", icon: ThermometerSun },
     { value: "קירור", label: "קירור", stage: "warm", icon: ThermometerSnowflake },
     { value: "דרייהופ", label: "דרייהופ", stage: "warm", icon: Hop },
+    { value: "דרייהופ נוסף", label: "דרייהופ נוסף (חריג)", stage: "warm", icon: Hop },
     { value: "אריזה", label: "אריזה", stage: "cold", icon: BottleWine },
     { value: "אחר", label: "אחר", stage: "both", icon: PencilSparkles },
 ];
@@ -93,7 +98,7 @@ function buildMeasurementId(date: Date = new Date()) {
     return `${y}-${m}-${d}_${hh}${mm}`;
 }
 
-export default function QuickTankReportBox({ tank, specs, onClose, position, initialNoteType = "" }: QuickTankReportBoxProps) {
+export default function QuickTankReportBox({ tank, specs, onClose, position, initialNoteType = "", initialPressureDecision = null }: QuickTankReportBoxProps) {
     const isWarm = Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";
     const stage: "warm" | "cold" = isWarm ? "warm" : "cold";
     const isColdTank = tank.stage?.name === "קר";
@@ -104,6 +109,8 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
     const [value, setValue] = useState("");
     const [value2, setValue2] = useState("");
     const [dryHopAa, setDryHopAa] = useState("");
+    const [dryHopExceptionReason, setDryHopExceptionReason] = useState("");
+    const [dryHopExceptionConfirmed, setDryHopExceptionConfirmed] = useState(false);
     const [direction, setDirection] = useState("");
 
     const [packagingType, setPackagingType] = useState<"kegs" | "bottles" | "">("");
@@ -118,6 +125,24 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
 
     const [packagingJob, setPackagingJob] = useState<PackagingJobInput | null>(null);
     const submitInFlightRef = useRef(false);
+
+    // Only the first dry-hop is automatic. Further additions are deliberate
+    // exceptions, checked against the latest history before each submission.
+    const [dryHopCount, setDryHopCount] = useState<number | null>(null);
+    const dryHopBatch = String(tank.batchNumber ?? "").replace("#", "").trim();
+    useEffect(() => {
+        let cancelled = false;
+        setDryHopCount(null);
+        if (!dryHopBatch) return;
+        void getMeasurementsByBatch(dryHopBatch)
+            .then((rows) => { if (!cancelled) setDryHopCount(dryHopActionCount(rows)); })
+            .catch(() => { if (!cancelled) setDryHopCount(null); });
+        return () => { cancelled = true; };
+    }, [dryHopBatch]);
+    const dryHopAllowed = dryHopCount === 0;
+    const extraDryHopAllowed = dryHopCount !== null && dryHopCount > 0;
+    const isAdditionalDryHop = noteType === "דרייהופ נוסף";
+    const isAnyDryHop = noteType === "דרייהופ" || isAdditionalDryHop;
 
     const isSending = status === "sending";
     const sourceIdentity = `${tank.id}:${String(tank.batchNumber ?? "").replace("#", "").trim()}`;
@@ -142,11 +167,11 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
 
     function resolveDryHopAaValue(): string {
         if (dryHopAa !== "") return dryHopAa;
-        if (noteType !== "דרייהופ" || !specs) return "";
+        if (!isAnyDryHop || !specs) return "";
 
         const category = getDryHopStyleCategory(tank.beerStyle);
         const calc = calcDryHopDose(category, tank.beerVolume);
-        const hopType = calc.needsManualInput ? value2.trim() : calc.hopType;
+        const hopType = (isAdditionalDryHop || calc.needsManualInput) ? value2.trim() : calc.hopType;
         if (!hopType) return "";
 
         const defaultAa = getHopAa(hopType, specs);
@@ -155,18 +180,35 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
 
     function resetValues() {
         setValue(""); setValue2(""); setDryHopAa(""); setDirection("");
+        setDryHopExceptionReason(""); setDryHopExceptionConfirmed(false);
         setPackagingType(""); setAmount(""); setIsEmpty(false);
         setPressureAfter(""); setPressureAutoFilled(true);
         setStatus("idle"); setErrorMsg("");
     }
 
+    // Initial recommendation selection must run once per selected decision.
+    // In particular, completion of the asynchronous dry-hop history check
+    // must not reset pressure fields after the operator has edited them.
+    const initialSelectionAppliedRef = useRef("");
+    const initialSelectionKey = [
+        initialNoteType,
+        initialPressureDecision?.recommendationId ?? "",
+        initialPressureDecision?.targetPressure ?? "",
+        initialPressureDecision?.pressureDirection ?? "",
+    ].join("|");
     useEffect(() => {
-        if (initialNoteType) selectNoteType(initialNoteType);
-        // Prefill the same defaults as choosing the report type manually.
+        if (!initialNoteType || initialSelectionAppliedRef.current === initialSelectionKey) return;
+        if (initialNoteType === "דרייהופ" && !dryHopAllowed && !extraDryHopAllowed) return;
+        initialSelectionAppliedRef.current = initialSelectionKey;
+        if (initialNoteType === "דרייהופ" && extraDryHopAllowed) selectNoteType("דרייהופ נוסף");
+        else selectNoteType(initialNoteType);
+        // On launch, choose the action supplied by the selected KPI row once.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [initialNoteType]);
+    }, [initialSelectionKey, initialNoteType, dryHopAllowed, extraDryHopAllowed]);
 
     function selectNoteType(newType: string) {
+        if (newType === "דרייהופ" && !dryHopAllowed) return;
+        if (newType === "דרייהופ נוסף" && !extraDryHopAllowed) return;
         setNoteType(newType);
         setReportTypeOpen(false);
         resetValues();
@@ -174,6 +216,17 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
         const defaultPressure = getQuickReportPressureDefault(newType, tank.beerStyle, specs);
         if (defaultPressure !== null) {
             setValue(defaultPressure);
+        }
+        if (newType === "לחץ") {
+            const prefill = pressurePrefillFromScheduledDecision(
+                initialPressureDecision,
+                tank.tankNumber,
+                tank.batchNumber,
+            );
+            if (prefill) {
+                setDirection(prefill.direction);
+                setValue(prefill.pressure);
+            }
         }
         if (newType === "גיזוז מלמטה התחלה") {
             setValue(String(DEFAULT_BOTTOM_CARBONATION_PRESSURE));
@@ -211,32 +264,36 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
             case "דיאציטיל": return "חימום מיכל ל14° למנוחת דיאציטיל";
             case "קירור": return "קירור מיכל ל0.3°";
             case "אחר": return value === "" ? null : value;
-            case "דרייהופ": {
+            case "דרייהופ":
+            case "דרייהופ נוסף": {
                 if (!specs) return null;
                 const category = getDryHopStyleCategory(tank.beerStyle);
                 const calc = calcDryHopDose(category, tank.beerVolume);
 
-                const grams = calc.needsManualInput ? Number(value) : roundGramsUp5(calc.grams);
-                const hopType = calc.needsManualInput ? value2.trim() : calc.hopType;
+                const grams = (isAdditionalDryHop || calc.needsManualInput) ? Number(value) : roundGramsUp5(calc.grams);
+                const hopType = (isAdditionalDryHop || calc.needsManualInput) ? value2.trim() : calc.hopType;
 
-                if (calc.needsManualInput && (value === "" || value2.trim() === "")) return null;
+                if ((isAdditionalDryHop || calc.needsManualInput) && (value === "" || value2.trim() === "")) return null;
+                if (isAdditionalDryHop && (!dryHopExceptionReason.trim() || !dryHopExceptionConfirmed)) return null;
                 if (!grams || grams <= 0 || !hopType || !isValidHopAa(resolveDryHopAaValue())) return null;
 
                 const pressure = getClosingPressureForStyle(tank.beerStyle, specs);
                 if (pressure === null) return null;
 
-                return buildDryHopNoteText(grams, hopType, pressure);
+                return isAdditionalDryHop
+                    ? buildAdditionalDryHopNoteText(grams, hopType, pressure, dryHopExceptionReason.trim())
+                    : buildDryHopNoteText(grams, hopType, pressure);
             }
             default: return null;
         }
     }
 
     function getDryHopValues(): { grams: number; hopType: string; aa: number } | null {
-        if (noteType !== "דרייהופ" || !specs) return null;
+        if (!isAnyDryHop || !specs) return null;
         const category = getDryHopStyleCategory(tank.beerStyle);
         const calc = calcDryHopDose(category, tank.beerVolume);
-        const grams = calc.needsManualInput ? Number(value) : roundGramsUp5(calc.grams);
-        const hopType = calc.needsManualInput ? value2.trim() : calc.hopType;
+        const grams = (isAdditionalDryHop || calc.needsManualInput) ? Number(value) : roundGramsUp5(calc.grams);
+        const hopType = (isAdditionalDryHop || calc.needsManualInput) ? value2.trim() : calc.hopType;
         const aa = Number(resolveDryHopAaValue());
         if (!grams || grams <= 0 || !hopType || !isValidHopAa(aa)) return null;
         return { grams, hopType, aa };
@@ -251,12 +308,35 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
 
     async function submitNote() {
         if (submitInFlightRef.current) return;
-        const noteText = buildNoteText();
-        if (noteType !== "גיזוז" && !noteText) return;
-
         submitInFlightRef.current = true;
         setStatus("sending");
         setErrorMsg("");
+        if (isAnyDryHop) {
+            try {
+                const latest = await getMeasurementsByBatch(dryHopBatch, { forceRefresh: true });
+                const count = dryHopActionCount(latest);
+                setDryHopCount(count);
+                if ((isAdditionalDryHop && count === 0) || (!isAdditionalDryHop && count > 0)) {
+                    setStatus("error");
+                    setErrorMsg(count === 0
+                        ? "לא נמצא דרייהופ קודם. יש לבחור בדיווח הרגיל."
+                        : "כבר בוצע דרייהופ. יש לבחור בדרייהופ נוסף (חריג).");
+                    submitInFlightRef.current = false;
+                    return;
+                }
+            } catch {
+                setStatus("error");
+                setErrorMsg("לא ניתן לאמת את היסטוריית הדרייהופ. הדיווח נחסם למניעת כפילות.");
+                submitInFlightRef.current = false;
+                return;
+            }
+        }
+        const noteText = buildNoteText();
+        if (noteType !== "גיזוז" && !noteText) {
+            submitInFlightRef.current = false;
+            setStatus("idle");
+            return;
+        }
 
         const actionDate = new Date();
         const isPressureAction = noteType === "לחץ" || noteType === "שמרים" ||
@@ -292,7 +372,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
                 throw new Error(res.map((r) => r.error ?? r.message).join(", "));
             }
 
-            if (noteType === "דרייהופ" && tank.sheetUrl) {
+            if (isAnyDryHop && tank.sheetUrl) {
                 const dryHop = getDryHopValues();
                 if (dryHop) {
                     try {
@@ -461,14 +541,15 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
             ? (!!packagingType && amount !== "") || isEmpty
             : noteType === "גיזוז"
                 ? value !== ""
-                : buildNoteText() !== null;
+                : (!isAnyDryHop || (isAdditionalDryHop ? extraDryHopAllowed : dryHopAllowed)) && buildNoteText() !== null;
 
-    const dryHopCategory = noteType === "דרייהופ" ? getDryHopStyleCategory(tank.beerStyle) : null;
+    const dryHopCategory = isAnyDryHop ? getDryHopStyleCategory(tank.beerStyle) : null;
     const dryHopCalc = dryHopCategory ? calcDryHopDose(dryHopCategory, tank.beerVolume) : null;
     const dryHopPressure = specs ? getClosingPressureForStyle(tank.beerStyle, specs) : null;
     const availableNoteTypes = NOTE_TYPES
         .filter((t) => t.stage === "both" || t.stage === stage)
-        .filter((t) => t.value !== "דרייהופ" || isDryHopAllowedForStyle(tank.beerStyle))
+        .filter((t) => t.value !== "דרייהופ" || (isDryHopAllowedForStyle(tank.beerStyle) && dryHopAllowed))
+        .filter((t) => t.value !== "דרייהופ נוסף" || (isDryHopAllowedForStyle(tank.beerStyle) && extraDryHopAllowed))
         .filter((t) => t.value !== "אריזה" || isColdTank);
     const selectedNoteType = availableNoteTypes.find((type) => type.value === noteType);
     const SelectedNoteIcon = selectedNoteType?.icon;
@@ -586,6 +667,11 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
                                 </div>
                             )}
 
+                            {noteType === "לחץ" && pressurePrefillFromScheduledDecision(
+                                initialPressureDecision, tank.tankNumber, tank.batchNumber,
+                            ) && (
+                                <p className="quickReportPrefillHint">הערכים מולאו לפי החלטת הסלרינג · ניתן לשנות לפני השליחה</p>
+                            )}
                             {noteType === "לחץ" && (
                                 <div className="quickReportInline">
                                     <select value={direction} disabled={isSending} onChange={(e) => setDirection(e.target.value)}>
@@ -593,7 +679,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
                                         <option value="העלאת">העלאת</option>
                                         <option value="הורדת">הורדת</option>
                                     </select>
-                                    <input type="number" placeholder="לחץ" value={value} disabled={isSending}
+                                    <input type="number" step="0.01" min="0" max="5" placeholder="לחץ" value={value} disabled={isSending}
                                         onChange={(e) => setValue(e.target.value)} />
                                 </div>
                             )}
@@ -603,8 +689,8 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
                                     onChange={(e) => setValue(e.target.value)} />
                             )}
 
-                            {noteType === "דרייהופ" && dryHopCalc && (
-                                dryHopCalc.needsManualInput ? (
+                            {isAnyDryHop && dryHopCalc && (
+                                (isAdditionalDryHop || dryHopCalc.needsManualInput) ? (
                                     <div className="quickReportInline">
                                         <input type="number" placeholder="גרם" value={value} disabled={isSending}
                                             onChange={(e) => setValue(e.target.value)} />
@@ -648,6 +734,22 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
                                         <span>%aa, סגירת לחץ, כיוון פורק ל{dryHopPressure ?? "—"} bar</span>
                                     </div>
                                 )
+                            )}
+
+                            {isAdditionalDryHop && (
+                                <div className="quickReportDryHopException">
+                                    <p role="status">כבר דווח דרייהופ באצווה זו. הדיווח החריג יישמר כתוספת כשות חדשה ולא ידרוס את הראשונה.</p>
+                                    <label htmlFor="quickDryHopExceptionReason">סיבת הדרייהופ הנוסף</label>
+                                    <textarea id="quickDryHopExceptionReason" value={dryHopExceptionReason}
+                                        placeholder="מדוע נדרשת תוספת כשות נוספת?"
+                                        disabled={isSending} onChange={(e) => setDryHopExceptionReason(e.target.value)}
+                                        rows={2} />
+                                    <label className="quickReportCheckbox">
+                                        <input type="checkbox" checked={dryHopExceptionConfirmed} disabled={isSending}
+                                            onChange={(e) => setDryHopExceptionConfirmed(e.target.checked)} />
+                                        <span>אני מאשר שזוהי תוספת כשות נוספת ומכוונת</span>
+                                    </label>
+                                </div>
                             )}
 
                             {noteType === "אריזה" && (

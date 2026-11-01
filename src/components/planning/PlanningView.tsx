@@ -5,6 +5,8 @@ import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { validatePlanningDecisionChange } from "../../SERVICES/planning/planningDecisionSafety";
 import { changedMixedPackagingDays } from "../../SERVICES/planning/planningValidation";
+import { pendingShipmentSubLabelReviews, type ShipmentSubLabelReview } from "../../SERVICES/planning/planningShipmentReservations";
+import { setMarkedForShipment } from "../../SERVICES/cooler/Palletservice";
 import { truckPlanningGroupKey } from "../../SERVICES/planning/truckPlanner";
 import { planningReadRequirements } from "../../SERVICES/planning/planningReadCoverage";
 import { pendingStockExecutionPlans } from "../../SERVICES/planning/planningStockExecution";
@@ -48,7 +50,7 @@ export function withoutDuplicateDeliveries(week: WeekPlan): WeekPlan {
   return deliveries.length === week.deliveries.length ? week : { ...week, deliveries };
 }
 
-export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onPendingDailyWorkChange }: {
+export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenCoolerMap, onPendingDailyWorkChange }: {
   brews: Fermentor[];
   canEdit: boolean;
   tab: PlanningTab;
@@ -85,6 +87,75 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   const identityAlignedPlans = useMemo(() =>
     withStablePackagingIdentity(plans, tankNumbersById), [plans, tankNumbersById]);
   const [message, setMessage] = useState("");
+  const [specialPalletReviews, setSpecialPalletReviews] = useState<ShipmentSubLabelReview[]>([]);
+  const [specialPalletChoice, setSpecialPalletChoice] = useState<"approve" | "decline" | null>(null);
+  const [specialPalletBusy, setSpecialPalletBusy] = useState(false);
+  const [specialPalletError, setSpecialPalletError] = useState("");
+  const [dismissedSpecialPallets, setDismissedSpecialPallets] = useState<Set<string>>(() => {
+    try {
+      const stored = JSON.parse(window.sessionStorage.getItem("shipment-sublabel-declines-v1") || "[]");
+      return new Set(Array.isArray(stored) ? stored : []);
+    } catch { return new Set(); }
+  });
+  useEffect(() => {
+    if (!canEdit || data.loading || !readScope.pallets) return;
+    let cancelled = false;
+    void pendingShipmentSubLabelReviews(pallets)
+      .then((reviews) => {
+        if (!cancelled) setSpecialPalletReviews(reviews.filter((review) =>
+          !dismissedSpecialPallets.has(`${review.truckId}:${review.dispatchDate}:${review.palletId}`)));
+      })
+      .catch((error) => {
+        if (!cancelled) console.warn("Unable to preview special-label shipment pallets", error);
+      });
+    return () => { cancelled = true; };
+  }, [canEdit, data.loading, readScope.pallets, tab, pallets, identityAlignedPlans, dismissedSpecialPallets]);
+
+  const specialPalletReview = specialPalletReviews[0] ?? null;
+  function skipSpecialPalletReview() {
+    if (!specialPalletReview) return;
+    const key = `${specialPalletReview.truckId}:${specialPalletReview.dispatchDate}:${specialPalletReview.palletId}`;
+    setDismissedSpecialPallets((current) => {
+      const next = new Set([...current, key]);
+      try { window.sessionStorage.setItem("shipment-sublabel-declines-v1", JSON.stringify([...next])); } catch { /* session only */ }
+      return next;
+    });
+    setSpecialPalletReviews((current) => current.filter((row) => row.palletId !== specialPalletReview.palletId));
+    setSpecialPalletChoice(null);
+    setSpecialPalletError("");
+  }
+  async function approveSpecialPallet(palletId: string) {
+    if (specialPalletBusy) return;
+    setSpecialPalletBusy(true);
+    setSpecialPalletError("");
+    try {
+      await setMarkedForShipment(palletId, true);
+      skipSpecialPalletReview();
+    } catch (error) {
+      setSpecialPalletError(error instanceof Error ? error.message : "לא ניתן לסמן את המשטח");
+    } finally {
+      setSpecialPalletBusy(false);
+    }
+  }
+  const [confirmation, setConfirmation] = useState<{ title: string; message: string } | null>(null);
+  const confirmationResolver = useRef<((approved: boolean) => void) | null>(null);
+  function confirmPlanning(message: string): Promise<boolean> {
+    if (confirmationResolver.current) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      confirmationResolver.current = resolve;
+      setConfirmation({ title: "אישור שינוי בתכנון", message });
+    });
+  }
+  function closePlanningConfirmation(approved: boolean) {
+    const resolve = confirmationResolver.current;
+    confirmationResolver.current = null;
+    setConfirmation(null);
+    resolve?.(approved);
+  }
+  useEffect(() => () => {
+    confirmationResolver.current?.(false);
+    confirmationResolver.current = null;
+  }, []);
   const availabilityIssues = useMemo(() => data.loading || !readScope.pallets || !readScope.actuals ? [] : auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments), [data.loading, readScope.pallets, readScope.actuals, settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments]);
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
   const executionPlans = useMemo(() => (tab === "calendar" ? plansAfterActualPackagingCompletion(identityAlignedPlans, settings.products, actuals, productionTanks) : identityAlignedPlans), [tab, identityAlignedPlans, settings.products, actuals, productionTanks]);
@@ -149,7 +220,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     if (mixedDays.length) {
       const detail = mixedDays.map(({ date, crates, kegs }) =>
         `• ${date}: ${crates} ארגזים ו־${kegs} חביות`).join("\n");
-      const approved = window.confirm(
+      const approved = await confirmPlanning(
         "⚠️ אישור שילוב אריזות באותו יום\n\n" +
         detail +
         "\n\nזהו שילוב של אריזת בקבוקים וחביות באותה משמרת. " +
@@ -171,7 +242,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       if (futureShortages.length) {
         const description = futureShortages.map((increase) =>
           "• " + describePlanningShortageIncrease(increase, settings.products)).join("\n");
-        const accepted = window.confirm(
+        const accepted = await confirmPlanning(
           "⚠️ שינוי זה ייצור או יגדיל חוסר במשלוחים בשבועות מאוחרים:\n\n" +
           description +
           "\n\nאפשר לשמור את התכנון, אך המשלוחים המפורטים יישארו בלתי מכוסים עד שתעודכן תוכנית האריזה או המלאי.\n\nלאשר שמירה למרות החוסרים?"
@@ -184,7 +255,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     const hasNewShipment = (canonical.deliveries ?? []).some((delivery) => delivery.quantity > 0);
     const previousWeekHasShipment = (priorWeek?.deliveries ?? []).some((delivery) => delivery.quantity > 0);
     if (shipmentDecisionChanged && hasNewShipment && canonical.id > weekStart(today) && !previousWeekHasShipment) {
-      const accepted = window.confirm(
+      const accepted = await confirmPlanning(
         `שים לב: מתוכנן משלוח בשבוע ${canonical.id}, אך בשבוע הקודם (${priorWeekId}) אין משלוח מתוכנן.\\nייתכן שהוחמץ שבוע בתכנון.\\n\\nהאם לשמור בכל זאת?`
       );
       if (!accepted) throw new Error("השמירה בוטלה לבקשתך. לא בוצע שינוי.");
@@ -255,6 +326,63 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
         {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={identityAlignedPlans} settings={settings} actuals={actuals} today={today}/>} 
         {tab === "review" && <PlanningReview settings={settings} plans={identityAlignedPlans} actuals={actuals} shipments={data.actualShipments} snapshots={data.snapshots} error={data.snapshotError} today={today}/>} 
       </>}
+      {specialPalletReview && canEdit && (
+        <div className="bp-inventory-dialog-backdrop">
+          <section className="bp-modal bp-planning-scroll-modal" role="dialog" aria-modal="true"
+            aria-labelledby="bp-special-pallet-title" style={{ width: "min(92vw, 580px)", maxWidth: 580 }}>
+            <h3 id="bp-special-pallet-title">אישור משטח עם תווית משנה</h3>
+            <p>במשלוח המתוכנן לתאריך {specialPalletReview.dispatchDate} עבור מק״ט {specialPalletReview.productId},
+              נבחר לפי סדר התוקף משטח בכמות {specialPalletReview.quantity} עם תווית משנה:</p>
+            <p><strong>{specialPalletReview.subLabel}</strong></p>
+            <p>האם לסמן את המשטח הזה למשלוח?</p>
+            {specialPalletError && <p role="alert" className="bp-alert">{specialPalletError}</p>}
+            {specialPalletChoice === "decline" ? (
+              <>
+                <p>המשטח לא יסומן אוטומטית. האם לשנות את החלטת המשלוח ולסמן משטח אחר במקום?</p>
+                <div className="bp-modal-actions" style={{ flexWrap: "wrap" }}>
+                  {specialPalletReview.alternativePallets.map((alternative) => (
+                    <button key={alternative.id} type="button" className="btn-primary" disabled={specialPalletBusy}
+                      onClick={() => void approveSpecialPallet(alternative.id)}>
+                      סמן {alternative.name} · {alternative.quantity} יח׳ · תוקף {alternative.expiry || "לא ידוע"}
+                    </button>
+                  ))}
+                  <button type="button" className="btn-secondary" onClick={() => {
+                    skipSpecialPalletReview();
+                    onTabChange("calendar");
+                    setMessage("תווית המשנה לא אושרה. יש לערוך את החלטת המשלוח ולבחור משטח מתאים.");
+                  }}>עבור לתכנון המשלוח</button>
+                  <button type="button" className="btn-secondary" onClick={skipSpecialPalletReview}>השאר ללא סימון</button>
+                </div>
+              </>
+            ) : (
+              <div className="bp-modal-actions">
+                <button type="button" className="btn-secondary" disabled={specialPalletBusy}
+                  onClick={() => setSpecialPalletChoice("decline")}>לא, בחר משטח אחר</button>
+                <button type="button" className="btn-primary" disabled={specialPalletBusy}
+                  onClick={() => void approveSpecialPallet(specialPalletReview.palletId)}>
+                  {specialPalletBusy ? "מסמן..." : "כן, סמן למשלוח"}
+                </button>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+      {confirmation && (
+        <div className="bp-inventory-dialog-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) closePlanningConfirmation(false);
+        }}>
+          <section className="bp-modal bp-planning-scroll-modal" role="dialog" aria-modal="true"
+            aria-labelledby="bp-confirmation-title" aria-describedby="bp-confirmation-description"
+            style={{ maxWidth: 560, width: "min(92vw, 560px)" }}>
+            <h3 id="bp-confirmation-title">{confirmation.title}</h3>
+            <p id="bp-confirmation-description" style={{ whiteSpace: "pre-line", lineHeight: 1.7 }}>{confirmation.message}</p>
+            <div className="bp-modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => closePlanningConfirmation(false)}>ביטול</button>
+              <button type="button" className="btn-primary" onClick={() => closePlanningConfirmation(true)}>אישור ושמירה</button>
+            </div>
+          </section>
+        </div>
+      )}
       {inventoryInputOpen && tab === "fiveWeeks" && (
         <div className="bp-inventory-dialog-backdrop" onMouseDown={(event) => {
           if (event.target === event.currentTarget) setInventoryInputOpen(false);
