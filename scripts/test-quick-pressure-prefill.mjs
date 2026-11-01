@@ -58,7 +58,7 @@ assert.match(health, /initialPressureDirection: alert\.pressureSuggestion === "l
 assert.match(health, /alert\.pressureSuggestion === "raise" \? "העלאת" : undefined/);
 assert.match(card, /setQuickReportInitialPressureDirection\(/);
 assert.match(quick, /initialPressureDirection === "העלאת"/);
-assert.match(quick, /case "השארת לחץ": return holdPressureConfirmed/);
+assert.match(quick, /case "השארת לחץ": return "השארת לחץ ללא שינוי לאחר בדיקת גיזוז/);
 assert.match(quick, /"השארת לחץ ללא שינוי לאחר בדיקת גיזוז/);
 assert.match(quick, /const isPressureAction = noteType === "לחץ"/);
 assert.doesNotMatch(quick, /const isPressureAction = noteType === "השארת לחץ"/);
@@ -83,8 +83,13 @@ assert.match(health, /noteType: "השארת לחץ"/);
 assert.match(health, /noteType === "לחץ" && alert\.pressureSuggestion/);
 assert.match(health, /alert\.pressureSuggestion === "lower" \? "דווח הורדת לחץ" : "דווח העלאת לחץ"/,
   "post-first deviation must expose only the specific recommended pressure direction");
-assert.match(quick, /case "השארת לחץ": return holdPressureConfirmed/);
+assert.match(quick, /case "השארת לחץ": return "השארת לחץ ללא שינוי לאחר בדיקת גיזוז/);
 assert.match(quick, /const isPressureAction = noteType === "לחץ"/);
 assert.doesNotMatch(quick, /const isPressureAction = noteType === "השארת לחץ"/);
 
+assert.match(quick, /הטקסט שיירשם בגיליון:/);
+assert.match(quick, /className="quickReportNotePreview">\{buildNoteText\(\)\}/,
+  "preview must display the exact note sent to Sheets");
+assert.doesNotMatch(quick, /holdPressureConfirmed|setHoldPressureConfirmed/,
+  "holding pressure must not require an extra checkbox");
 console.log("Scheduled pressure quick-report prefill checks passed");
