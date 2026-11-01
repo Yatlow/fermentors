@@ -6,6 +6,7 @@ import { writeReadingsToSheets } from "../../SERVICES/getAndPost/writeReadingToS
 import { updatePackagingInfo } from "../../SERVICES/cellering/updatePackagingInfo";
 import { resolveFinalPackagingTotal } from "../../SERVICES/cellering/resolveFinalPackagingTotal";
 import { getQuickReportPressureDefault } from "../../SERVICES/cellering/quickReportDefaults";
+import { pressurePrefillFromScheduledDecision, type QuickReportPressureDecision } from "../../SERVICES/cellering/quickReportPressureDecision";
 import { assignDryHopToHopsTable } from "../../SERVICES/cellering/assignDryHop";
 import { dryHopActionCount } from "../../SERVICES/cellering/dryHopHistory";
 import {
@@ -52,6 +53,7 @@ type QuickTankReportBoxProps = {
     onClose: () => void;
     position: { top: number; left: number } | null;
     initialNoteType?: string;
+    initialPressureDecision?: QuickReportPressureDecision | null;
 };
 
 export const RobotVacuum = createLucideIcon("RobotVacuum", [
@@ -96,7 +98,7 @@ function buildMeasurementId(date: Date = new Date()) {
     return `${y}-${m}-${d}_${hh}${mm}`;
 }
 
-export default function QuickTankReportBox({ tank, specs, onClose, position, initialNoteType = "" }: QuickTankReportBoxProps) {
+export default function QuickTankReportBox({ tank, specs, onClose, position, initialNoteType = "", initialPressureDecision = null }: QuickTankReportBoxProps) {
     const isWarm = Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";
     const stage: "warm" | "cold" = isWarm ? "warm" : "cold";
     const isColdTank = tank.stage?.name === "קר";
@@ -184,12 +186,25 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
         setStatus("idle"); setErrorMsg("");
     }
 
+    // Initial recommendation selection must run once per selected decision.
+    // In particular, completion of the asynchronous dry-hop history check
+    // must not reset pressure fields after the operator has edited them.
+    const initialSelectionAppliedRef = useRef("");
+    const initialSelectionKey = [
+        initialNoteType,
+        initialPressureDecision?.recommendationId ?? "",
+        initialPressureDecision?.targetPressure ?? "",
+        initialPressureDecision?.pressureDirection ?? "",
+    ].join("|");
     useEffect(() => {
+        if (!initialNoteType || initialSelectionAppliedRef.current === initialSelectionKey) return;
+        if (initialNoteType === "דרייהופ" && !dryHopAllowed && !extraDryHopAllowed) return;
+        initialSelectionAppliedRef.current = initialSelectionKey;
         if (initialNoteType === "דרייהופ" && extraDryHopAllowed) selectNoteType("דרייהופ נוסף");
-        else if (initialNoteType && (initialNoteType !== "דרייהופ" || dryHopAllowed)) selectNoteType(initialNoteType);
-        // Prefill the same defaults as choosing the report type manually.
+        else selectNoteType(initialNoteType);
+        // On launch, choose the action supplied by the selected KPI row once.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [initialNoteType, dryHopAllowed, extraDryHopAllowed]);
+    }, [initialSelectionKey, initialNoteType, dryHopAllowed, extraDryHopAllowed]);
 
     function selectNoteType(newType: string) {
         if (newType === "דרייהופ" && !dryHopAllowed) return;
@@ -201,6 +216,17 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
         const defaultPressure = getQuickReportPressureDefault(newType, tank.beerStyle, specs);
         if (defaultPressure !== null) {
             setValue(defaultPressure);
+        }
+        if (newType === "לחץ") {
+            const prefill = pressurePrefillFromScheduledDecision(
+                initialPressureDecision,
+                tank.tankNumber,
+                tank.batchNumber,
+            );
+            if (prefill) {
+                setDirection(prefill.direction);
+                setValue(prefill.pressure);
+            }
         }
         if (newType === "גיזוז מלמטה התחלה") {
             setValue(String(DEFAULT_BOTTOM_CARBONATION_PRESSURE));
@@ -641,6 +667,11 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
                                 </div>
                             )}
 
+                            {noteType === "לחץ" && pressurePrefillFromScheduledDecision(
+                                initialPressureDecision, tank.tankNumber, tank.batchNumber,
+                            ) && (
+                                <p className="quickReportPrefillHint">הערכים מולאו לפי החלטת הסלרינג · ניתן לשנות לפני השליחה</p>
+                            )}
                             {noteType === "לחץ" && (
                                 <div className="quickReportInline">
                                     <select value={direction} disabled={isSending} onChange={(e) => setDirection(e.target.value)}>
