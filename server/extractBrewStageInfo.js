@@ -534,7 +534,13 @@ function brewStageRegisterBlockStarts_(blocks, resolvedDates, sources, savedStar
   const result = {};
 
   Object.keys(savedStarts).forEach(function (key) {
-    result[Number(key)] = new Date(savedStarts[key].getTime());
+    const blockIndex = Number(key);
+    // A previously persisted block start is not proof of a running stage after
+    // the user has deleted the underlying time. Do not resurrect deleted test
+    // starts from historical Firestore progress.
+    const block = blocks[blockIndex - 1];
+    if (!block || !block.rawStages || !block.rawStages.length) return;
+    result[blockIndex] = new Date(savedStarts[key].getTime());
   });
 
   blocks.forEach(function (block, index) {
@@ -670,9 +676,18 @@ function brewStageFillMissingDates_(sheet, values, blocks, blockStarts, topHeade
 
 function extractBrewStageInfo(spreadSheetId, fermentorHint) {
   const spreadsheetId = extractSpreadsheetId(spreadSheetId);
-  const ss = SpreadsheetApp.openById(spreadsheetId);
-  const sheet = ss.getSheets()[0];
-  const values = sheet.getDataRange().getDisplayValues();
+  // ACTION 0 runs after the optimized sheet sync. Share its in-flight sheet
+  // snapshot instead of reopening/re-reading the entire spreadsheet for
+  // stage parsing and then for canonical fermentation-volume extraction.
+  // Outside a cycle, retain the independent live read (edit triggers/tests).
+  const cycleSnapshot =
+    typeof FC_CYCLE_CONTEXT_ !== "undefined" && FC_CYCLE_CONTEXT_ &&
+    typeof fcSheetSnapshot_ === "function"
+      ? fcSheetSnapshot_(spreadsheetId)
+      : null;
+  const ss = cycleSnapshot ? cycleSnapshot.ss : SpreadsheetApp.openById(spreadsheetId);
+  const sheet = cycleSnapshot ? cycleSnapshot.sheet : ss.getSheets()[0];
+  const values = cycleSnapshot ? cycleSnapshot.values : sheet.getDataRange().getDisplayValues();
 
   const topHeaderInfo = brewStageReadTopHeaderDate_(values);
   const blockStartsRows = findBrewBlockStarts(values);
