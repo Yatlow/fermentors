@@ -24,7 +24,7 @@ export function pressurePrefillFromScheduledDecision(
   tankNumber: string | number | null | undefined,
   batchNumber: string | number | null | undefined,
 ): QuickReportPressurePrefill | null {
-  if (!decision?.recommendationId.startsWith("scheduled-")) return null;
+  if (!decision?.recommendationId?.startsWith("scheduled-")) return null;
   const normalizedBatch = (value: string | number | null | undefined) =>
     String(value ?? "").replace(/^#/, "").trim();
   if (!normalizedBatch(batchNumber) ||
