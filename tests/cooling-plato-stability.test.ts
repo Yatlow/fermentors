@@ -70,7 +70,7 @@ test("cooling fallback also requires a valid Plato from today", async () => {
   const { readFileSync } = await import("node:fs");
   const source = readFileSync("src/SERVICES/cellering/calculateCelleringRecomendations.ts", "utf8");
   assert.match(source, /const todayPlato = latestNumericOnDate\("plato", todayDate\)/);
-  assert.match(source, /todayPlato !== null &&\s*hasStablePlatoForCooling/);
+  assert.match(source, /todayPlato !== null[\s\S]*getCoolingPlatoStabilityEvidence/);
   assert.match(source, /!readyToCoolDown && todayPlato !== null/);
-  assert.match(source, /if \(todayPlato < 5 && coolingYeastReady\)/);
+  assert.match(source, /if \(todayPlato < 5 && coolingYeastReady && !platoAboveFermentationEnd\)/);
 });

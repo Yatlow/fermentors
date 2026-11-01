@@ -73,6 +73,7 @@ type HealthAlert = {
     importance?: number;
     dismissible?: boolean;
     userDecision?: boolean;
+    reviewOnly?: boolean;
 };
 
 type Recommendation = {
@@ -86,6 +87,7 @@ type Recommendation = {
     reason?: string;
     importance?: number;
     userDecision?: boolean;
+    reviewOnly?: boolean;
 };
 
 type KeyedRecommendation = Recommendation & {
@@ -766,13 +768,15 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             )) return;
 
                             const importance = Math.max(1, Math.min(3, Number(recommendation.importance) || 1));
-                            scoreRecommendations.push({ importance });
+                            if (!recommendation.reviewOnly) scoreRecommendations.push({ importance });
                             tankAlerts.push({
                                 id: `recommendation-${tank.id}-${recommendation.recommendationKey}`,
                                 severity: recommendationSeverity(importance),
-                                title: recommendation.userDecision
-                                    ? `מיכל ${number}: החלטת סלרינג`
-                                    : `מיכל ${number}: המלצת סלרינג`,
+                                title: recommendation.reviewOnly
+                                    ? `מיכל ${number}: סייג לפני קירור`
+                                    : recommendation.userDecision
+                                        ? `מיכל ${number}: החלטת סלרינג`
+                                        : `מיכל ${number}: המלצת סלרינג`,
                                 detail: recommendation.reason || "נדרשת פעולת סלרינג.",
                                 tankNumber: number,
                                 batchNumber: String(tank.batchNumber),
@@ -783,7 +787,8 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                 pressureChoice: recommendation.pressureChoice,
                                 pressureSuggestion: recommendation.pressureSuggestion,
                                 importance,
-                                dismissible: true,
+                                dismissible: !recommendation.reviewOnly,
+                                reviewOnly: recommendation.reviewOnly,
                                 userDecision: recommendation.userDecision,
                             });
                         });
@@ -1409,7 +1414,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                     <strong>{alert.title}</strong>
                                     <span>{alert.detail}</span>
                                 </span>
-                                {alert.tankNumber && alert.recommendationKey && (() => {
+                                {alert.tankNumber && alert.recommendationKey && !alert.reviewOnly && (() => {
                                     const mapping: Record<string, string> = {
                                         dryHop: "דרייהופ", pressureClose: "סגירת מיכל",
                                         warmYeastDrop: "שמרים", warmYeastDropCompletion: "שמרים",
