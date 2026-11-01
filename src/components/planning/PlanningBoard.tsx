@@ -21,7 +21,7 @@ import { futureTanks, openRuns, shortDate, type ShipmentEvent } from "../../SERV
 import {
   normalizeEmptyTankFlagsForSchedule,
   tankReleases,
-  reconcilePhysicalCycleEmptying,
+  assignableTankReleasesForWeek,
   validateProduction,
   validateProductionIssues,
   proposePendingPackagingVolumeCorrection,
@@ -32,7 +32,6 @@ import { resolvePackagingBrewId, type PackagingPlan } from "../../SERVICES/plann
 import { pendingPackagingDecisions } from "../../SERVICES/planning/packagingActuals";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { projectTankSchedules } from "../../SERVICES/planning/tankScheduleProjection";
-import { tankCanHostCycle } from "../../SERVICES/planning/tankSchedule";
 import PlanningBrewAssignmentEditor from "./PlanningBrewAssignmentEditor";
 import PlanningWeekGantt from "./PlanningWeekGantt";
 
@@ -161,33 +160,13 @@ export default function PlanningBoard({
     [brews, tanks, releasePlans, settings, actuals, today],
   );
   const releases = useMemo(() => {
-    const base = allReleases;
-    // The release calculation and the assignment picker must project the
-    // SAME dated packaging decisions and live physical tank snapshot. A raw
-    // canonical schedule may retain an unclosed historical forecast even
-    // though an exact physical batch is planned to empty before this week.
+    // Use the same canonical availability gate as weekly recommendations,
+    // with identical dated packaging and physical-cycle reconciliation.
     const schedules = projectTankSchedules(releasePlans, settings, today, tanks);
-    const weekEnd = addDays(week, 6);
-    const lastBrewDay = addDays(week, 3);
-    const currentWeekCycleIds = new Set(current.brews.map((brew) => brew.id));
-    return base.filter((release) => {
-      if (!release.date || release.date > weekEnd) return false;
-      const candidateDate = release.date > week ? release.date : week;
-      // Actual brewery shifts are Monday-Wednesday; a later release cannot
-      // be assigned to a brew in this operating week.
-      if (candidateDate > lastBrewDay) return false;
-      // Keep saved assignments visible, but only ignore those exact cycles
-      // in this picker. Every earlier and later cycle still blocks overlap.
-      const reconciled = reconcilePhysicalCycleEmptying(
-        schedules.get(release.tankId) ?? [],
-        brews.find((source) => source.id === release.tankId),
-        tanks.find((tank) => tank.id === release.tankId),
-        release,
-        today,
-      );
-      const otherCycles = reconciled.filter((cycle) => !currentWeekCycleIds.has(cycle.cycleId));
-      return tankCanHostCycle(otherCycles, candidateDate, candidateDate);
-    });
+    return assignableTankReleasesForWeek(
+      allReleases, schedules, brews, tanks, today, week,
+      new Set(current.brews.map((brew) => brew.id)),
+    );
   }, [allReleases, releasePlans, settings, today, tanks, brews, week, current.brews]);
 
   const productLabel = (id: string) => {
