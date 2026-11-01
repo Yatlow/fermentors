@@ -68,7 +68,7 @@ type HealthAlert = {
     scheduledActionType?: ScheduledCellarActionType | "ventAdjust";
     pressureDirection?: PressureChangeDirection;
     targetPressure?: number;
-    pressureChoice?: "lowerOrHold" | "changeOrHold";
+    pressureChoice?: "changeOrHold";
     pressureSuggestion?: "lower" | "raise";
     importance?: number;
     dismissible?: boolean;
@@ -80,7 +80,7 @@ type Recommendation = {
     actionType?: ScheduledCellarActionType | "ventAdjust";
     pressureDirection?: PressureChangeDirection;
     targetPressure?: number;
-    pressureChoice?: "lowerOrHold" | "changeOrHold";
+    pressureChoice?: "changeOrHold";
     pressureSuggestion?: "lower" | "raise";
     req?: boolean | "" | 0 | null;
     display?: boolean;
@@ -1452,11 +1452,15 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                                     detail: {
                                                         tankNumber: String(alert.tankNumber),
                                                         noteType: "לחץ",
-                                                        initialPressureDirection: alert.pressureChoice === "lowerOrHold" ? "הורדת" : undefined,
+                                                        initialPressureDirection: alert.pressureSuggestion === "lower"
+                                                            ? "הורדת"
+                                                            : alert.pressureSuggestion === "raise" ? "העלאת" : undefined,
                                                         anchorRect: event.currentTarget.getBoundingClientRect().toJSON(),
                                                     },
                                                 }))}>
-                                                <ClockPlus size={16} aria-hidden="true" />{alert.pressureChoice === "lowerOrHold" ? "דווח הורדת לחץ" : "דווח שינוי לחץ"}
+                                                <ClockPlus size={16} aria-hidden="true" />{alert.pressureSuggestion === "lower"
+                                                    ? "דווח הורדת לחץ"
+                                                    : alert.pressureSuggestion === "raise" ? "דווח העלאת לחץ" : "דווח שינוי לחץ"}
                                             </button>
                                             <button type="button" className="health-quick-report-button" onClick={(event) =>
                                                 window.dispatchEvent(new CustomEvent("cellar-open-quick-report", {
@@ -1490,7 +1494,9 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                             }
                                             : undefined,
                                         anchorRect: event.currentTarget.getBoundingClientRect().toJSON(),
-                                    } }))}><ui.Icon size={16} aria-hidden="true" />{ui.label}</button> : null;
+                                    } }))}><ui.Icon size={16} aria-hidden="true" />{noteType === "לחץ" && alert.pressureSuggestion
+                                        ? (alert.pressureSuggestion === "lower" ? "דווח הורדת לחץ" : "דווח העלאת לחץ")
+                                        : ui.label}</button> : null;
                                 })()}
                                 {alert.dismissible && (
                                     <button

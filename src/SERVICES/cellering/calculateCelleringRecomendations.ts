@@ -1335,29 +1335,24 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment || firstInRangeAdvice !== null,
         // Keep the legacy recommendation key (and today's ignore decisions)
         // but explicitly distinguish raising/lowering pressure from vent tuning.
-        actionType: subsequentPressureAdvice?.kind === "lowerOrHold"
-            ? "other" as const
-            : coldCarbNeedsPressureAdjustment || firstInRangeAdvice
-                ? "pressureChange" as const : "ventAdjust" as const,
-        // Two alternative operator decisions for low carbonation despite
-        // confirmed high head pressure. No pressure change is reported unless
-        // the operator actually chooses the lowering action.
-        pressureChoice: subsequentPressureAdvice?.kind === "lowerOrHold"
-            ? "lowerOrHold" as const
-            : beforeFirstInRangeCarbonation ? "changeOrHold" as const : undefined,
+        actionType: coldCarbNeedsPressureAdjustment || firstInRangeAdvice
+            ? "pressureChange" as const : "ventAdjust" as const,
+        // Offer the physical pressure report OR a deliberate hold only until
+        // the first valid in-range result, inclusive. Once this batch has ever
+        // been in range, later out-of-range results are directional only.
+        pressureChoice: beforeFirstInRangeCarbonation || firstInRangeAdvice !== null
+            ? "changeOrHold" as const : undefined,
         pressureSuggestion: firstInRangeAdvice?.direction ??
             (subsequentPressureAdvice?.kind === "lower" ? "lower" as const :
              subsequentPressureAdvice?.kind === "raise" ? "raise" as const : undefined),
         reason: subsequentPressureAdvice
-            ? subsequentPressureAdvice.kind === "lowerOrHold"
-                ? `מאז ההגעה הראשונה לטווח התקין, הגיזוז ירד ל-${subsequentPressureAdvice.carbonation} (יעד ${carbonationTarget}). ${advicePressureContext}. לחץ הראש גבוה מ-0.9 bar: ניתן להוריד לחץ או להשאיר אותו ללא שינוי כדי לאפשר ספיגת CO₂ נוספת. יש לבחור את הפעולה שבוצעה בפועל.`
-                : `לאחר שכבר הושג גיזוז תקין, הגיזוז כעת ${subsequentPressureAdvice.carbonation} (יעד ${carbonationTarget}). ${advicePressureContext}. מומלץ ${subsequentPressureAdvice.kind === "lower" ? "להוריד" : "להעלות"} לחץ.`
+            ? `לאחר שכבר הושג גיזוז תקין, הגיזוז כעת ${subsequentPressureAdvice.carbonation} (יעד ${carbonationTarget}). ${advicePressureContext}. מומלץ ${subsequentPressureAdvice.kind === "lower" ? "להוריד" : "להעלות"} לחץ.`
             : coldCarbNeedsPressureAdjustment
                 ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${advicePressureContext}. ${beforeFirstInRangeCarbonation
                     ? "טרם הושג גיזוז תקין באצווה. ניתן לדווח על שינוי לחץ או לבחור להשאיר את הלחץ ללא שינוי בהתאם לשיקול דעת המבשלן."
                     : "מומלץ לבצע שינוי לחץ בהתאם להמלצה הקיימת או לוודא שבוצע."}`
                 : firstInRangeAdvice
-                    ? `הגיזוז הגיע לראשונה לטווח התקין (${firstInRangeAdvice.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${advicePressureContext}. מומלץ לשקול ${firstInRangeAdvice.direction === "lower" ? "הורדת" : "העלאת"} לחץ.`
+                    ? `הגיזוז הגיע לראשונה לטווח התקין (${firstInRangeAdvice.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${advicePressureContext}. ניתן לשקול ${firstInRangeAdvice.direction === "lower" ? "הורדת" : "העלאת"} לחץ או לבחור להשאיר את הלחץ ללא שינוי.`
                     : `מומלץ לכוון פורק ל ${effectivePressureTarget}, הלחץ כרגע ${Number(effectivePressureTarget) > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: coldCarbNeedsPressureAdjustment
             ? latestCarbSpec.importance
