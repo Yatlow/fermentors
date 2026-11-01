@@ -126,6 +126,7 @@ type CellarAnalysis = {
 type Props = {
     brews: Fermentor[];
     specs: SpecChart | null;
+    recommendationsOnly?: boolean;
 };
 
 const EMPTY_DAILY_ACTION_PROGRESS: DailyActionProgress = {
@@ -230,8 +231,8 @@ const severityOrder: Record<Severity, number> = {
     info: 1,
 };
 
-export default function HealthDashboard({ brews, specs, onRecommendedTanksChange, onOpenRecommendationCountChange, onPendingMeasurementTanksChange }: Props & { onPendingMeasurementTanksChange?: (tankNumbers: string[]) => void; onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
-    const [expanded, setExpanded] = useState(false);
+export default function HealthDashboard({ brews, specs, recommendationsOnly = false, onRecommendedTanksChange, onOpenRecommendationCountChange, onPendingMeasurementTanksChange }: Props & { onPendingMeasurementTanksChange?: (tankNumbers: string[]) => void; onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
+    const [expanded, setExpanded] = useState(recommendationsOnly);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
     const [analyzing, setAnalyzing] = useState(true);
     const hasCompletedInitialAnalysis = useRef(false);
@@ -1045,7 +1046,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     // Firestore write: no quick report, listener refresh, remount or close can
     // open the modal again for the same day.
     useEffect(() => {
-        if (!cellarStateTankId) return;
+        if (recommendationsOnly || !cellarStateTankId) return;
         const today = localDateKey(new Date());
         let storedDay: string | null = null;
         let acknowledgedScheduledIds: string[] = [];
@@ -1117,6 +1118,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         cellarStateTankId,
         scheduledRecommendations,
         completedScheduledToday,
+        recommendationsOnly,
     ]);
 
     // Preserve the legacy live is100 field for existing consumers, but NEVER
@@ -1124,7 +1126,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     // avoid a broad brews dependency that used to cancel the timer on unrelated
     // Firestore snapshots.
     useEffect(() => {
-        if (analyzing || !cellarStateTankId ||
+        if (recommendationsOnly || analyzing || !cellarStateTankId ||
             analysis.analyzedDay !== localDateKey(new Date())) return;
         const desiredIs100 = healthScore === 100;
         if (persistedHealthIs100 === desiredIs100) return;
@@ -1143,6 +1145,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         analysis.analyzedDay,
         cellarStateTankId,
         persistedHealthIs100,
+        recommendationsOnly,
     ]);
 
     const counts = useMemo(() => ({
@@ -1238,7 +1241,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
     return (
         <>
-        <BeerCelebration open={celebrationOpen} onClose={() => setCelebrationOpen(false)} />
+        {!recommendationsOnly && <BeerCelebration open={celebrationOpen} onClose={() => setCelebrationOpen(false)} />}
         <section className={`health-dashboard health-${overallClass}`} dir="rtl">
             <button
                 type="button"
