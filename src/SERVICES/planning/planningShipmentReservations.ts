@@ -397,7 +397,7 @@ export type ShipmentSubLabelReview = {
   quantity: number;
   dispatchDate: string;
   truckId: string;
-  alternativePalletIds: string[];
+  alternativePallets: Array<{ id: string; name: string; quantity: number; expiry: string }>;
 };
 
 /** Read-only preview of special-label pallets the FEFO picker wants to ship.
@@ -438,11 +438,21 @@ export async function pendingShipmentSubLabelReviews(pallets: Pallet[]): Promise
         quantity: pallet.quantity,
         dispatchDate: line.dispatchDate,
         truckId: line.truckId,
-        alternativePalletIds: candidates
+        alternativePallets: candidates
           .filter((alternative) => alternative.id !== pallet.id &&
             !hasPalletSubLabel(alternative) &&
-            !proposed.some((selected) => selected.id === alternative.id))
-          .map((alternative) => alternative.id),
+            !proposed.some((selected) => selected.id === alternative.id) &&
+            (() => {
+              try {
+                return calcTruckSlots([...manualReservations, ...picked, alternative]) <= MAX_TRUCK_SLOTS;
+              } catch { return false; }
+            })())
+          .map((alternative) => ({
+            id: alternative.id,
+            name: alternative.palletNumber ? `משטח ${alternative.palletNumber}` : alternative.beerStyle,
+            quantity: palletQuantity(alternative),
+            expiry: alternative.expiryDateStr || "",
+          })),
       });
     }
   }
