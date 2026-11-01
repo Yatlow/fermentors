@@ -83,5 +83,5 @@ export function buildAdditionalDryHopNoteText(
 ): string {
     const amount = Math.round(grams);
     const pressure = closingPressure === null || closingPressure === "" ? "—" : String(closingPressure);
-    return `דרייהופ נוסף (חריג). ${amount} גרם של ${hopType}. סגירת לחץ, כיוון פורק ל${pressure} bar. סיבה: ${reason.trim()}`;
+    return `דרייהופ נוסף (חריג). הכנסת כשות נוספת: ${amount} גרם של ${hopType}. סגירת לחץ, כיוון פורק ל${pressure} bar. סיבה: ${reason.trim()}`;
 }
