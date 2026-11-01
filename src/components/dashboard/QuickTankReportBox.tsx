@@ -115,7 +115,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
     const [dryHopExceptionReason, setDryHopExceptionReason] = useState("");
     const [dryHopExceptionConfirmed, setDryHopExceptionConfirmed] = useState(false);
     const [direction, setDirection] = useState("");
-    const [holdPressureConfirmed, setHoldPressureConfirmed] = useState(false);
 
     const [packagingType, setPackagingType] = useState<"kegs" | "bottles" | "">("");
     const [amount, setAmount] = useState("");
@@ -266,8 +265,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
         switch (noteType) {
             case "שמרים": return (value === "" || value2 === "") ? null : `הורדת ${value} דליי שמרים, לחץ אחרי ${value2} bar`;
             case "לחץ": return (direction === "" || value === "") ? null : `${direction} לחץ ל: ${value} bar`;
-            case "השארת לחץ": return holdPressureConfirmed
-                ? "השארת לחץ ללא שינוי לאחר בדיקת גיזוז. החלטת סלרינג להמתין ללא שינוי לחץ." : null;
+            case "השארת לחץ": return "השארת לחץ ללא שינוי לאחר בדיקת גיזוז. החלטת סלרינג להמתין ללא שינוי לחץ.";
             case "פורק": return value === "" ? null : `כיוון פורק ל: ${value} bar`;
             case "סגירת מיכל": return value === "" ? null : `סגירת נשם, כיוון פורק ל ${value}`;
             case "גיזוז מלמטה התחלה":
@@ -699,12 +697,8 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
 
                             {noteType === "השארת לחץ" && (
                                 <div className="quickReportPressureHold">
-                                    <p>הלחץ במיכל יישאר כפי שהוא. הדיווח יתעד את ההחלטה שלא לשנות לחץ כעת, ללא יצירת מדידת לחץ חדשה וללא סימון שינוי לחץ בפועל.</p>
-                                    <label className="quickReportCheckbox">
-                                        <input type="checkbox" checked={holdPressureConfirmed} disabled={isSending}
-                                            onChange={(event) => setHoldPressureConfirmed(event.target.checked)} />
-                                        <span>מאשר/ת שהוחלט להשאיר את הלחץ ללא שינוי</span>
-                                    </label>
+                                    <p className="quickReportNotePreviewLabel">הטקסט שיירשם בגיליון:</p>
+                                    <p className="quickReportNotePreview">{buildNoteText()}</p>
                                 </div>
                             )}
 
