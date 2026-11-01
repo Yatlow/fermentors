@@ -184,7 +184,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
     function resetValues() {
         setValue(""); setValue2(""); setDryHopAa(""); setDirection("");
         setDryHopExceptionReason(""); setDryHopExceptionConfirmed(false);
-        setHoldPressureConfirmed(false);
         setPackagingType(""); setAmount(""); setIsEmpty(false);
         setPressureAfter(""); setPressureAutoFilled(true);
         setStatus("idle"); setErrorMsg("");
