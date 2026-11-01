@@ -5,7 +5,7 @@ import {
 } from "firebase/firestore";
 
 import { db } from "../../firebase";
-import { DEFAULT_FERMENTATION_END_PLATO, WINTER_CARBONATION_TARGET } from "../cellering/fermentationEndPlato";
+import { withCellarSpecDefaults } from "../cellering/fermentationEndPlato";
 
 export type SpecChart = Record<string, Record<string, number>>;
 
@@ -26,15 +26,5 @@ export async function getSpecsFromFb() {
         specs[doc.id] = doc.data() as Record<string, number>;
     });
 
-    // Provide new cellar settings immediately, including on installations whose
-    // existing Firestore specs have not yet been saved after this release.
-    specs.fermentationEndPlato = {
-        ...DEFAULT_FERMENTATION_END_PLATO,
-        ...(specs.fermentationEndPlato || {}),
-    };
-    specs.carbonation = {
-        ...(specs.carbonation || {}),
-        "חורף": specs.carbonation?.["חורף"] ?? WINTER_CARBONATION_TARGET,
-    };
-    return specs;
+    return withCellarSpecDefaults(specs);
 }
