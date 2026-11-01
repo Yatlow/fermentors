@@ -365,13 +365,11 @@ export type PlanningValidationIssue = {
  */
 export function productionScopeForBrewAssignments(
   plans: WeekPlan[],
-  editedWeek: string,
   editedTankIds: ReadonlySet<string>,
 ): WeekPlan[] {
   return plans.map((week) => ({
     ...week,
     packaging: (week.packaging ?? []).filter((run) =>
-      week.id === editedWeek ||
       (!!run.tankId && editedTankIds.has(run.tankId)) ||
       (!!run.tankNumber && [...editedTankIds].some((id) =>
         id === String(run.tankNumber) || id === `tank-${run.tankNumber}`)),
