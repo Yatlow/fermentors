@@ -21,6 +21,7 @@ import { futureTanks, openRuns, shortDate, type ShipmentEvent } from "../../SERV
 import {
   normalizeEmptyTankFlagsForSchedule,
   tankReleases,
+  forecastUndatedTankReleasePackaging,
   assignableTankReleasesForWeek,
   validateProduction,
   validateProductionIssues,
@@ -47,13 +48,6 @@ function assignmentStatus(brew: BrewPlan) {
 
 function plannedBatch(brew: BrewPlan) {
   return (brew as BrewWithAssignment).batchNumber;
-}
-
-function forecastDateUndatedPackaging(plans: WeekPlan[]) {
-  return plans.map((w) => ({
-    ...w,
-    packaging: w.packaging.map((r) => r.date ? r : { ...r, date: addDays(w.id, 4) }),
-  }));
 }
 
 function confirmAssignedBrews(plan: WeekPlan): WeekPlan {
@@ -151,7 +145,7 @@ export default function PlanningBoard({
   const closed = weekIsClosed(week, today);
   const readOnly = disabled || closed;
   const current = plans.find((w) => w.id === week) ?? { ...emptyWeek(week), maxRuns: settings.preferredRuns };
-  const releasePlans = useMemo(() => forecastDateUndatedPackaging(plans), [plans]);
+  const releasePlans = useMemo(() => forecastUndatedTankReleasePackaging(plans, tanks, settings), [plans, tanks, settings]);
   // Do not reserve a physical tank forever merely because another week uses its
   // tankId. The canonical cycle validator below decides whether the previous
   // brew has actually emptied before a later brew. Keeping all releases visible
@@ -463,7 +457,7 @@ export default function PlanningBoard({
     }
     if (production) throw new Error(production);
 
-    const assignedOnly = forecastDateUndatedPackaging(all).map((w) => ({ ...w, brews: w.brews.filter((brew) => !!brew.tankId) }));
+    const assignedOnly = forecastUndatedTankReleasePackaging(all, tanks, settings).map((w) => ({ ...w, brews: w.brews.filter((brew) => !!brew.tankId) }));
     const dependency = validateBrewReleases(brews, tanks, assignedOnly, settings, actuals, today, confirmBrews ? effectiveNext.id : undefined);
     if (dependency) throw new Error(dependency);
 

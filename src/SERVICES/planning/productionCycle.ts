@@ -100,6 +100,64 @@ function normalizedBatch(value: unknown): string {
   return String(value ?? "").replace("#", "").trim();
 }
 
+/**
+ * Weekly packaging decisions deliberately have no day until the daily board
+ * assigns one. For *planning availability only*, place those undated portions
+ * on Thursday (or the last explicitly scheduled day of the same batch that
+ * week). A following Monday brew may then rely on a complete weekly drain.
+ *
+ * This is a read-only forecast: do not persist the guessed dates, credit
+ * finished inventory, or assert actual emptying. A batch not yet mature by
+ * the forecast day remains undated and cannot release the tank.
+ */
+export function forecastUndatedTankReleasePackaging(
+  plans: WeekPlan[],
+  tanks: Tank[],
+  settings: Settings,
+): WeekPlan[] {
+  const cycleIdentity = (run: PackagingPlan) => {
+    const batch = normalizedBatch(run.batchNumber);
+    return run.brewId ? `brew:${run.brewId}` :
+      `physical:${run.tankId ?? run.tankNumber ?? ""}:${batch || "unknown"}`;
+  };
+  const readyFor = (run: PackagingPlan): string | null => {
+    const brewId = resolvePackagingBrewId(run, plans);
+    const brew = brewId ? brewById(plans, brewId) : null;
+    if (brew) {
+      const physical = tanks.find((tank) => physicalTankMatchesBrew(tank, brew) &&
+        (!normalizedBatch(run.batchNumber) ||
+          normalizedBatch(tank.batch) === normalizedBatch(run.batchNumber)));
+      if (physical) return physical.ready;
+      const leads = settings.products.filter((p) => sameStyle(p.style, brew.style))
+        .map((p) => p.leadDays);
+      return addDays(brew.date, Math.max(21, ...leads));
+    }
+    const number = run.tankNumber ?? run.tankId;
+    const physical = tanks.filter((tank) =>
+      (tank.id === run.tankId || String(tank.number) === String(number)) &&
+      (!normalizedBatch(run.batchNumber) ||
+        normalizedBatch(tank.batch) === normalizedBatch(run.batchNumber)));
+    return physical.length === 1 ? physical[0].ready : null;
+  };
+
+  return plans.map((week) => ({
+    ...week,
+    packaging: (week.packaging ?? []).map((run) => {
+      if (run.date || !run.tankId) return run;
+      const identity = cycleIdentity(run);
+      const sameCycleDays = week.packaging
+        .filter((other) => other.date && cycleIdentity(other) === identity)
+        .map((other) => other.date!);
+      const forecastDay = [addDays(week.id, 4), ...sameCycleDays].sort().at(-1)!;
+      // A guessed date outside this operating week is not evidence that the
+      // current week's packaging decision releases a tank.
+      const ready = readyFor(run);
+      if (!ready || ready > forecastDay || forecastDay > addDays(week.id, 6)) return run;
+      return { ...run, date: forecastDay };
+    }),
+  }));
+}
+
 export function tankReleases(
   sources: TankSource[],
   tanks: Tank[],
@@ -108,31 +166,32 @@ export function tankReleases(
   actuals: Actual[],
   today: string,
 ): Release[] {
-  const schedules = projectTankSchedules(plans, settings, today, tanks);
-  const legacyInventoryRuns = openRuns(plans, settings.products, actuals)
+  const releasePlans = forecastUndatedTankReleasePackaging(plans, tanks, settings);
+  const schedules = projectTankSchedules(releasePlans, settings, today, tanks);
+  const legacyInventoryRuns = openRuns(releasePlans, settings.products, actuals)
     .filter((r) => r.date && r.date >= today && r.remaining > 0)
-    .filter((r) => !resolvePackagingBrewId(r as PackagingPlan, plans));
-  const legacySpecialRuns = plans.flatMap((week) => (week.packaging ?? [])
+    .filter((r) => !resolvePackagingBrewId(r as PackagingPlan, releasePlans));
+  const legacySpecialRuns = releasePlans.flatMap((week) => (week.packaging ?? [])
     .filter((run) => !!run.nonInventoryStyle && !!run.nonInventoryType && !!run.date && run.date >= today && run.quantity > 0)
     .map((run, index) => ({ ...run, remaining: run.quantity, week: week.id, key: run.id ?? `${week.id}:special:${index}` })))
-    .filter((run) => !resolvePackagingBrewId(run as PackagingPlan, plans));
+    .filter((run) => !resolvePackagingBrewId(run as PackagingPlan, releasePlans));
   const legacyRuns = [...legacyInventoryRuns, ...legacySpecialRuns];
   // Future dated decisions can refer directly to the canonical brew that is
   // *already* in the physical tank. They are absent from legacyRuns, but still
   // must count towards emptying that physical cycle.
-  const canonicalInventoryRuns = openRuns(plans, settings.products, actuals)
+  const canonicalInventoryRuns = openRuns(releasePlans, settings.products, actuals)
     .filter((r) => r.date && r.date >= today && r.remaining > 0)
-    .filter((r) => !!resolvePackagingBrewId(r as PackagingPlan, plans));
+    .filter((r) => !!resolvePackagingBrewId(r as PackagingPlan, releasePlans));
   // A reported, completed final packaging row is excluded from openRuns'
   // remaining balance. It can nevertheless prove the physical cycle emptied.
   // Require both the explicit empty marker and actual packaging for the same
   // tank, batch, type and day; a plan alone never proves past execution.
-  const allCompletedBalances = new Map(openRuns(plans, settings.products, actuals)
+  const allCompletedBalances = new Map(openRuns(releasePlans, settings.products, actuals)
     .map((run) => [`${run.week}:${run.key}`, run.remaining]));
-  const completedEmptyRuns = plans.flatMap((week) => (week.packaging ?? [])
+  const completedEmptyRuns = releasePlans.flatMap((week) => (week.packaging ?? [])
     .flatMap((run, index) => {
       if (!run.emptyTank || !run.date || !run.quantity ||
-          resolvePackagingBrewId(run, plans)) return [];
+          resolvePackagingBrewId(run, releasePlans)) return [];
       const product = settings.products.find((p) => p.id === run.productId);
       const style = run.nonInventoryStyle ?? product?.style;
       const type = run.nonInventoryType ?? product?.type;
@@ -164,8 +223,8 @@ export function tankReleases(
   // Legacy decisions sometimes store a physical tank number instead of its
   // Firestore document id. Only accept an unambiguous number match.
   const physicalRunTank = (run: PackagingPlan): string | undefined => {
-    const linkedId = resolvePackagingBrewId(run, plans);
-    if (linkedId) return brewById(plans, linkedId)?.tankId;
+    const linkedId = resolvePackagingBrewId(run, releasePlans);
+    if (linkedId) return brewById(releasePlans, linkedId)?.tankId;
     const recorded = run.tankId;
     if (recorded && sources.some((source) => source.id === recorded)) return recorded;
     const number = run.tankNumber ?? recorded;
@@ -249,7 +308,7 @@ export function tankReleases(
       if (!canonicalCurrent.emptyDate && sourceBatch) {
         let legacyRemaining = tank.liters;
         const currentCycleRuns = canonicalInventoryRuns.filter((run) => {
-          const brewId = resolvePackagingBrewId(run as PackagingPlan, plans);
+          const brewId = resolvePackagingBrewId(run as PackagingPlan, releasePlans);
           const runBatch = normalizedBatch(run.batchNumber);
           return brewId === canonicalCurrent.cycleId &&
             physicalRunTank(run as PackagingPlan) === source.id &&
