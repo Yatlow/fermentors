@@ -1144,8 +1144,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     let coolDownDisplay = readyToCoolDown;
     let dispCoolDownGenerallRec = false;
     if (coolingReviewOnly) {
-        const repeatText = stabilityEvidence.sampleCount >= 3
-            ? `הבדיקה חזרה על עצמה ${stabilityEvidence.sampleCount} פעמים ללא שינוי בפלאטו`
+        const matchingSamples = stabilityEvidence?.sampleCount ?? 0;
+        const repeatText = matchingSamples >= 3
+            ? `הבדיקה חזרה על עצמה ${matchingSamples} פעמים ללא שינוי בפלאטו`
             : "שתי בדיקות פלאטו זהות בהפרש של לפחות 48 שעות";
         readyToCoolDownText =
             `${repeatText}, אבל הסוכר עדיין ${todayPlato}°P — מעל סף סיום התסיסה לסגנון (${fermentationEndPlatoLimit}°P). ` +
