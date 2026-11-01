@@ -13,7 +13,7 @@ async function load(path) {
 }
 const {
     DEFAULT_FERMENTATION_END_PLATO, WINTER_CARBONATION_TARGET,
-    getFermentationEndPlatoLimit, fermentationEndStyleKey, carbonationSpecKey,
+    getFermentationEndPlatoLimit, fermentationEndStyleKey, carbonationSpecKey, withCellarSpecDefaults,
 } = await load("../src/SERVICES/cellering/fermentationEndPlato.ts");
 const { getCoolingPlatoStabilityEvidence } = await load("../src/SERVICES/cellering/coolingPlatoStability.ts");
 
@@ -74,8 +74,7 @@ test("winter carbonation is 2.3 and is recognized in all supported beer style na
         assert.equal(carbonationSpecKey(style), "חורף");
     }
     const source = read("../src/SERVICES/getAndPost/getSpecsFromFb.ts");
-    assert.match(source, /WINTER_CARBONATION_TARGET/);
-    assert.match(source, /specs\.fermentationEndPlato/);
+    assert.match(source, /return withCellarSpecDefaults\(specs\)/);
     const engine = read("../src/SERVICES/cellering/calculateCelleringRecomendations.ts");
     assert.match(engine, /const normalizedStyle = carbonationSpecKey\(style\)/);
     assert.match(engine, /givenSpecs\.carbonation\?\.\[carbonationSpecKey\(style\)\]/);
@@ -89,4 +88,34 @@ test("cooling caveat remains visible but cannot be marked as cooled or affect KP
     const specsUI = read("../src/components/tools/EditSpecs.tsx");
     assert.match(specsUI, /fermentationEndPlato:"טווח סיום תסיסה/);
     assert.match(specsUI, /חורף:"חורף"/);
+});
+
+test("real-time dashboard and settings view share winter and fermentation defaults", () => {
+    const stored = {
+        carbonation: { ipa: 2.45, other: 2.45 },
+        tolorances: { carbonation: 0.04 },
+    };
+    const hydrated = withCellarSpecDefaults(stored);
+    assert.equal(hydrated.carbonation["חורף"], 2.3);
+    assert.equal(hydrated.carbonation.ipa, 2.45);
+    assert.equal(hydrated.fermentationEndPlato.ipa, 3.6);
+    assert.equal(carbonationSpecKey("חורף"), "חורף");
+    assert.equal(Math.abs(2.3 - hydrated.carbonation[carbonationSpecKey("חורף")]) < stored.tolorances.carbonation, true);
+    assert.equal(stored.carbonation["חורף"], undefined, "do not modify Firestore snapshot data");
+
+    const customized = withCellarSpecDefaults({
+        carbonation: { "חורף": 2.35, other: 2.45 },
+        fermentationEndPlato: { ipa: 3.4 },
+    });
+    assert.equal(customized.carbonation["חורף"], 2.35, "persisted target must win");
+    assert.equal(customized.fermentationEndPlato.ipa, 3.4, "persisted gravity must win");
+
+    const app = read("../src/App.tsx");
+    assert.ok(app.includes("setSpecs(withCellarSpecDefaults(nextSpecs))"), "real-time listener applies same defaults");
+    assert.ok(app.includes('firebaseDoc.id === "hops"'), "legacy hops doc excluded in both paths");
+    const loader = read("../src/SERVICES/getAndPost/getSpecsFromFb.ts");
+    assert.ok(loader.includes("return withCellarSpecDefaults(specs)"), "one-time loader applies same defaults");
+    const tankCard = read("../src/components/dashboard/TankCard.tsx");
+    assert.ok(tankCard.includes("isCarbonationOutOfRange("));
+    assert.ok(tankCard.includes("carbPressureDisplay-${CarbIsOk.importance}"));
 });

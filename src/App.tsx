@@ -35,6 +35,7 @@ import DailyPlatoPH from "./components/cellering/DailyPlatoPH";
 import NoteToFermentor from "./components/dashboard/NoteToFermentor";
 import PackagingForm from "./components/cellering/PackagingForm";
 import { type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";
+import { withCellarSpecDefaults } from "./SERVICES/cellering/fermentationEndPlato";
 import { type ZoneCounts } from "./SERVICES/cooler/Palletservice";
 import { subscribeToZoneCounts } from "./SERVICES/cooler/zoneCounts";
 import { subscribeToProductCatalog } from "./SERVICES/cooler/PalletCatalogFirestore";
@@ -504,10 +505,12 @@ function App() {
                 if (!snapshot.metadata.fromCache) recordGlobalServerRead("Specs", snapshot.size);
                 const nextSpecs: SpecChart = {};
                 snapshot.docs.forEach((firebaseDoc) => {
-                    if (firebaseDoc.id.startsWith("brewing")) return;
+                    if (firebaseDoc.id.startsWith("brewing") || firebaseDoc.id === "hops") return;
                     nextSpecs[firebaseDoc.id] = firebaseDoc.data() as Record<string, number>;
                 });
-                setSpecs(nextSpecs);
+                // Match the one-shot settings loader: new style defaults must be
+                // available even before they have been persisted to Firestore.
+                setSpecs(withCellarSpecDefaults(nextSpecs));
             },
             (error) => {
                 console.error("Failed to subscribe to specs:", error);
