@@ -52,4 +52,15 @@ assert.match(card, /setQuickReportPressureDecision\(null\)/, "independent quick 
 assert.match(quick, /setDirection\(prefill\.direction\)/);
 assert.match(quick, /setValue\(prefill\.pressure\)/);
 assert.match(quick, /initialSelectionAppliedRef/, "async history loads must not overwrite the operator's pressure edit");
+
+assert.match(health, /alert\.pressureChoice === "lowerOrHold"/);
+assert.match(health, /noteType: "השארת לחץ"/);
+assert.match(health, /noteType: "לחץ",[\s\S]*initialPressureDirection: "הורדת"/);
+assert.match(card, /setQuickReportInitialPressureDirection\(/);
+assert.match(quick, /initialPressureDirection === "העלאת"/);
+assert.match(quick, /case "השארת לחץ": return holdPressureConfirmed/);
+assert.match(quick, /"השארת לחץ ללא שינוי לאחר בדיקת גיזוז/);
+assert.match(quick, /const isPressureAction = noteType === "לחץ"/);
+assert.doesNotMatch(quick, /const isPressureAction = noteType === "השארת לחץ"/);
+
 console.log("Scheduled pressure quick-report prefill checks passed");
