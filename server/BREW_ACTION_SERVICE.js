@@ -132,6 +132,24 @@ function brewActionService() {
 // ACTION 0
 // ============================================================
 
+/** A blank ACTION-0 brew needs no Firestore reconciliation unless an
+ * earlier stage or block timestamp was actually published for this batch.
+ * Header counts and date defaults are not evidence of a started brew.
+ */
+function brewActionHasPreviousStage_(progress) {
+  if (!progress || typeof progress !== "object") return false;
+  return !!(
+    progress.stageName ||
+    progress.stageCode != null ||
+    progress.blockIndex != null ||
+    progress.stageStartTime ||
+    progress.stageEndTime ||
+    progress.stageStartTimeText ||
+    progress.stageEndTimeText ||
+    (Array.isArray(progress.blockStarts) && progress.blockStarts.length > 0)
+  );
+}
+
 function processAction0(fermentor) {
 
   const tankNumber =
@@ -168,11 +186,17 @@ function processAction0(fermentor) {
 
   if (!stageInfo) return;
 
-  // Reconciliation is two-way. If the operator deleted the last test time,
-  // clear the previously published live stage instead of retaining a
-  // one-way/stale brewProgress label forever. No ACTION transition is inferred
-  // from an entirely empty process timeline.
+  // Empty/unstarted brews are the normal case for ACTION 0. PR #269
+  // accidentally treated every such tank as a progress reset and could issue
+  // avoidable Firestore reads/writes in the five-minute maintenance hot path.
+  // Only reconcile an empty Sheet when an actual prior stage/block start needs
+  // clearing. Keep the genuine backwards-transition use case intact.
   if (!stageInfo.lastBlock) {
+    if (!brewActionHasPreviousStage_(fermentor.brewProgress)) {
+      Logger.log("ACTION 0 tank " + tankNumber + ": no recorded stage to clear; skipping progress IO.");
+      return;
+    }
+
     try {
       updateFermentorBrewProgress(tankNumber, stageInfo, function () {
         return brewActionTankStillCurrent_(fermentor);
