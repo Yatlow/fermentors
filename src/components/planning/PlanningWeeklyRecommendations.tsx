@@ -263,6 +263,23 @@ export default function PlanningWeeklyRecommendations({
         );
     }
 
+    function packagingSourceAvailabilityMessage(p: Product) {
+        const matching = packagingTankPool.filter((tank) => sameStyle(tank.style, p.style));
+        if (!matching.length) return `אין מיכל עם ${displayStyle(p.style)} בתמונת המלאי והתכנון.`;
+        const matured = matching.filter((tank) => tank.ready <= model.weekEnd);
+        if (!matured.length) {
+            const first = [...matching].sort((a, b) => a.ready.localeCompare(b.ready))[0];
+            return `מיכל ${first.number} עם ${displayStyle(p.style)} מזוהה, אבל המחזור צפוי להבשיל רק ב־${shortDate(first.ready)}.`;
+        }
+        // A physical batch can exist and be mature, yet its remaining beer
+        // is reserved in another week or superseded by a new canonical cycle.
+        // Do not tell the planner that no tank exists in this situation.
+        const physical = matured.find((tank) => !tank.id.startsWith("planned:"));
+        const tank = physical ?? matured[0];
+        const available = model.tankAvailableLiters.get(tank.id) ?? tank.liters;
+        return `מיכל ${tank.number} (${displayStyle(p.style)}, אצווה ${tank.batch}) מזוהה, אך זמינים לתכנון רק ${Math.round(available)} ל׳ בשבוע הזה. יש לבדוק שריוני אריזה ובישולים עוקבים של אותו מחזור.`;
+    }
+
     function packagingDependencyQty(p: Product, qty: number) {
         const openingNominalCapacity = nominalPlanningUnits(p, safeShipmentQty(p));
         return Math.max(0, Math.min(qty - openingNominalCapacity, sameWeekPackagingQty(p)));
@@ -1162,7 +1179,7 @@ export default function PlanningWeeklyRecommendations({
                                 {rec > 0 ? `${fmt(rec)} ${p.type === "crates" ? "ארגזים" : "חביות"}` : "—"}
                                 {recTank && <small>{recTank}</small>}
                                 {rec > 0 && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}
-                                {unavailable && <small className="bp-risk-text">אין מיכל עם {displayStyle(p.style)} שמתאים לאריזה השבוע.</small>}
+                                {unavailable && <small className="bp-risk-text">{packagingSourceAvailabilityMessage(p)}</small>}
                             </span>
                             <span>
                                 {remaining > 0 ? <>{fmt(remaining)} {p.type === "crates" ? "ארגזים" : "חביות"}</> : "—"}
