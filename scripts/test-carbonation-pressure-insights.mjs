@@ -146,7 +146,7 @@ test("a prior in-range measurement ends the pre-first phase permanently for that
     assert.equal(hasReachedCarbonationRange(history, today, inRange), true);
     assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45)?.kind, "raise");
     history[2].pressure = 0.91;
-    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45)?.kind, "lowerOrHold");
+    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45)?.kind, "raise");
 });
 
 test("only real in-range dates up to today end the first-acceptable-carbonation phase", () => {
@@ -202,6 +202,18 @@ test("first arrival in range stays a one-off event, subsequent in-range test doe
     ], today, inRange), null);
 });
 
+test("the first in-range result remains eligible for an operational hold with either pressure direction", () => {
+    const history = [carb("2026-10-25_0900", 2.30, 0.7), carb("2026-10-28_0900", 2.45, 0.91)];
+    assert.equal(hasReachedCarbonationRange(history, today, inRange), true);
+    assert.equal(firstInRangePressureAdvice(history, today, inRange)?.direction, "lower");
+    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45), null);
+    history[1].pressure = 0.49;
+    assert.equal(firstInRangePressureAdvice(history, today, inRange)?.direction, "raise");
+    history[1].pressure = 0.7;
+    assert.equal(firstInRangePressureAdvice(history, today, inRange), null,
+        "with already acceptable pressure there is no correction recommendation to complete");
+});
+
 test("after a prior in-range result, high carbonation means lower pressure", () => {
     const history = [
         carb("2026-10-25_0900", 2.48, 0.8),
@@ -220,17 +232,17 @@ test("after a prior in-range result, low carbonation with low head pressure mean
     assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45)?.kind, "raise");
 });
 
-test("low carbonation with head pressure above 0.9 measured today offers lower OR hold", () => {
+test("after the first in-range result, low carbonation always means raise even above 0.9 bar", () => {
     const history = [
         carb("2026-10-25_0900", 2.46, 1.0),
         carb("2026-10-28_0900", 2.3, 0.91),
     ];
-    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45)?.kind, "lowerOrHold");
+    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45)?.kind, "raise");
     history[1].pressure = 0.9;
     assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45)?.kind, "raise");
 });
 
-test("stale older pressure cannot trigger a high-headspace decision", () => {
+test("after first in-range result, missing current pressure does not create a hold option", () => {
     const history = [
         carb("2026-10-25_0900", 2.46, 1.0),
         carb("2026-10-28_0900", 2.3, null),
@@ -238,7 +250,7 @@ test("stale older pressure cannot trigger a high-headspace decision", () => {
     assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45)?.kind, "raise");
 });
 
-test("fresh live tank pressure overrides stale morning value for high-headspace choice", () => {
+test("fresh live pressure affects first-in-range advice but not post-milestone direction", () => {
     const history = [
         carb("2026-10-25_0800", 2.46, 0.7),
         carb("2026-10-28_0800", 2.30, 0.6),
@@ -246,7 +258,7 @@ test("fresh live tank pressure overrides stale morning value for high-headspace 
     const live = livePressureReading({ pressure: 1.2, pressureUpdatedAt: "2026-10-28T10:30:00Z" });
     assert.equal(live?.value, 1.2);
     assert.equal(preferredPressureReading(history, today, live)?.value, 1.2);
-    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45, live)?.kind, "lowerOrHold");
+    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45, live)?.kind, "raise");
     // The original first-in-range rule also uses the latest physical pressure.
     assert.equal(firstInRangePressureAdvice([
         carb("2026-10-25_0800", 2.3, 0.9),
@@ -267,7 +279,7 @@ test("stale or invalid live tank pressure never overrides today's actual reading
     assert.equal(livePressureReading({ pressure: 1.5, pressureUpdatedAt: "bad" }), null);
     const yesterday = livePressureReading({ pressure: 0.4, pressureUpdatedAt: "2026-10-27T10:00:00Z" });
     assert.equal(preferredPressureReading(history, today, yesterday)?.value, 1.1);
-    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45, yesterday)?.kind, "lowerOrHold");
+    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45, yesterday)?.kind, "raise");
 });
 
 test("milestone is per current batch, latest reading must be today and out of range", () => {
