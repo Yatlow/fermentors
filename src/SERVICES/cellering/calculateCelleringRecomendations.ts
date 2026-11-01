@@ -11,7 +11,7 @@ import { hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext, shouldRecommendCarbonationRetestOnDate } from "./carbonationRetestPolicy";
 import { hasStablePlatoForCooling } from "./coolingPlatoStability";
 import { yeastDropAllowsCooling } from "./coolingYeastTiming";
-import { carbonationPressureContext, firstInRangePressureAdvice, subsequentCarbonationPressureAdvice } from "./carbonationPressureInsights";
+import { carbonationPressureContext, firstInRangePressureAdvice, subsequentCarbonationPressureAdvice, livePressureReading, preferredPressureReading } from "./carbonationPressureInsights";
 
 
 
@@ -1205,6 +1205,16 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         lastMeasurement?.carbonation !== undefined &&
         Number.isFinite(Number(lastMeasurement.carbonation));
     const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
+    // Pressure changes update the live tank but never overwrite the morning
+    // measurement in Sheets. Prefer the freshest timestamped source.
+    const sourceTank = brews.find((tank) => String(tank.tankNumber) === String(tankNumber));
+    const liveData = sourceTank?.currentData as
+        ({ pressure?: unknown; pressureUpdatedAt?: unknown } | null | undefined);
+    const currentLivePressure = livePressureReading(liveData);
+    const actualAdvicePressure = preferredPressureReading(sortedMeasurements, todayDate, currentLivePressure);
+    const advicePressureContext = actualAdvicePressure?.date === todayDate
+        ? `לחץ במיכל: ${actualAdvicePressure.value} bar`
+        : carbonationPressureContext(sortedMeasurements, todayDate);
     const openBottomCarbonation = findOpenBottomCarbonation(sortedMeasurements) !== null;
     const bottomCarbonationCompletedToday =
         lastMeasurementDate === todayDate &&
@@ -1218,7 +1228,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             ? firstInRangePressureAdvice(
                 sortedMeasurements,
                 todayDate,
-                (value) => !isCarbonationOutOfRange(value, style, givenSpecs).outOfSpec
+                (value) => !isCarbonationOutOfRange(value, style, givenSpecs).outOfSpec,
+                currentLivePressure,
             )
             : null;
 
@@ -1247,6 +1258,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             todayDate,
             (value) => !isCarbonationOutOfRange(value, style, givenSpecs).outOfSpec,
             Number(carbonationTarget),
+            currentLivePressure,
         )
         : null;
 
@@ -1307,12 +1319,12 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
              subsequentPressureAdvice?.kind === "raise" ? "raise" as const : undefined),
         reason: subsequentPressureAdvice
             ? subsequentPressureAdvice.kind === "lowerOrHold"
-                ? `מאז ההגעה הראשונה לטווח התקין, הגיזוז ירד ל-${subsequentPressureAdvice.carbonation} (יעד ${carbonationTarget}). ${carbonationPressureContext(sortedMeasurements, todayDate)}. לחץ הראש גבוה מ-0.9 bar: ניתן להוריד לחץ או להשאיר אותו ללא שינוי כדי לאפשר ספיגת CO₂ נוספת. יש לבחור את הפעולה שבוצעה בפועל.`
-                : `לאחר שכבר הושג גיזוז תקין, הגיזוז כעת ${subsequentPressureAdvice.carbonation} (יעד ${carbonationTarget}). ${carbonationPressureContext(sortedMeasurements, todayDate)}. מומלץ ${subsequentPressureAdvice.kind === "lower" ? "להוריד" : "להעלות"} לחץ.`
+                ? `מאז ההגעה הראשונה לטווח התקין, הגיזוז ירד ל-${subsequentPressureAdvice.carbonation} (יעד ${carbonationTarget}). ${advicePressureContext}. לחץ הראש גבוה מ-0.9 bar: ניתן להוריד לחץ או להשאיר אותו ללא שינוי כדי לאפשר ספיגת CO₂ נוספת. יש לבחור את הפעולה שבוצעה בפועל.`
+                : `לאחר שכבר הושג גיזוז תקין, הגיזוז כעת ${subsequentPressureAdvice.carbonation} (יעד ${carbonationTarget}). ${advicePressureContext}. מומלץ ${subsequentPressureAdvice.kind === "lower" ? "להוריד" : "להעלות"} לחץ.`
             : coldCarbNeedsPressureAdjustment
-                ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${carbonationPressureContext(sortedMeasurements, todayDate)}. טרם הושג גיזוז תקין באצווה; מומלץ לבצע שינוי לחץ בהתאם להמלצה הקיימת או לוודא שבוצע.`
+                ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${advicePressureContext}. טרם הושג גיזוז תקין באצווה; מומלץ לבצע שינוי לחץ בהתאם להמלצה הקיימת או לוודא שבוצע.`
                 : firstInRangeAdvice
-                    ? `הגיזוז הגיע לראשונה לטווח התקין (${firstInRangeAdvice.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${carbonationPressureContext(sortedMeasurements, todayDate)}. מומלץ לשקול ${firstInRangeAdvice.direction === "lower" ? "הורדת" : "העלאת"} לחץ.`
+                    ? `הגיזוז הגיע לראשונה לטווח התקין (${firstInRangeAdvice.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${advicePressureContext}. מומלץ לשקול ${firstInRangeAdvice.direction === "lower" ? "הורדת" : "העלאת"} לחץ.`
                     : `מומלץ לכוון פורק ל ${effectivePressureTarget}, הלחץ כרגע ${Number(effectivePressureTarget) > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: coldCarbNeedsPressureAdjustment
             ? latestCarbSpec.importance
