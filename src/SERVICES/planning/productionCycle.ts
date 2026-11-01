@@ -357,6 +357,28 @@ export type PlanningValidationIssue = {
   };
 };
 
+/** When approving brew assignments, validate the packaging affected by
+ * those assignments without making an unrelated, unchanged future packaging
+ * row a global save blocker. Keep the full brew schedule: canonical links and
+ * downstream cycles on the touched tanks still need their original context.
+ * This is a validation-only view; callers persist the unfiltered plan.
+ */
+export function productionScopeForBrewAssignments(
+  plans: WeekPlan[],
+  editedWeek: string,
+  editedTankIds: ReadonlySet<string>,
+): WeekPlan[] {
+  return plans.map((week) => ({
+    ...week,
+    packaging: (week.packaging ?? []).filter((run) =>
+      week.id === editedWeek ||
+      (!!run.tankId && editedTankIds.has(run.tankId)) ||
+      (!!run.tankNumber && [...editedTankIds].some((id) =>
+        id === String(run.tankNumber) || id === `tank-${run.tankNumber}`)),
+    ),
+  }));
+}
+
 export function validateProductionIssues(
   plans: WeekPlan[],
   settings: Settings,
