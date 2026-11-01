@@ -7,10 +7,16 @@ export type PlatoCoolingMeasurement = { id?: string | number | null; time?: stri
  * change blocks both routes. The latest valid Plato must be measured today,
  * not just within the past 24h: a pressure-only report cannot clear this guard.
  */
-export function hasStablePlatoForCooling(
+export type CoolingPlatoStabilityEvidence = {
+    sampleCount: number;
+    route: "repeated" | "48-hours";
+};
+
+/** Evidence is only returned when today's Plato really qualifies as stable. */
+export function getCoolingPlatoStabilityEvidence(
     measurements: PlatoCoolingMeasurement[],
     now: Date = new Date(),
-): boolean {
+): CoolingPlatoStabilityEvidence | null {
     const samples = measurements.flatMap((measurement) => {
         const raw = measurement.plato;
         if (raw === null || raw === undefined || String(raw).trim() === "") return [];
@@ -31,14 +37,14 @@ export function hasStablePlatoForCooling(
             date.getMinutes() !== Number(minute)) return [];
         return [{ date: date.getTime(), value }];
     }).sort((a, b) => a.date - b.date);
-    if (samples.length < 2) return false;
+    if (samples.length < 2) return null;
     const latest = samples[samples.length - 1];
     const latestDate = new Date(latest.date);
     if (latestDate.getFullYear() !== now.getFullYear() ||
         latestDate.getMonth() !== now.getMonth() ||
-        latestDate.getDate() !== now.getDate()) return false;
+        latestDate.getDate() !== now.getDate()) return null;
     const age = now.getTime() - latest.date;
-    if (age < 0 || age > 24 * 60 * 60 * 1000) return false;
+    if (age < 0 || age > 24 * 60 * 60 * 1000) return null;
     // Find the earliest point in the uninterrupted equal-Plato suffix.
     let start = samples.length - 1;
     while (start > 0 && samples[start - 1].value === latest.value) start--;
@@ -46,6 +52,16 @@ export function hasStablePlatoForCooling(
     const threeReadings = stable.length >= 3 && stable[0].date < latest.date;
     const weekendGap = stable.length >= 2 &&
         latest.date - stable[0].date >= 48 * 60 * 60 * 1000;
-    return threeReadings || weekendGap;
+    if (threeReadings) return { sampleCount: stable.length, route: "repeated" };
+    if (weekendGap) return { sampleCount: stable.length, route: "48-hours" };
+    return null;
 }
+
+export function hasStablePlatoForCooling(
+    measurements: PlatoCoolingMeasurement[],
+    now: Date = new Date(),
+): boolean {
+    return getCoolingPlatoStabilityEvidence(measurements, now) !== null;
+}
+
 
