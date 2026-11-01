@@ -27,11 +27,10 @@ import {
   type ShipmentEvent,
 } from "./dailyPlanner";
 import { buildShipmentRecommendation } from "./shipmentRecommendation";
-import { brewSizeLabel, estimatedBrewVolume, tankReleases, reconcilePhysicalCycleEmptying, type BrewSizeLabel, type TankSource } from "./productionCycle";
+import { brewSizeLabel, estimatedBrewVolume, tankReleases, releasedTankCanHostBrew, type BrewSizeLabel, type TankSource } from "./productionCycle";
 import { displayStyle, isCoreStyle } from "./planningPresentation";
 import { buildWeekStartProjection, type WeekStartProjection } from "./weekStartProjection";
 import { projectTankSchedules } from "./tankScheduleProjection";
-import { tankCanHostCycle } from "./tankSchedule";
 import { planningTargetsForStyle } from "./planningTargets";
 import { brewById, resolvePackagingBrewId } from "./planIdentity";
 
@@ -558,20 +557,23 @@ function buildBrewRecommendation(
   const capacityBeforeCurrent = capacityReleases.length;
   const schedules = projectTankSchedules(plans, settings, today, tanks);
   const releaseFitsCanonicalWindow = (release: (typeof capacityReleases)[number], style?: string) => {
-    const candidateDate = release.date && release.date > week ? release.date : week;
-    // Weekly brewery shifts run Monday–Wednesday; a tank released on
-    // Thursday or later cannot support a brew in this operational week.
+    const monday = addDays(week, 1);
+    const candidateDate = release.date && release.date > monday ? release.date : monday;
+    // A release on Thursday or later cannot support the Monday–Wednesday
+    // brewing shifts, even if the tank becomes free before the week's end.
     if (candidateDate > addDays(week, 3)) return false;
-    const cycles = reconcilePhysicalCycleEmptying(
+    const leadDays = style
+      ? Math.max(...settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays), 21)
+      : 0;
+    return releasedTankCanHostBrew(
       schedules.get(release.tankId) ?? [],
       sources.find((source) => source.id === release.tankId),
       tanks.find((tank) => tank.id === release.tankId),
       release,
       today,
+      candidateDate,
+      addDays(candidateDate, leadDays),
     );
-    if (!style) return tankCanHostCycle(cycles, candidateDate, candidateDate);
-    const leadDays = Math.max(...settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays), 21);
-    return tankCanHostCycle(cycles, candidateDate, addDays(candidateDate, leadDays));
   };
   const canonicalAvailableReleases = availableReleases.filter((release) => releaseFitsCanonicalWindow(release));
   const remainingCapacity = canonicalAvailableReleases.length;
