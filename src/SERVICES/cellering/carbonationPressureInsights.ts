@@ -166,7 +166,7 @@ export function hasReachedCarbonationRange(
 }
 
 export type SubsequentCarbonationPressureAdvice = {
-    kind: "lower" | "raise" | "lowerOrHold";
+    kind: "lower" | "raise";
     carbonation: number;
     pressure: LatestPressureReading | null;
 };
@@ -174,9 +174,10 @@ export type SubsequentCarbonationPressureAdvice = {
 /**
  * After the FIRST in-spec carbonation reading, later out-of-spec tests have a
  * specific direction instead of the original generic pre-milestone advice.
- * A low carbonation reading with current-day head pressure >0.9 bar offers
- * the operator a deliberate choice between lowering pressure or holding it
- * while CO2 in the headspace continues to dissolve.
+ * Once an in-range reading has occurred, any later out-of-range reading
+ * produces one direction only: above target -> lower, below target -> raise.
+ * The hold-pressure choice is restricted to the period up to and including
+ * the first in-range reading; head pressure cannot revive it afterwards.
  *
  * Historical in-range readings must precede today's latest reading. This
  * is derived from the current batch only; a new batch restarts the milestone.
@@ -201,13 +202,7 @@ export function subsequentCarbonationPressureAdvice(
         return { kind: "lower", carbonation: latest.carbonation, pressure };
     }
     if (latest.carbonation < target) {
-        return {
-            kind: pressure && pressure.date === todayDate && pressure.value > 0.9
-                ? "lowerOrHold"
-                : "raise",
-            carbonation: latest.carbonation,
-            pressure,
-        };
+        return { kind: "raise", carbonation: latest.carbonation, pressure };
     }
     return null;
 }
