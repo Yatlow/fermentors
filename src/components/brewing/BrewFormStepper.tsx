@@ -2102,21 +2102,60 @@ export default function BrewFormStepper({
     return null;
   }
 
-  function publishLiveProgress(
-    stage: StageDef,
-    startTime: string | null,
-    endTime: string | null = null,
-  ) {
+  // Rebuild progress from the remaining, persisted timeline values. The last
+  // field the operator touched is not necessarily the last stage still recorded.
+  // In particular deleting a test time must be able to move progress BACK.
+  function publishRecordedProgress(nextExecution: BrewExecution) {
+    let latest: { stage: StageDef; blockIndex: number; start: string; end: string } | null = null;
+    for (const stage of [...TIMELINE_STAGES].reverse()) {
+      for (let blockIndex = totalBlocks; blockIndex >= 1; blockIndex -= 1) {
+        const row = nextExecution.blocks[String(blockIndex)]?.fields || {};
+        const start = String(row[`${stage.key}.start`] || "").trim();
+        const end = String(row[`${stage.key}.end`] || "").trim();
+        if (start || end) {
+          latest = { stage, blockIndex, start, end };
+          break;
+        }
+      }
+      if (latest) break;
+    }
     void saveBrewingProgressToFirestore(run.tankId, {
       blockCount: totalBlocks,
-      blockIndex: currentBlock,
-      stageCode: stageCodeFor(stage),
-      stageName: stage.label,
-      stageStartTimeText: startTime,
-      stageEndTimeText: endTime,
+      blockIndex: latest?.blockIndex ?? 1,
+      stageCode: latest ? stageCodeFor(latest.stage) : null,
+      stageName: latest?.stage.label ?? "",
+      stageStartTimeText: latest?.start || null,
+      stageEndTimeText: latest?.end || null,
     }).catch((error) =>
-      console.warn("Failed saving live brewing progress", error),
+      console.warn("Failed reconciling live brewing progress", error),
     );
+  }
+
+  // Remove only values proven equal to the calculated cascade. Keep later
+  // independently entered timestamps (which may belong to a real operation).
+  function clearCalculatedSuccessors(
+    stage: StageDef,
+    origin: string,
+    nextExecution: BrewExecution,
+    writes: Array<{ range: string; value: string | number | boolean | null }>,
+  ): BrewExecution {
+    let nextStage = nextTimelineStage(stage);
+    let expected = origin;
+    while (nextStage && expected) {
+      const nextFields = nextExecution.blocks[String(currentBlock)]?.fields || {};
+      if (String(nextFields[`${nextStage.key}.start`] || "") !== expected) break;
+      nextExecution = setBrewingExecutionField(nextExecution, currentBlock, `${nextStage.key}.start`, "");
+      writes.push({ range: stageCell(nextStage.rowOffset, "E"), value: "" });
+      const duration = knownDuration(nextStage);
+      if (duration === null) break;
+      const expectedEnd = addMinutesToTime(expected, duration);
+      if (String(nextFields[`${nextStage.key}.end`] || "") !== expectedEnd) break;
+      nextExecution = setBrewingExecutionField(nextExecution, currentBlock, `${nextStage.key}.end`, "");
+      writes.push({ range: stageCell(nextStage.rowOffset, "F"), value: "" });
+      expected = expectedEnd;
+      nextStage = nextTimelineStage(nextStage);
+    }
+    return nextExecution;
   }
 
 
@@ -2155,6 +2194,16 @@ export default function BrewFormStepper({
     }
 
     const duration = knownDuration(stage);
+    if (!value) {
+      const oldStart = String(fields[`${stage.key}.start`] || "").trim();
+      const calculatedEnd = oldStart && duration !== null ? addMinutesToTime(oldStart, duration) : "";
+      if (calculatedEnd &&
+          String(fields[`${stage.key}.end`] || "").trim() === calculatedEnd) {
+        nextExecution = setBrewingExecutionField(nextExecution, currentBlock, `${stage.key}.end`, "");
+        writes.push({ range: stageCell(stage.rowOffset, "F"), value: "" });
+        nextExecution = clearCalculatedSuccessors(stage, calculatedEnd, nextExecution, writes);
+      }
+    }
     if (value && duration !== null) {
       const calculatedEnd = addMinutesToTime(value, duration);
       const nextStage = nextTimelineStage(stage);
@@ -2185,11 +2234,7 @@ export default function BrewFormStepper({
     }
 
     setExecution(nextExecution);
-    publishLiveProgress(
-      stage,
-      value || null,
-      String(nextExecution.blocks[String(currentBlock)]?.fields?.[`${stage.key}.end`] || "") || null,
-    );
+    publishRecordedProgress(nextExecution);
     await writeSheet(`${stage.key}.start`, writes);
   }
 
@@ -2223,7 +2268,11 @@ export default function BrewFormStepper({
         },
       ];
 
-      let nextStage = nextTimelineStage(stage);
+      if (!value) {
+        const priorEnd = String(fields[`${stage.key}.end`] || "").trim();
+        if (priorEnd) nextExecution = clearCalculatedSuccessors(stage, priorEnd, nextExecution, writes);
+      }
+      let nextStage = value ? nextTimelineStage(stage) : null;
       let nextStart = value;
 
       while (nextStage) {
@@ -2258,11 +2307,7 @@ export default function BrewFormStepper({
       }
 
       setExecution(nextExecution);
-      publishLiveProgress(
-        stage,
-        String(nextExecution.blocks[String(currentBlock)]?.fields?.[`${stage.key}.start`] || "") || null,
-        value || null,
-      );
+      publishRecordedProgress(nextExecution);
       await writeSheet(`${stage.key}.end`, writes);
       return;
     }
