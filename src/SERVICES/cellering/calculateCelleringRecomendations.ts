@@ -1286,7 +1286,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         reason: coldCarbNeedsPressureAdjustment
             ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${carbonationPressureContext(sortedMeasurements, todayDate)}. מומלץ לבצע שינוי לחץ בהתאם או לוודא שבוצע.`
             : firstInRangeAdvice
-                ? `בדיקת הגיזוז הראשונה בטווח התקין (${firstInRangeAdvice.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${carbonationPressureContext(sortedMeasurements, todayDate)}. מומלץ לשקול ${firstInRangeAdvice.direction === "lower" ? "הורדת" : "העלאת"} לחץ.`
+                ? `הגיזוז הגיע לראשונה לטווח התקין (${firstInRangeAdvice.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${carbonationPressureContext(sortedMeasurements, todayDate)}. מומלץ לשקול ${firstInRangeAdvice.direction === "lower" ? "הורדת" : "העלאת"} לחץ.`
                 : `מומלץ לכוון פורק ל ${effectivePressureTarget}, הלחץ כרגע ${Number(effectivePressureTarget) > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: coldCarbNeedsPressureAdjustment
             ? latestCarbSpec.importance
