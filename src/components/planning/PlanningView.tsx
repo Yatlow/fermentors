@@ -5,6 +5,8 @@ import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { validatePlanningDecisionChange } from "../../SERVICES/planning/planningDecisionSafety";
 import { changedMixedPackagingDays } from "../../SERVICES/planning/planningValidation";
+import { pendingShipmentSubLabelReviews, type ShipmentSubLabelReview } from "../../SERVICES/planning/planningShipmentReservations";
+import { setMarkedForShipment } from "../../SERVICES/cooler/Palletservice";
 import { truckPlanningGroupKey } from "../../SERVICES/planning/truckPlanner";
 import { planningReadRequirements } from "../../SERVICES/planning/planningReadCoverage";
 import { pendingStockExecutionPlans } from "../../SERVICES/planning/planningStockExecution";
@@ -48,7 +50,7 @@ export function withoutDuplicateDeliveries(week: WeekPlan): WeekPlan {
   return deliveries.length === week.deliveries.length ? week : { ...week, deliveries };
 }
 
-export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onPendingDailyWorkChange }: {
+export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenCoolerMap, onPendingDailyWorkChange }: {
   brews: Fermentor[];
   canEdit: boolean;
   tab: PlanningTab;
@@ -85,6 +87,56 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   const identityAlignedPlans = useMemo(() =>
     withStablePackagingIdentity(plans, tankNumbersById), [plans, tankNumbersById]);
   const [message, setMessage] = useState("");
+  const [specialPalletReviews, setSpecialPalletReviews] = useState<ShipmentSubLabelReview[]>([]);
+  const [specialPalletChoice, setSpecialPalletChoice] = useState<"approve" | "decline" | null>(null);
+  const [specialPalletBusy, setSpecialPalletBusy] = useState(false);
+  const [specialPalletError, setSpecialPalletError] = useState("");
+  const [dismissedSpecialPallets, setDismissedSpecialPallets] = useState<Set<string>>(() => {
+    try {
+      const stored = JSON.parse(window.sessionStorage.getItem("shipment-sublabel-declines-v1") || "[]");
+      return new Set(Array.isArray(stored) ? stored : []);
+    } catch { return new Set(); }
+  });
+  useEffect(() => {
+    if (!canEdit || data.loading || !readScope.pallets || tab !== "calendar") return;
+    let cancelled = false;
+    void pendingShipmentSubLabelReviews(pallets)
+      .then((reviews) => {
+        if (!cancelled) setSpecialPalletReviews(reviews.filter((review) =>
+          !dismissedSpecialPallets.has(`${review.truckId}:${review.dispatchDate}:${review.palletId}`)));
+      })
+      .catch((error) => {
+        if (!cancelled) console.warn("Unable to preview special-label shipment pallets", error);
+      });
+    return () => { cancelled = true; };
+  }, [canEdit, data.loading, readScope.pallets, tab, pallets, identityAlignedPlans, dismissedSpecialPallets]);
+
+  const specialPalletReview = specialPalletReviews[0] ?? null;
+  function skipSpecialPalletReview() {
+    if (!specialPalletReview) return;
+    const key = `${specialPalletReview.truckId}:${specialPalletReview.dispatchDate}:${specialPalletReview.palletId}`;
+    setDismissedSpecialPallets((current) => {
+      const next = new Set([...current, key]);
+      try { window.sessionStorage.setItem("shipment-sublabel-declines-v1", JSON.stringify([...next])); } catch { /* session only */ }
+      return next;
+    });
+    setSpecialPalletReviews((current) => current.filter((row) => row.palletId !== specialPalletReview.palletId));
+    setSpecialPalletChoice(null);
+    setSpecialPalletError("");
+  }
+  async function approveSpecialPallet(palletId: string) {
+    if (specialPalletBusy) return;
+    setSpecialPalletBusy(true);
+    setSpecialPalletError("");
+    try {
+      await setMarkedForShipment(palletId, true);
+      skipSpecialPalletReview();
+    } catch (error) {
+      setSpecialPalletError(error instanceof Error ? error.message : "לא ניתן לסמן את המשטח");
+    } finally {
+      setSpecialPalletBusy(false);
+    }
+  }
   const [confirmation, setConfirmation] = useState<{ title: string; message: string } | null>(null);
   const confirmationResolver = useRef<((approved: boolean) => void) | null>(null);
   function confirmPlanning(message: string): Promise<boolean> {
@@ -274,6 +326,47 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
         {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={identityAlignedPlans} settings={settings} actuals={actuals} today={today}/>} 
         {tab === "review" && <PlanningReview settings={settings} plans={identityAlignedPlans} actuals={actuals} shipments={data.actualShipments} snapshots={data.snapshots} error={data.snapshotError} today={today}/>} 
       </>}
+      {specialPalletReview && tab === "calendar" && canEdit && (
+        <div className="bp-inventory-dialog-backdrop">
+          <section className="bp-modal bp-planning-scroll-modal" role="dialog" aria-modal="true"
+            aria-labelledby="bp-special-pallet-title" style={{ width: "min(92vw, 580px)", maxWidth: 580 }}>
+            <h3 id="bp-special-pallet-title">אישור משטח עם תווית משנה</h3>
+            <p>במשלוח המתוכנן לתאריך {specialPalletReview.dispatchDate} עבור מק״ט {specialPalletReview.productId},
+              נבחר לפי סדר התוקף משטח בכמות {specialPalletReview.quantity} עם תווית משנה:</p>
+            <p><strong>{specialPalletReview.subLabel}</strong></p>
+            <p>האם לסמן את המשטח הזה למשלוח?</p>
+            {specialPalletError && <p role="alert" className="bp-alert">{specialPalletError}</p>}
+            {specialPalletChoice === "decline" ? (
+              <>
+                <p>המשטח לא יסומן אוטומטית. האם לשנות את החלטת המשלוח ולסמן משטח אחר במקום?</p>
+                <div className="bp-modal-actions" style={{ flexWrap: "wrap" }}>
+                  {specialPalletReview.alternativePalletIds.map((id) => (
+                    <button key={id} type="button" className="btn-primary" disabled={specialPalletBusy}
+                      onClick={() => void approveSpecialPallet(id)}>
+                      סמן משטח חלופי {id.slice(0, 8)}
+                    </button>
+                  ))}
+                  <button type="button" className="btn-secondary" onClick={() => {
+                    skipSpecialPalletReview();
+                    onTabChange("calendar");
+                    setMessage("תווית המשנה לא אושרה. יש לערוך את החלטת המשלוח ולבחור משטח מתאים.");
+                  }}>עריכת החלטת משלוח</button>
+                  <button type="button" className="btn-secondary" onClick={skipSpecialPalletReview}>השאר ללא סימון</button>
+                </div>
+              </>
+            ) : (
+              <div className="bp-modal-actions">
+                <button type="button" className="btn-secondary" disabled={specialPalletBusy}
+                  onClick={() => setSpecialPalletChoice("decline")}>לא, בחר משטח אחר</button>
+                <button type="button" className="btn-primary" disabled={specialPalletBusy}
+                  onClick={() => void approveSpecialPallet(specialPalletReview.palletId)}>
+                  {specialPalletBusy ? "מסמן..." : "כן, סמן למשלוח"}
+                </button>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
       {confirmation && (
         <div className="bp-inventory-dialog-backdrop" onMouseDown={(event) => {
           if (event.target === event.currentTarget) closePlanningConfirmation(false);
