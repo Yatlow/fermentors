@@ -95,15 +95,14 @@ export function projectTankSchedules(
         if (cycle.emptyDate) continue;
         const brew = plannedBrews.get(cycle.cycleId);
         const nominalLiters = Number(brew?.liters);
-        // The current live physical cycle may have a different net amount
-        // than its old nominal brew plan (e.g. Wheat: 1,120 L in 56 kegs
-        // while its nominal 1,100 L would falsely "empty" at 55 kegs).
-        // Never let a future or mismatched batch inherit these live liters.
+        // The live physical volume wins over the old nominal plan when the
+        // tank, beer style and exact brew date identify the same production
+        // cycle. Forecast batch numbers can drift as earlier plans change.
+        // A distinct future cycle has a different brew date and must never
+        // inherit the older physical batch's volume.
         const physical = physicalTanks.find((tank) =>
           !!brew && tank.id === brew.tankId &&
-          tank.brewed === cycle.brewDate && sameStyle(tank.style, cycle.style) &&
-          (!normalizedBatch(brew.batchNumber) ||
-            normalizedBatch(brew.batchNumber) === normalizedBatch(tank.batch)));
+          tank.brewed === cycle.brewDate && sameStyle(tank.style, cycle.style));
         const effectiveLiters = physical ? physical.liters : nominalLiters;
         const dated = cycle.packaging.filter((run) => run.date && run.quantity > 0);
         // Past, unverified plans are NOT proof that beer was actually packed.

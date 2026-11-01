@@ -26,6 +26,7 @@ try {
     "tank-schedule",
     "tank-schedule-projection",
     "planning-canonical-current-cycle",
+    "planning-canonical-availability-regression",
     "planning-cycle-packaging-regression",
     "planning-rebrew-cycle-expiry",
     "packaging-replan-actuals",

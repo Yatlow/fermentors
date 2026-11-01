@@ -21,6 +21,7 @@ import { futureTanks, openRuns, shortDate, type ShipmentEvent } from "../../SERV
 import {
   normalizeEmptyTankFlagsForSchedule,
   tankReleases,
+  assignableTankReleasesForWeek,
   validateProduction,
   validateProductionIssues,
   proposePendingPackagingVolumeCorrection,
@@ -31,7 +32,6 @@ import { resolvePackagingBrewId, type PackagingPlan } from "../../SERVICES/plann
 import { pendingPackagingDecisions } from "../../SERVICES/planning/packagingActuals";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { projectTankSchedules } from "../../SERVICES/planning/tankScheduleProjection";
-import { tankCanHostCycle } from "../../SERVICES/planning/tankSchedule";
 import PlanningBrewAssignmentEditor from "./PlanningBrewAssignmentEditor";
 import PlanningWeekGantt from "./PlanningWeekGantt";
 
@@ -160,19 +160,14 @@ export default function PlanningBoard({
     [brews, tanks, releasePlans, settings, actuals, today],
   );
   const releases = useMemo(() => {
-    const base = allReleases;
-    const schedules = projectTankSchedules(plans, settings);
-    const weekEnd = addDays(week, 6);
-    return base.filter((release) => {
-      if (!release.date || release.date > weekEnd) return false;
-      const candidateDate = release.date > week ? release.date : week;
-      // The assignment editor only needs to show tanks with a real canonical
-      // opening in this week. Style-specific readiness is validated on save.
-      const currentWeekCycleIds = new Set(current.brews.map((brew) => brew.id));
-      const cycles = (schedules.get(release.tankId) ?? []).filter((cycle) => !currentWeekCycleIds.has(cycle.cycleId));
-      return tankCanHostCycle(cycles, candidateDate, candidateDate);
-    });
-  }, [allReleases, plans, settings, week, current.brews]);
+    // Use the same canonical availability gate as weekly recommendations,
+    // with identical dated packaging and physical-cycle reconciliation.
+    const schedules = projectTankSchedules(releasePlans, settings, today, tanks);
+    return assignableTankReleasesForWeek(
+      allReleases, schedules, brews, tanks, today, week,
+      new Set(current.brews.map((brew) => brew.id)),
+    );
+  }, [allReleases, releasePlans, settings, today, tanks, brews, week, current.brews]);
 
   const productLabel = (id: string) => {
     const product = settings.products.find((item) => item.id === id);

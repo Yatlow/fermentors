@@ -24,7 +24,7 @@ import {
     type Tank,
     type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
-import { futureTanks, openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
+import { futureTanks, forecastableProductionPlans, openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, isCoreStyle, CORE_STYLES, formatPalletCount } from "../../SERVICES/planning/planningPresentation";
 import { projectedPallets, truckPlanningGroupKey } from "../../SERVICES/planning/truckPlanner";
 import { nominalPlanningUnits } from "../../SERVICES/planning/shipmentRecommendation";
@@ -147,7 +147,10 @@ export default function PlanningWeeklyRecommendations({
         (p.monthly > 0 && isCoreStyle(p.style)) || current.deliveries?.some((d) => d.productId === p.id && d.quantity > 0),
     );
     const product = (id: string) => settings.products.find((p) => p.id === id);
-    const packagingTankPool = useMemo(() => futureTanks(tanks, plans, settings), [tanks, plans, settings]);
+    const packagingTankPool = useMemo(
+        () => futureTanks(tanks, forecastableProductionPlans(tanks, plans, today), settings),
+        [tanks, plans, settings, today],
+    );
     const packagingTankById = (id: string) => packagingTankPool.find((tank) => tank.id === id);
 
     const holidaysThisWeek = holidays.filter((h) => h.date >= week && h.date <= model.weekEnd);
@@ -261,6 +264,23 @@ export default function PlanningWeeklyRecommendations({
             sameStyle(tank.style, p.style) &&
             (model.tankAvailableLiters.get(tank.id) ?? tank.liters) >= 20,
         );
+    }
+
+    function packagingSourceAvailabilityMessage(p: Product) {
+        const matching = packagingTankPool.filter((tank) => sameStyle(tank.style, p.style));
+        if (!matching.length) return `אין מיכל עם ${displayStyle(p.style)} בתמונת המלאי והתכנון.`;
+        const matured = matching.filter((tank) => tank.ready <= model.weekEnd);
+        if (!matured.length) {
+            const first = [...matching].sort((a, b) => a.ready.localeCompare(b.ready))[0];
+            return `מיכל ${first.number} עם ${displayStyle(p.style)} מזוהה, אבל המחזור צפוי להבשיל רק ב־${shortDate(first.ready)}.`;
+        }
+        // A physical batch can exist and be mature, yet its remaining beer
+        // is reserved in another week or superseded by a new canonical cycle.
+        // Do not tell the planner that no tank exists in this situation.
+        const physical = matured.find((tank) => !tank.id.startsWith("planned:"));
+        const tank = physical ?? matured[0];
+        const available = model.tankAvailableLiters.get(tank.id) ?? tank.liters;
+        return `מיכל ${tank.number} (${displayStyle(p.style)}, אצווה ${tank.batch}) מזוהה, אך זמינים לתכנון רק ${Math.round(available)} ל׳ בשבוע הזה. יש לבדוק שריוני אריזה ובישולים עוקבים של אותו מחזור.`;
     }
 
     function packagingDependencyQty(p: Product, qty: number) {
@@ -1162,7 +1182,7 @@ export default function PlanningWeeklyRecommendations({
                                 {rec > 0 ? `${fmt(rec)} ${p.type === "crates" ? "ארגזים" : "חביות"}` : "—"}
                                 {recTank && <small>{recTank}</small>}
                                 {rec > 0 && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}
-                                {unavailable && <small className="bp-risk-text">אין מיכל עם {displayStyle(p.style)} שמתאים לאריזה השבוע.</small>}
+                                {unavailable && <small className="bp-risk-text">{packagingSourceAvailabilityMessage(p)}</small>}
                             </span>
                             <span>
                                 {remaining > 0 ? <>{fmt(remaining)} {p.type === "crates" ? "ארגזים" : "חביות"}</> : "—"}

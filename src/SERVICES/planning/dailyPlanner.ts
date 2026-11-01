@@ -127,17 +127,17 @@ export function openRuns(
     }),
   );
 }
-/** A planned brew and the active physical batch are the same production
- * cycle when their stable batch number agrees. A scheduled brew can start a
- * day later than planned: the calendar date alone must never make a second,
- * imaginary fermentor or hide its real packaging volume. With no recorded
- * batch number, require exact brew-date identity as the conservative fallback.
+/** Identify the active physical cycle, even if a *forecast* batch number
+ * became stale when an earlier plan was moved. A matching real batch is
+ * authoritative across minor date drift; an exact tank + style + brew date
+ * is equally strong physical evidence of the same cycle when forecast batch
+ * numbers disagree. A genuinely later brew remains a separate cycle.
  */
 export function physicalTankMatchesBrew(tank: Tank, brew: BrewPlan): boolean {
   if (tank.id !== brew.tankId || !sameStyle(tank.style, brew.style)) return false;
   const plannedBatch = String(brew.batchNumber ?? "").replace("#", "").trim();
   const physicalBatch = String(tank.batch ?? "").replace("#", "").trim();
-  return plannedBatch ? !!physicalBatch && physicalBatch === plannedBatch :
+  return (!!plannedBatch && !!physicalBatch && plannedBatch === physicalBatch) ||
     tank.brewed === brew.date;
 }
 
