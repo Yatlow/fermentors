@@ -27,6 +27,7 @@ try {
     "tank-schedule-projection",
     "planning-canonical-current-cycle",
     "planning-canonical-availability-regression",
+    "planning-brew-assignment-scope-regression",
     "planning-cycle-packaging-regression",
     "planning-rebrew-cycle-expiry",
     "packaging-replan-actuals",
