@@ -679,7 +679,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
                                         <option value="העלאת">העלאת</option>
                                         <option value="הורדת">הורדת</option>
                                     </select>
-                                    <input type="number" placeholder="לחץ" value={value} disabled={isSending}
+                                    <input type="number" step="0.01" min="0" max="5" placeholder="לחץ" value={value} disabled={isSending}
                                         onChange={(e) => setValue(e.target.value)} />
                                 </div>
                             )}
