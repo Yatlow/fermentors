@@ -38,6 +38,22 @@ test("pressure changes only; vent adjustment and closure belong to other", () =>
     assert.deepEqual(result.pressure, { done: 0, total: 1 });
     assert.deepEqual(result.other, { done: 0, total: 2 });
 });
+test("holding pressure is a decision under other, NEVER a physical pressure change", () => {
+    const hold = done("reported-pressure-hold-8", "השארת לחץ ללא שינוי");
+    const result = count([], [hold]);
+    assert.deepEqual(result.pressure, { done: 0, total: 0 });
+    assert.deepEqual(result.other, { done: 1, total: 1 });
+    assert.equal(hasExplicitPressureChangeAction("השארת לחץ ללא שינוי לאחר בדיקת גיזוז"), false);
+    assert.equal(hasExplicitPressureChangeAction("הורדת לחץ ל: 0.7 bar"), true);
+});
+
+test("dual-action carbonation decision is recorded as other until operator chooses", () => {
+    const pendingPressureDecision = pending("pressureAdjustment", "1601", "8", { scheduledActionType: "other" });
+    const result = count([pendingPressureDecision]);
+    assert.deepEqual(result.pressure, { done: 0, total: 0 });
+    assert.deepEqual(result.other, { done: 0, total: 1 });
+});
+
 test("same action in different batches counts twice", () => {
     assert.deepEqual(count([pending("dryHop", "1601"), pending("dryHop", "1602")]).other, { done: 0, total: 2 });
 });
