@@ -1342,7 +1342,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         // Two alternative operator decisions for low carbonation despite
         // confirmed high head pressure. No pressure change is reported unless
         // the operator actually chooses the lowering action.
-        pressureChoice: subsequentPressureAdvice?.kind === "lowerOrHold"
+        pressureChoice: subsequentPressureAdvice?.kind === "lowerOrHold" ||
+            (firstInRangeAdvice?.direction === "lower" && firstInRangeAdvice.pressure.value > 0.9)
             ? "lowerOrHold" as const
             : beforeFirstInRangeCarbonation ? "changeOrHold" as const : undefined,
         pressureSuggestion: firstInRangeAdvice?.direction ??
