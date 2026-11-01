@@ -112,3 +112,50 @@ export function firstInRangePressureAdvice(
     if (pressure.value < 0.5) return { direction: "raise", pressure, carbonation: latest.carbonation };
     return null;
 }
+
+
+export type SubsequentCarbonationPressureAdvice = {
+    kind: "lower" | "raise" | "lowerOrHold";
+    carbonation: number;
+    pressure: LatestPressureReading | null;
+};
+
+/**
+ * After the FIRST in-spec carbonation reading, later out-of-spec tests have a
+ * specific direction instead of the original generic pre-milestone advice.
+ * A low carbonation reading with current-day head pressure >0.9 bar offers
+ * the operator a deliberate choice between lowering pressure or holding it
+ * while CO2 in the headspace continues to dissolve.
+ *
+ * Historical in-range readings must precede today's latest reading. This
+ * is derived from the current batch only; a new batch restarts the milestone.
+ */
+export function subsequentCarbonationPressureAdvice(
+    measurements: CarbonationPressureReading[],
+    todayDate: string,
+    isInRange: (carbonation: number) => boolean,
+    target: number,
+): SubsequentCarbonationPressureAdvice | null {
+    if (!Number.isFinite(target)) return null;
+    const carbEntries = datedMeasurements(measurements, todayDate)
+        .map((entry) => ({ ...entry, carbonation: numericReading(entry.reading.carbonation) }))
+        .filter((entry): entry is typeof entry & { carbonation: number } => entry.carbonation !== null);
+    const latest = carbEntries[carbEntries.length - 1];
+    if (!latest || latest.stamp.date !== todayDate || isInRange(latest.carbonation)) return null;
+    if (!carbEntries.slice(0, -1).some((entry) => isInRange(entry.carbonation))) return null;
+
+    const pressure = latestPressureReading(measurements, todayDate);
+    if (latest.carbonation > target) {
+        return { kind: "lower", carbonation: latest.carbonation, pressure };
+    }
+    if (latest.carbonation < target) {
+        return {
+            kind: pressure && pressure.date === todayDate && pressure.value > 0.9
+                ? "lowerOrHold"
+                : "raise",
+            carbonation: latest.carbonation,
+            pressure,
+        };
+    }
+    return null;
+}
