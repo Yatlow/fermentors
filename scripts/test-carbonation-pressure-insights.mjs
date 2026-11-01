@@ -7,7 +7,7 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const transpiled = ts.transpileModule(read("../src/SERVICES/cellering/carbonationPressureInsights.ts"), {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { latestPressureReading, carbonationPressureContext, firstInRangePressureAdvice, subsequentCarbonationPressureAdvice } =
+const { latestPressureReading, carbonationPressureContext, firstInRangePressureAdvice, subsequentCarbonationPressureAdvice, livePressureReading, preferredPressureReading } =
     await import("data:text/javascript;base64," + Buffer.from(transpiled).toString("base64"));
 
 const today = "2026-10-28";
@@ -175,6 +175,38 @@ test("stale older pressure cannot trigger a high-headspace decision", () => {
         carb("2026-10-28_0900", 2.3, null),
     ];
     assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45)?.kind, "raise");
+});
+
+test("fresh live tank pressure overrides stale morning value for high-headspace choice", () => {
+    const history = [
+        carb("2026-10-25_0800", 2.46, 0.7),
+        carb("2026-10-28_0800", 2.30, 0.6),
+    ];
+    const live = livePressureReading({ pressure: 1.2, pressureUpdatedAt: "2026-10-28T10:30:00Z" });
+    assert.equal(live?.value, 1.2);
+    assert.equal(preferredPressureReading(history, today, live)?.value, 1.2);
+    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45, live)?.kind, "lowerOrHold");
+    // The original first-in-range rule also uses the latest physical pressure.
+    assert.equal(firstInRangePressureAdvice([
+        carb("2026-10-25_0800", 2.3, 0.9),
+        carb("2026-10-28_0800", 2.45, 0.7),
+    ], today, inRange, live)?.direction, "lower");
+});
+
+test("later lower live pressure supersedes a high morning reading", () => {
+    const history = [carb("2026-10-25_0800", 2.46, 1.1), carb("2026-10-28_0800", 2.3, 1.1)];
+    const live = livePressureReading({ pressure: 0.5, pressureUpdatedAt: "2026-10-28T12:30:00Z" });
+    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45, live)?.kind, "raise");
+    assert.equal(preferredPressureReading(history, today, live)?.value, 0.5);
+});
+
+test("stale or invalid live tank pressure never overrides today's actual reading", () => {
+    const history = [carb("2026-10-25_0800", 2.46, 0.7), carb("2026-10-28_0800", 2.3, 1.1)];
+    assert.equal(livePressureReading({ pressure: 1.5 }), null);
+    assert.equal(livePressureReading({ pressure: 1.5, pressureUpdatedAt: "bad" }), null);
+    const yesterday = livePressureReading({ pressure: 0.4, pressureUpdatedAt: "2026-10-27T10:00:00Z" });
+    assert.equal(preferredPressureReading(history, today, yesterday)?.value, 1.1);
+    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45, yesterday)?.kind, "lowerOrHold");
 });
 
 test("milestone is per current batch, latest reading must be today and out of range", () => {
