@@ -88,6 +88,40 @@ export function carbonationPressureContext(
         : `לחץ במיכל: ${pressure.value} bar (נמדד ${when})`;
 }
 
+/** Live pressure is stored separately from the immutable morning Sheet
+ * measurement. It is usable for pressure advice only with a valid observation
+ * timestamp; a bare tank pressure could be arbitrarily stale.
+ */
+export function livePressureReading(
+    data: { pressure?: unknown; pressureUpdatedAt?: unknown } | null | undefined,
+): LatestPressureReading | null {
+    const value = numericReading(data?.pressure);
+    const timestamp = String(data?.pressureUpdatedAt ?? "");
+    const observedAt = timestamp ? new Date(timestamp) : null;
+    if (value === null || value < 0 || !observedAt || !Number.isFinite(observedAt.getTime())) return null;
+    const year = observedAt.getFullYear();
+    const month = String(observedAt.getMonth() + 1).padStart(2, "0");
+    const day = String(observedAt.getDate()).padStart(2, "0");
+    const hours = String(observedAt.getHours()).padStart(2, "0");
+    const minutes = String(observedAt.getMinutes()).padStart(2, "0");
+    return { value, date: `${year}-${month}-${day}`, time: `${hours}:${minutes}` };
+}
+
+/** Prefer the newest dated pressure source. Never replace the true current
+ * tank pressure with an older morning Sheet pressure or vice versa.
+ */
+export function preferredPressureReading(
+    measurements: CarbonationPressureReading[],
+    todayDate: string,
+    livePressure?: LatestPressureReading | null,
+): LatestPressureReading | null {
+    const history = latestPressureReading(measurements, todayDate);
+    if (!livePressure || livePressure.date > todayDate) return history;
+    if (!history) return livePressure;
+    const key = (p: LatestPressureReading) => p.date + "_" + (p.time ?? "00:00");
+    return key(livePressure) >= key(history) ? livePressure : history;
+}
+
 export type FirstInRangePressureAdvice = {
     direction: "raise" | "lower";
     pressure: LatestPressureReading;
@@ -99,6 +133,7 @@ export function firstInRangePressureAdvice(
     measurements: CarbonationPressureReading[],
     todayDate: string,
     isInRange: (carbonation: number) => boolean,
+    livePressure?: LatestPressureReading | null,
 ): FirstInRangePressureAdvice | null {
     const carbEntries = datedMeasurements(measurements, todayDate)
         .map((entry) => ({ ...entry, carbonation: numericReading(entry.reading.carbonation) }))
@@ -106,9 +141,57 @@ export function firstInRangePressureAdvice(
     const latest = carbEntries[carbEntries.length - 1];
     if (!latest || latest.stamp.date !== todayDate || !isInRange(latest.carbonation)) return null;
     if (carbEntries.slice(0, -1).some((entry) => isInRange(entry.carbonation))) return null;
-    const pressure = latestPressureReading(measurements, todayDate);
+    const pressure = preferredPressureReading(measurements, todayDate, livePressure);
     if (!pressure) return null;
     if (pressure.value > 0.9) return { direction: "lower", pressure, carbonation: latest.carbonation };
     if (pressure.value < 0.5) return { direction: "raise", pressure, carbonation: latest.carbonation };
+    return null;
+}
+
+
+export type SubsequentCarbonationPressureAdvice = {
+    kind: "lower" | "raise" | "lowerOrHold";
+    carbonation: number;
+    pressure: LatestPressureReading | null;
+};
+
+/**
+ * After the FIRST in-spec carbonation reading, later out-of-spec tests have a
+ * specific direction instead of the original generic pre-milestone advice.
+ * A low carbonation reading with current-day head pressure >0.9 bar offers
+ * the operator a deliberate choice between lowering pressure or holding it
+ * while CO2 in the headspace continues to dissolve.
+ *
+ * Historical in-range readings must precede today's latest reading. This
+ * is derived from the current batch only; a new batch restarts the milestone.
+ */
+export function subsequentCarbonationPressureAdvice(
+    measurements: CarbonationPressureReading[],
+    todayDate: string,
+    isInRange: (carbonation: number) => boolean,
+    target: number,
+    livePressure?: LatestPressureReading | null,
+): SubsequentCarbonationPressureAdvice | null {
+    if (!Number.isFinite(target)) return null;
+    const carbEntries = datedMeasurements(measurements, todayDate)
+        .map((entry) => ({ ...entry, carbonation: numericReading(entry.reading.carbonation) }))
+        .filter((entry): entry is typeof entry & { carbonation: number } => entry.carbonation !== null);
+    const latest = carbEntries[carbEntries.length - 1];
+    if (!latest || latest.stamp.date !== todayDate || isInRange(latest.carbonation)) return null;
+    if (!carbEntries.slice(0, -1).some((entry) => isInRange(entry.carbonation))) return null;
+
+    const pressure = preferredPressureReading(measurements, todayDate, livePressure);
+    if (latest.carbonation > target) {
+        return { kind: "lower", carbonation: latest.carbonation, pressure };
+    }
+    if (latest.carbonation < target) {
+        return {
+            kind: pressure && pressure.date === todayDate && pressure.value > 0.9
+                ? "lowerOrHold"
+                : "raise",
+            carbonation: latest.carbonation,
+            pressure,
+        };
+    }
     return null;
 }

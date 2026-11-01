@@ -68,6 +68,8 @@ type HealthAlert = {
     scheduledActionType?: ScheduledCellarActionType | "ventAdjust";
     pressureDirection?: PressureChangeDirection;
     targetPressure?: number;
+    pressureChoice?: "lowerOrHold";
+    pressureSuggestion?: "lower" | "raise";
     importance?: number;
     dismissible?: boolean;
     userDecision?: boolean;
@@ -77,6 +79,8 @@ type Recommendation = {
     actionType?: ScheduledCellarActionType | "ventAdjust";
     pressureDirection?: PressureChangeDirection;
     targetPressure?: number;
+    pressureChoice?: "lowerOrHold";
+    pressureSuggestion?: "lower" | "raise";
     req?: boolean | "" | 0 | null;
     display?: boolean;
     reason?: string;
@@ -733,7 +737,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                      unresolvedScheduled.some((row) => row.actionType === "coolDown"))
                                 )
                             ),
-                            ...manualDue.map((row) => {
+                            ...manualDue.map((row): KeyedRecommendation => {
                                 const conflict = row.actionType === "pressureChange"
                                     ? scheduledPressureDecisionConflictText(row, measurements)
                                     : null;
@@ -776,6 +780,8 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                 scheduledActionType: recommendation.actionType,
                                 pressureDirection: recommendation.pressureDirection,
                                 targetPressure: recommendation.targetPressure,
+                                pressureChoice: recommendation.pressureChoice,
+                                pressureSuggestion: recommendation.pressureSuggestion,
                                 importance,
                                 dismissible: true,
                                 userDecision: recommendation.userDecision,
@@ -852,6 +858,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             { key: "pressure-close", label: "סגירת נשם / מיכל", pattern: /סגירת נשם|סגירת הנשם|סגירת מיכל|סגרתי נשם/ },
                             { key: "diacetyl", label: "מנוחת דיאצטיל", pattern: /מנוחת דיאצ[י׳']?טיל|דיאצטיל/ },
                             { key: "pressure-change", label: "שינוי לחץ", pattern: /העלאת לחץ|הורדת לחץ|להעלות לחץ|להוריד לחץ/ },
+                            { key: "pressure-hold", label: "השארת לחץ ללא שינוי", pattern: /השארת לחץ ללא שינוי/ },
                             { key: "other", label: "פעולה אחרת", pattern: /(?:^|[|\\n])\\s*אחר\\s*[:：-]/ },
                         ];
                         reportedActions.forEach(({ key, label, pattern }) => {
@@ -1414,7 +1421,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                         pressureAdjustment: "לחץ",
                                     };
                                     const scheduledMapping: Record<string, string> = { carbTest: "גיזוז", yeastDrop: "שמרים", bottomCarbonation: "גיזוז מלמטה התחלה", pressureChange: "לחץ", coolDown: "קירור", ventAdjust: "פורק" };
-                                    const noteType = alert.scheduledActionType ? scheduledMapping[alert.scheduledActionType] : alert.recommendationKey === "pressureAdjustment" && alert.detail.includes("לכוון פורק") ? "פורק" : mapping[alert.recommendationKey];
+                                    const noteType = alert.pressureChoice === "lowerOrHold" ? "לחץ" : alert.scheduledActionType ? scheduledMapping[alert.scheduledActionType] : alert.recommendationKey === "pressureAdjustment" && alert.detail.includes("לכוון פורק") ? "פורק" : mapping[alert.recommendationKey];
                                     const tank = brews.find(t => String(t.tankNumber) === String(alert.tankNumber));
                                     const isWarm = tank && Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";
                                     const warmOnly = ["סגירת מיכל", "דרייהופ", "דיאציטיל", "קירור"];
@@ -1433,9 +1440,37 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                         "דיאציטיל": { label: "דווח מנוחת דיאצטיל", Icon: ThermometerSun },
                                     };
                                     const ui = actionUI[noteType];
+                                    if (alert.pressureChoice === "lowerOrHold" && available) {
+                                        return <div className="health-pressure-choices" role="group" aria-label="בחירת פעולה לאחר בדיקת גיזוז">
+                                            <button type="button" className="health-quick-report-button" onClick={(event) =>
+                                                window.dispatchEvent(new CustomEvent("cellar-open-quick-report", {
+                                                    detail: {
+                                                        tankNumber: String(alert.tankNumber),
+                                                        noteType: "לחץ",
+                                                        initialPressureDirection: "הורדת",
+                                                        anchorRect: event.currentTarget.getBoundingClientRect().toJSON(),
+                                                    },
+                                                }))}>
+                                                <ClockPlus size={16} aria-hidden="true" />דווח הורדת לחץ
+                                            </button>
+                                            <button type="button" className="health-quick-report-button" onClick={(event) =>
+                                                window.dispatchEvent(new CustomEvent("cellar-open-quick-report", {
+                                                    detail: {
+                                                        tankNumber: String(alert.tankNumber),
+                                                        noteType: "השארת לחץ",
+                                                        anchorRect: event.currentTarget.getBoundingClientRect().toJSON(),
+                                                    },
+                                                }))}>
+                                                <Gauge size={16} aria-hidden="true" />השארת לחץ ללא שינוי
+                                            </button>
+                                        </div>;
+                                    }
                                     return noteType && available && ui ? <button type="button" className="health-quick-report-button" onClick={(event) => window.dispatchEvent(new CustomEvent("cellar-open-quick-report", { detail: {
                                         tankNumber: String(alert.tankNumber),
                                         noteType,
+                                        initialPressureDirection: noteType === "לחץ" && alert.pressureSuggestion
+                                            ? (alert.pressureSuggestion === "lower" ? "הורדת" : "העלאת")
+                                            : undefined,
                                         // An exact selected scheduled pressure decision only. Other pressure advice
                                         // and ordinary reports keep their standard empty/editable fields.
                                         pressureDecision: noteType === "לחץ" &&

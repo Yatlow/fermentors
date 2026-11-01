@@ -14,6 +14,7 @@ import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebas
 import { auth, db, googleProvider } from "./firebase";
 
 import { getTankStage, type TankStageInfo } from "./SERVICES/dashboard/tankstage"
+import { sameTankReferences, tankStageInputsEqual } from "./SERVICES/dashboard/fermentorSnapshotIdentity";
 import { enableGlobalReadDiagnostics, recordGlobalServerRead } from "./SERVICES/globalReadDiagnostics";
 import { hasCredibleLiveBrewProgress } from "./SERVICES/brewing/brewProgressDisplay";
 import { setUnsavedEditing } from "./SERVICES/versionGuard";
@@ -401,14 +402,26 @@ function App() {
                         const firestoreData = firebaseDoc.data() as Record<string, unknown>;
                         const id = firebaseDoc.id;
                         const prevTank = prevById.get(id);
-                        if (prevTank) {
-                            const { stage: _s, ...prevRest } = prevTank;
-                            const sameData = JSON.stringify(prevRest) === JSON.stringify({ ...firestoreData, id });
-                            if (sameData) return prevTank;
-                        }
+                        // Normalize before comparison: ACTION 0 may contain an
+                        // unstarted brewProgress object in Firestore, while the
+                        // dashboard deliberately displays null. Comparing the raw
+                        // object against that normalized null caused every
+                        // metadata-only snapshot to look like a changed tank.
                         const nextTank = { ...firestoreData, id, stage: undefined } as Fermentor;
                         if (Number(nextTank.action) === 0 && !hasCredibleLiveBrewProgress(nextTank.brewProgress)) {
                             nextTank.brewProgress = null;
+                        }
+                        if (prevTank) {
+                            const { stage: _s, ...prevRest } = prevTank;
+                            const { stage: _nextStage, ...nextRest } = nextTank;
+                            if (JSON.stringify(prevRest) === JSON.stringify(nextRest)) return prevTank;
+                            // An unrelated timestamp, pressure, sync revision or
+                            // note-independent Firestore update must not unset
+                            // the tank stage, trigger a second stage fetch and
+                            // momentarily reshuffle the status-group layout.
+                            if (prevTank.stage !== undefined && tankStageInputsEqual(prevTank, nextTank)) {
+                                nextTank.stage = prevTank.stage;
+                            }
                         }
                         return nextTank;
                     });
@@ -417,7 +430,7 @@ function App() {
                         const numB = parseInt(String(b.uid ?? "").replace(/\D/g, ""), 10) || 0;
                         return numA - numB;
                     });
-                    return data;
+                    return sameTankReferences(prevBrews, data) ? prevBrews : data;
                 });
                 setLoading(false);
             },
@@ -462,13 +475,19 @@ function App() {
                 })
             );
             if (cancelled) return;
-            setBrews((prev) =>
-                prev.map((tank) =>
-                    stageById.has(tank.id)
-                        ? { ...tank, stage: stageById.get(tank.id) }
-                        : tank
-                )
-            );
+            setBrews((prev) => {
+                const next = prev.map((tank) => {
+                    const stage = stageById.get(tank.id);
+                    // Never commit undefined after a transient history error.
+                    // Never invalidate the tank reference for an unchanged stage.
+                    if (stage === undefined ||
+                        (tank.stage?.name === stage.name &&
+                         tank.stage.icon === stage.icon &&
+                         tank.stage.className === stage.className)) return tank;
+                    return { ...tank, stage };
+                });
+                return sameTankReferences(prev, next) ? prev : next;
+            });
         })();
         return () => { cancelled = true; };
     }, [tanksNeedingStage, user, plannerUser]);

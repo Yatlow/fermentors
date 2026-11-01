@@ -7447,3 +7447,26 @@ b {
 @media print {
     .dashboard-header .header-account-menu { display: none !important; }
 }
+
+/* A no-change pressure report is a recorded operational decision, not a reading. */
+.quickReportPressureHold {
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid #bbdefb;
+  border-radius: 10px;
+  background: #f4f9ff;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+.quickReportPressureHold p { margin: 0; }
+.health-pressure-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-start;
+}
+.health-pressure-choices .health-quick-report-button {
+  white-space: normal;
+  min-height: 36px;
+}

@@ -320,6 +320,21 @@ const action = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
   assert.match(actionFn, /actionWrites\+\+/, "successful ACTION patches must be counted at updateFermentorAction");
 }
 
+{
+  const maintenanceSource = readFileSync("server/asyncLogTrigger.js", "utf8");
+  const expected = [
+    "full fermentor cycle", "night ACTION-0 guard", "planning snapshots",
+    "Sheet sync outbox", "brew Sheet creation", "packaging cleanup",
+    "operation receipt cleanup", "transient cleanup", "style averages", "queued logs"
+  ];
+  expected.forEach(label => {
+    assert.ok(maintenanceSource.includes('smartTimedMaintenance_("' + label + '"'),
+      "the maintenance cycle must time " + label);
+  });
+  assert.match(maintenanceSource, /MAINT START/);
+  assert.match(maintenanceSource, /MAINT END/);
+}
+
 const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   FIREBASE_PROJECT_ID: "test-project",
   LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock() {}, releaseLock() {} }) },

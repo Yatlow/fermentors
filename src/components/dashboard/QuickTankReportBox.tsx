@@ -38,6 +38,7 @@ import {
     CircleArrowOutUpRight,
     ClockPlus,
     FlaskConical,
+    Gauge,
     Hop,
     PencilSparkles,
     Stethoscope,
@@ -54,6 +55,7 @@ type QuickTankReportBoxProps = {
     position: { top: number; left: number } | null;
     initialNoteType?: string;
     initialPressureDecision?: QuickReportPressureDecision | null;
+    initialPressureDirection?: "העלאת" | "הורדת" | null;
 };
 
 export const RobotVacuum = createLucideIcon("RobotVacuum", [
@@ -77,6 +79,7 @@ const NOTE_TYPES: QuickReportType[] = [
     { value: "גיזוז מלמטה סגירה", label: "סגירת גיזוז מלמטה", stage: "cold", icon: Stethoscope },
     { value: "שמרים", label: "הורדת שמרים", stage: "both", icon: FlaskConical },
     { value: "לחץ", label: "שינוי לחץ", stage: "both", icon: ClockPlus },
+    { value: "השארת לחץ", label: "השארת לחץ ללא שינוי", stage: "cold", icon: Gauge },
     { value: "פורק", label: "כיוון פורק", stage: "warm", icon: CircleArrowOutUpRight },
     { value: "דיאציטיל", label: "מנוחת דיאצטיל", stage: "warm", icon: ThermometerSun },
     { value: "קירור", label: "קירור", stage: "warm", icon: ThermometerSnowflake },
@@ -98,7 +101,7 @@ function buildMeasurementId(date: Date = new Date()) {
     return `${y}-${m}-${d}_${hh}${mm}`;
 }
 
-export default function QuickTankReportBox({ tank, specs, onClose, position, initialNoteType = "", initialPressureDecision = null }: QuickTankReportBoxProps) {
+export default function QuickTankReportBox({ tank, specs, onClose, position, initialNoteType = "", initialPressureDecision = null, initialPressureDirection = null }: QuickTankReportBoxProps) {
     const isWarm = Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";
     const stage: "warm" | "cold" = isWarm ? "warm" : "cold";
     const isColdTank = tank.stage?.name === "קר";
@@ -112,6 +115,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
     const [dryHopExceptionReason, setDryHopExceptionReason] = useState("");
     const [dryHopExceptionConfirmed, setDryHopExceptionConfirmed] = useState(false);
     const [direction, setDirection] = useState("");
+    const [holdPressureConfirmed, setHoldPressureConfirmed] = useState(false);
 
     const [packagingType, setPackagingType] = useState<"kegs" | "bottles" | "">("");
     const [amount, setAmount] = useState("");
@@ -181,6 +185,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
     function resetValues() {
         setValue(""); setValue2(""); setDryHopAa(""); setDirection("");
         setDryHopExceptionReason(""); setDryHopExceptionConfirmed(false);
+        setHoldPressureConfirmed(false);
         setPackagingType(""); setAmount(""); setIsEmpty(false);
         setPressureAfter(""); setPressureAutoFilled(true);
         setStatus("idle"); setErrorMsg("");
@@ -195,6 +200,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
         initialPressureDecision?.recommendationId ?? "",
         initialPressureDecision?.targetPressure ?? "",
         initialPressureDecision?.pressureDirection ?? "",
+        initialPressureDirection ?? "",
     ].join("|");
     useEffect(() => {
         if (!initialNoteType || initialSelectionAppliedRef.current === initialSelectionKey) return;
@@ -226,6 +232,11 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
             if (prefill) {
                 setDirection(prefill.direction);
                 setValue(prefill.pressure);
+            } else if (initialPressureDirection === "העלאת" || initialPressureDirection === "הורדת") {
+                // Natural advice suggests the direction, but never invents a
+                // numeric pressure target; the operator must enter the actual
+                // pressure they used.
+                setDirection(initialPressureDirection);
             }
         }
         if (newType === "גיזוז מלמטה התחלה") {
@@ -255,6 +266,8 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
         switch (noteType) {
             case "שמרים": return (value === "" || value2 === "") ? null : `הורדת ${value} דליי שמרים, לחץ אחרי ${value2} bar`;
             case "לחץ": return (direction === "" || value === "") ? null : `${direction} לחץ ל: ${value} bar`;
+            case "השארת לחץ": return holdPressureConfirmed
+                ? "השארת לחץ ללא שינוי לאחר בדיקת גיזוז. ממתינים לספיגת CO₂ מלחץ הראש." : null;
             case "פורק": return value === "" ? null : `כיוון פורק ל: ${value} bar`;
             case "סגירת מיכל": return value === "" ? null : `סגירת נשם, כיוון פורק ל ${value}`;
             case "גיזוז מלמטה התחלה":
@@ -681,6 +694,17 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
                                     </select>
                                     <input type="number" step="0.01" min="0" max="5" placeholder="לחץ" value={value} disabled={isSending}
                                         onChange={(e) => setValue(e.target.value)} />
+                                </div>
+                            )}
+
+                            {noteType === "השארת לחץ" && (
+                                <div className="quickReportPressureHold">
+                                    <p>הלחץ במיכל לא ישתנה. הפעולה תירשם כהחלטה להמתין לספיגת הגז מלחץ הראש, ולא כמדידת לחץ או כשינוי לחץ בפועל.</p>
+                                    <label className="quickReportCheckbox">
+                                        <input type="checkbox" checked={holdPressureConfirmed} disabled={isSending}
+                                            onChange={(event) => setHoldPressureConfirmed(event.target.checked)} />
+                                        <span>מאשר/ת שהוחלט להשאיר את הלחץ ללא שינוי</span>
+                                    </label>
                                 </div>
                             )}
 

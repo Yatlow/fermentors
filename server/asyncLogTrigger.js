@@ -346,6 +346,17 @@ function maybeRebuildAveragesAfterNewestWinsCorrection_() {
   return result;
 }
 
+/** Identify a blocked maintenance phase without changing the scheduler. */
+function smartTimedMaintenance_(label, callback) {
+  const startedAt = Date.now();
+  Logger.log("MAINT START " + label);
+  try {
+    return callback();
+  } finally {
+    Logger.log("MAINT END " + label + " " + ((Date.now() - startedAt) / 1000).toFixed(3) + "s");
+  }
+}
+
 function runAsyncMaintenance_() {
   // Self-migrate after deploy. The existing v3 trigger will execute this new
   // code once, remove the old standalone runFermentorCycle trigger, and leave
@@ -375,7 +386,7 @@ function runAsyncMaintenance_() {
 
   try {
     if (shouldRunFullCycle) {
-      cycle = runFermentorCycle();
+      cycle = smartTimedMaintenance_("full fermentor cycle", function () { return runFermentorCycle(); });
 
       if (cycle && cycle.skipped !== true) {
         smartMarkFullCycleSuccess_(now);
@@ -398,56 +409,56 @@ function runAsyncMaintenance_() {
         clock.text +
         " | full fermentor cycle runs at most once per hour"
       );
-      action0Guard = smartRunNightAction0Guard_(FIREBASE_PROJECT_ID, now);
+      action0Guard = smartTimedMaintenance_("night ACTION-0 guard", function () { return smartRunNightAction0Guard_(FIREBASE_PROJECT_ID, now); });
     }
   } catch (error) {
     console.log("Fermentor maintenance failed: " + error.message);
   }
 
   try {
-    planningSnapshots = runDuePlanningSnapshots_(FIREBASE_PROJECT_ID, now);
+    planningSnapshots = smartTimedMaintenance_("planning snapshots", function () { return runDuePlanningSnapshots_(FIREBASE_PROJECT_ID, now); });
   } catch (error) {
     console.log("Planning snapshot maintenance failed: " + error.message);
   }
 
   try {
-    sheetSync = processPendingSheetSyncJobs_();
+    sheetSync = smartTimedMaintenance_("Sheet sync outbox", function () { return processPendingSheetSyncJobs_(); });
   } catch (error) {
     console.log("Sheet sync maintenance failed: " + error.message);
   }
 
   try {
-    brewCreation = processPendingBrewSheetCreationJobs_();
+    brewCreation = smartTimedMaintenance_("brew Sheet creation", function () { return processPendingBrewSheetCreationJobs_(); });
   } catch (error) {
     console.log("Brew creation outbox maintenance failed: " + error.message);
   }
 
   try {
-    packagingCleanup = cleanupCompletedPackagingOperations_();
+    packagingCleanup = smartTimedMaintenance_("packaging cleanup", function () { return cleanupCompletedPackagingOperations_(); });
   } catch (error) {
     console.log("Packaging operation cleanup failed: " + error.message);
   }
 
   try {
-    operationReceiptCleanup = cleanupLegacyOperationReceipts_();
+    operationReceiptCleanup = smartTimedMaintenance_("operation receipt cleanup", function () { return cleanupLegacyOperationReceipts_(); });
   } catch (error) {
     console.log("Legacy operation receipt cleanup failed: " + error.message);
   }
 
   try {
-    transientCleanup = cleanupTransientCollections_();
+    transientCleanup = smartTimedMaintenance_("transient cleanup", function () { return cleanupTransientCollections_(); });
   } catch (error) {
     console.log("Transient collection cleanup failed: " + error.message);
   }
 
   try {
-    styleModels = maybeRebuildAveragesAfterNewestWinsCorrection_();
+    styleModels = smartTimedMaintenance_("style averages", function () { return maybeRebuildAveragesAfterNewestWinsCorrection_(); });
   } catch (error) {
     console.log("Weekly style averages maintenance failed: " + error.message);
   }
 
   try {
-    logs = flushQueuedLogs_();
+    logs = smartTimedMaintenance_("queued logs", function () { return flushQueuedLogs_(); });
   } catch (error) {
     console.log("Async log flush failed: " + error.message);
   }

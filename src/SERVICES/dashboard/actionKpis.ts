@@ -11,6 +11,8 @@ export type ActionRecord = {
 export type ActionCount = { done: number; total: number };
 
 const classify = (value: string): ActionCategory | null => {
+    // A deliberate hold is an operational decision, not a physical pressure change.
+    if (/pressure-hold|השארת לחץ ללא שינוי/i.test(value)) return "other";
     if (/pressureAdjustment|pressureChange|pressure-adjust|pressure-change|שינוי לחץ|העלאת לחץ|הורדת לחץ/i.test(value)) return "pressure";
     if (/bottomCarbonation|bottom-carb|גיזוז מלמטה/i.test(value)) return "other";
     if (/carb|carbonation|גיזוז/i.test(value)) return "carb";
@@ -21,6 +23,7 @@ const classify = (value: string): ActionCategory | null => {
 };
 
 const normalizeType = (value: string): string => {
+    if (/pressure-hold|השארת לחץ ללא שינוי/i.test(value)) return "pressureHold";
     if (/pressureAdjustment|pressureChange|pressure-adjust|pressure-change|שינוי לחץ|העלאת לחץ|הורדת לחץ/i.test(value)) return "pressureAdjustment";
     if (/pressureClose|pressure-close|סגירת נשם|סגירת מיכל/i.test(value)) return "pressureClose";
     if (/bottomCarbonationFollowUp|bottom-carb-close|סגירת גיזוז מלמטה/i.test(value)) return "bottomCarbonationFollowUp";
