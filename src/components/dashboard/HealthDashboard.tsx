@@ -1494,7 +1494,9 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                             }
                                             : undefined,
                                         anchorRect: event.currentTarget.getBoundingClientRect().toJSON(),
-                                    } }))}><ui.Icon size={16} aria-hidden="true" />{ui.label}</button> : null;
+                                    } }))}><ui.Icon size={16} aria-hidden="true" />{noteType === "לחץ" && alert.pressureSuggestion
+                                        ? (alert.pressureSuggestion === "lower" ? "דווח הורדת לחץ" : "דווח העלאת לחץ")
+                                        : ui.label}</button> : null;
                                 })()}
                                 {alert.dismissible && (
                                     <button
