@@ -545,17 +545,54 @@ export function subscribeToZone(zone: PalletZone, cb: (pallets: Pallet[]) => voi
     };
 }
 
+/** Editing the quantity of a reserved pallet changes physical stock available to
+ * the planned truck. Advance the shared marking revision in the same transaction
+ * so concurrent manual/automatic reservation decisions are forced to retry.
+ */
+async function advanceMarkingGuardForQuantityEdit(tx: import("firebase/firestore").Transaction) {
+    const guardRef = shipmentMarkingGuardRef();
+    const snapshot = await tx.get(guardRef);
+    const revision = Number(snapshot.data()?.revision ?? 0);
+    tx.set(guardRef, shipmentMarkingGuardWrite(nextShipmentMarkingRevision(revision, revision)));
+}
+
 export async function updatePallet(palletId: string, input: { itemType: PalletItemType; beerStyle: string; subLabel?: string | null; quantity: number; expiryDateStr?: string | null; batchNumber?: string | null }) {
     if (!input.beerStyle.trim()) throw new Error("יש להזין סגנון בירה");
     if (!Number.isFinite(input.quantity) || input.quantity <= 0) throw new Error("כמות חייבת להיות גדולה מ-0");
     const max = maxPerPalletFor(input.itemType);
-    if (input.quantity > max) throw new Error(`משטח בודד יכול להכיל עד ${max} ${input.itemType === "kegs" ? "חביות" : "ארגזים"}`);
+    const nextQuantity = Math.round(input.quantity);
+    if (nextQuantity > max) throw new Error(`משטח בודד יכול להכיל עד ${max} ${input.itemType === "kegs" ? "חביות" : "ארגזים"}`);
     const ref = doc(db, PALLETS_COLLECTION, palletId);
     await runTransaction(db, async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error("המשטח לא נמצא");
-        if (snap.data().zone === "shipped") throw new Error("לא ניתן לערוך משטח שכבר נשלח: נתוניו משמשים לעקיבות.");
-        tx.update(ref, { itemType: input.itemType, beerStyle: input.beerStyle.trim(), subLabel: input.subLabel?.trim() || null, quantity: Math.round(input.quantity), heightCm: calcHeightCm(input.itemType, Math.round(input.quantity)), expiryDateStr: input.expiryDateStr?.trim() || null, batchNumber: input.batchNumber?.trim() || null, updatedAt: serverTimestamp() });
+        const pallet = snap.data() as Pallet;
+        if (pallet.zone === "shipped") throw new Error("לא ניתן לערוך משטח שכבר נשלח: נתוניו משמשים לעקיבות.");
+
+        const subLabel = input.subLabel?.trim() || null;
+        if (pallet.markedForShipment) {
+            // Reserving a pallet must not silently allow changing the product/lot
+            // identity that the shipment picker already selected.
+            const normalized = (value?: string | null) => value?.trim() || null;
+            if (input.itemType !== pallet.itemType ||
+                input.beerStyle.trim() !== pallet.beerStyle ||
+                normalized(input.batchNumber) !== normalized(pallet.batchNumber) ||
+                normalized(input.expiryDateStr) !== normalized(pallet.expiryDateStr)) {
+                throw new Error("המשטח מסומן למשלוח. לשינוי סגנון, סוג פריט, אצווה או תפוגה יש להסיר תחילה את הסימון למשלוח.");
+            }
+            const changedQuantity = nextQuantity !== pallet.quantity;
+            if (changedQuantity) await advanceMarkingGuardForQuantityEdit(tx);
+            // Write only the fields that changed. Legacy pallet documents may
+            // omit batch/expiry fields, and normalizing them to null here would
+            // trigger a prohibited identity update in Firestore rules.
+            tx.update(ref, {
+                ...(changedQuantity ? { quantity: nextQuantity, heightCm: calcHeightCm(pallet.itemType, nextQuantity) } : {}),
+                ...(subLabel !== normalized(pallet.subLabel) ? { subLabel } : {}),
+                updatedAt: serverTimestamp(),
+            });
+            return;
+        }
+        tx.update(ref, { itemType: input.itemType, beerStyle: input.beerStyle.trim(), subLabel, quantity: nextQuantity, heightCm: calcHeightCm(input.itemType, nextQuantity), expiryDateStr: input.expiryDateStr?.trim() || null, batchNumber: input.batchNumber?.trim() || null, updatedAt: serverTimestamp() });
     });
 }
 
@@ -570,6 +607,8 @@ export async function updatePalletQuantity(palletId: string, quantity: number) {
         if (pallet.zone === "shipped") throw new Error("לא ניתן לשנות כמות של משטח שכבר נשלח.");
         const max = maxPerPalletFor(pallet.itemType);
         if (nextQuantity > max) throw new Error(`משטח בודד יכול להכיל עד ${max} ${pallet.itemType === "kegs" ? "חביות" : "ארגזים"}`);
+        if (nextQuantity === pallet.quantity) return;
+        if (pallet.markedForShipment) await advanceMarkingGuardForQuantityEdit(tx);
         tx.update(ref, { quantity: nextQuantity, heightCm: calcHeightCm(pallet.itemType, nextQuantity), updatedAt: serverTimestamp() });
     });
 }
@@ -580,6 +619,7 @@ export async function deletePallet(palletId: string): Promise<void> {
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error("המשטח כבר לא קיים");
         if (snap.data().zone === "shipped") throw new Error("לא ניתן למחוק משטח שכבר נשלח: הוא משמש לעקיבות.");
+        if (snap.data().markedForShipment) throw new Error("המשטח מסומן למשלוח. יש להסיר את הסימון לפני מחיקתו.");
         tx.delete(ref);
     });
 }
@@ -593,6 +633,7 @@ export async function splitPallet(palletId: string, splitQty: number, splitLabel
         if (!snap.exists()) throw new Error("המשטח לא נמצא");
         const pallet = { id: snap.id, ...(snap.data() as Record<string, unknown>) } as Pallet;
         if (pallet.zone === "shipped") throw new Error("לא ניתן לפצל משטח שכבר נשלח.");
+        if (pallet.markedForShipment) throw new Error("המשטח מסומן למשלוח. יש להסיר את הסימון לפני פיצולו.");
         if (quantityToSplit <= 0 || quantityToSplit >= pallet.quantity) throw new Error("כמות הפיצול חייבת להיות בין 1 לכמות פחות 1");
         const remainingQty = pallet.quantity - quantityToSplit;
         tx.update(ref, { quantity: remainingQty, heightCm: calcHeightCm(pallet.itemType, remainingQty), updatedAt: serverTimestamp() });
