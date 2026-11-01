@@ -21,6 +21,7 @@ import { futureTanks, openRuns, shortDate, type ShipmentEvent } from "../../SERV
 import {
   normalizeEmptyTankFlagsForSchedule,
   tankReleases,
+  reconcilePhysicalCycleEmptying,
   validateProduction,
   validateProductionIssues,
   proposePendingPackagingVolumeCorrection,
@@ -161,18 +162,33 @@ export default function PlanningBoard({
   );
   const releases = useMemo(() => {
     const base = allReleases;
-    const schedules = projectTankSchedules(plans, settings);
+    // The release calculation and the assignment picker must project the
+    // SAME dated packaging decisions and live physical tank snapshot. A raw
+    // canonical schedule may retain an unclosed historical forecast even
+    // though an exact physical batch is planned to empty before this week.
+    const schedules = projectTankSchedules(releasePlans, settings, today, tanks);
     const weekEnd = addDays(week, 6);
+    const lastBrewDay = addDays(week, 3);
+    const currentWeekCycleIds = new Set(current.brews.map((brew) => brew.id));
     return base.filter((release) => {
       if (!release.date || release.date > weekEnd) return false;
       const candidateDate = release.date > week ? release.date : week;
-      // The assignment editor only needs to show tanks with a real canonical
-      // opening in this week. Style-specific readiness is validated on save.
-      const currentWeekCycleIds = new Set(current.brews.map((brew) => brew.id));
-      const cycles = (schedules.get(release.tankId) ?? []).filter((cycle) => !currentWeekCycleIds.has(cycle.cycleId));
-      return tankCanHostCycle(cycles, candidateDate, candidateDate);
+      // Actual brewery shifts are Monday-Wednesday; a later release cannot
+      // be assigned to a brew in this operating week.
+      if (candidateDate > lastBrewDay) return false;
+      // Keep saved assignments visible, but only ignore those exact cycles
+      // in this picker. Every earlier and later cycle still blocks overlap.
+      const reconciled = reconcilePhysicalCycleEmptying(
+        schedules.get(release.tankId) ?? [],
+        brews.find((source) => source.id === release.tankId),
+        tanks.find((tank) => tank.id === release.tankId),
+        release,
+        today,
+      );
+      const otherCycles = reconciled.filter((cycle) => !currentWeekCycleIds.has(cycle.cycleId));
+      return tankCanHostCycle(otherCycles, candidateDate, candidateDate);
     });
-  }, [allReleases, plans, settings, week, current.brews]);
+  }, [allReleases, releasePlans, settings, today, tanks, brews, week, current.brews]);
 
   const productLabel = (id: string) => {
     const product = settings.products.find((item) => item.id === id);
