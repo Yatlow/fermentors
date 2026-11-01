@@ -20,6 +20,12 @@ const previous = {
 assert.equal(tankStageInputsEqual(previous, {
   ...previous, currentData: { ...previous.currentData, pressure: 1.6, pH: 4.3 },
 }), true, "pressure/pH reports cannot temporarily reset stage");
+assert.equal(tankStageInputsEqual(previous, {
+  ...previous, currentData: { ...previous.currentData, temp: 0.8 },
+}), true, "routine temperature movement within cold phase must not reset stage");
+assert.equal(tankStageInputsEqual(previous, {
+  ...previous, currentData: { ...previous.currentData, notes: "הורדת שמרים" },
+}), true, "unrelated cellar action notes must not reset tank stage");
 assert.equal(tankStageInputsEqual(previous, { ...previous, batchNumber: "#1611" }), false);
 assert.equal(tankStageInputsEqual(previous, { ...previous, action: 3 }), false);
 assert.equal(tankStageInputsEqual(previous, { ...previous, tankStatus: true }), false);
