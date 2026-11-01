@@ -149,6 +149,22 @@ export function firstInRangePressureAdvice(
 }
 
 
+/**
+ * Was any actual carbonation reading in the current batch in range already?
+ * Examine the complete dated history up to today, not just the latest reading.
+ * A later out-of-range test must never reset the first-in-range milestone.
+ */
+export function hasReachedCarbonationRange(
+    measurements: CarbonationPressureReading[],
+    todayDate: string,
+    isInRange: (carbonation: number) => boolean,
+): boolean {
+    return datedMeasurements(measurements, todayDate).some((entry) => {
+        const carbonation = numericReading(entry.reading.carbonation);
+        return carbonation !== null && isInRange(carbonation);
+    });
+}
+
 export type SubsequentCarbonationPressureAdvice = {
     kind: "lower" | "raise" | "lowerOrHold";
     carbonation: number;
