@@ -9,7 +9,8 @@ import { shouldShowNeglectedTank } from "./neglectWeekday";
 import { evaluateColdTankNeglect } from "./neglectAfterCooling";
 import { hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext, shouldRecommendCarbonationRetestOnDate } from "./carbonationRetestPolicy";
-import { hasStablePlatoForCooling } from "./coolingPlatoStability";
+import { getCoolingPlatoStabilityEvidence } from "./coolingPlatoStability";
+import { carbonationSpecKey, getFermentationEndPlatoLimit } from "./fermentationEndPlato";
 import { yeastDropAllowsCooling } from "./coolingYeastTiming";
 import { carbonationPressureContext, firstInRangePressureAdvice, subsequentCarbonationPressureAdvice, livePressureReading, preferredPressureReading } from "./carbonationPressureInsights";
 
@@ -48,11 +49,7 @@ export function isCarbonationOutOfRange(
         return { outOfSpec: false, importance: 1 };
     }
 
-    const normalizedStyle =
-        String(style || "")
-            .trim()
-            .toLowerCase()
-            .split(/\s+/)[0];;
+    const normalizedStyle = carbonationSpecKey(style);
 
     const target =
         specs[normalizedStyle] ?? specs.other;
@@ -1129,37 +1126,54 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // A previous day's Plato is never sufficient, even when the latest tank
     // report is today's temperature/pressure or the yeast history is ready.
     const todayPlato = latestNumericOnDate("plato", todayDate);
-    const readyToCoolDown = (
-        todayPlato !== null &&
-        hasStablePlatoForCooling(sortedMeasurements) &&
+    const stabilityEvidence = todayPlato !== null
+        ? getCoolingPlatoStabilityEvidence(sortedMeasurements)
+        : null;
+    const fermentationEndPlatoLimit = getFermentationEndPlatoLimit(style, givenSpecs);
+    // A flat Plato curve is necessary but not enough: it can be a stalled
+    // fermentation above the style's expected final gravity.
+    const platoAboveFermentationEnd = todayPlato !== null &&
+        fermentationEndPlatoLimit !== null &&
+        todayPlato > fermentationEndPlatoLimit;
+    const coolingCandidate = stabilityEvidence !== null &&
         stage.name === "בתסיסה" &&
-        coolingYeastReady
-    )
+        coolingYeastReady;
+    const coolingReviewOnly = coolingCandidate && platoAboveFermentationEnd && !CooldDate;
+    const readyToCoolDown = coolingCandidate && !platoAboveFermentationEnd;
     let readyToCoolDownText = "";
     let coolDownDisplay = readyToCoolDown;
     let dispCoolDownGenerallRec = false;
-    if (!readyToCoolDown && todayPlato !== null && stage.name === "בתסיסה") {
-        readyToCoolDownText = "המיכל עוד לא מוכן לקירור -עדיין לא הסתיימה התסיסה"
-        if (todayPlato < 5 && coolingYeastReady) coolDownDisplay = true;
+    if (coolingReviewOnly) {
+        const repeatText = stabilityEvidence.sampleCount >= 3
+            ? `הבדיקה חזרה על עצמה ${stabilityEvidence.sampleCount} פעמים ללא שינוי בפלאטו`
+            : "שתי בדיקות פלאטו זהות בהפרש של לפחות 48 שעות";
+        readyToCoolDownText =
+            `${repeatText}, אבל הסוכר עדיין ${todayPlato}°P — מעל סף סיום התסיסה לסגנון (${fermentationEndPlatoLimit}°P). ` +
+            "אין עדיין המלצה להתחיל קירור; מומלץ לוודא שהתסיסה הסתיימה.";
+        // Show a visible *review* in place of cooling, never an action to report
+        // or an item that lowers the cellaring completion score.
+        coolDownDisplay = true;
+        dispCoolDownGenerallRec = true;
+    } else if (!readyToCoolDown && todayPlato !== null && stage.name === "בתסיסה") {
+        readyToCoolDownText = "המיכל עוד לא מוכן לקירור -עדיין לא הסתיימה התסיסה";
+        if (todayPlato < 5 && coolingYeastReady && !platoAboveFermentationEnd) coolDownDisplay = true;
     }
     if (readyToCoolDown) {
         if (CooldDate) {
-            if (Number(lastMeasurement.temp) > 9) { readyToCoolDownText = "לפי הרישום המיכל כבר קורר- במדידת טמפ' זה יעודכן, מומלץ לוודא" }
-            else coolDownDisplay = false
+            if (Number(lastMeasurement.temp) > 9) { readyToCoolDownText = "לפי הרישום המיכל כבר קורר- במדידת טמפ' זה יעודכן, מומלץ לוודא"; }
+            else coolDownDisplay = false;
         } else {
             if (Number(lastMeasurement.temp) > 9) readyToCoolDownText = "המיכל מוכן לקירור. מומלץ לכוון טמפ' לקירור ולשנוק את ברזי הגליקול";
             dispCoolDownGenerallRec = true;
-
         }
-
     }
     const requiresToCoolDown = {
         display: dispCoolDownGenerallRec,
         req: coolDownDisplay,
         reason: readyToCoolDownText,
-        importance: !readyToCoolDown ? 0 : 1,
-    }
-
+        importance: readyToCoolDown ? 1 : 0,
+        reviewOnly: coolingReviewOnly,
+    };
 
     const pressureSpecs: Record<string, number> = givenSpecs.pressure;
 
@@ -1204,7 +1218,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const hasLatestCarb = lastMeasurement?.carbonation !== null &&
         lastMeasurement?.carbonation !== undefined &&
         Number.isFinite(Number(lastMeasurement.carbonation));
-    const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
+    const carbonationTarget = givenSpecs.carbonation?.[carbonationSpecKey(style)] ?? givenSpecs.carbonation?.other;
     // Pressure changes update the live tank but never overwrite the morning
     // measurement in Sheets. Prefer the freshest timestamped source.
     const sourceTank = brews.find((tank) => String(tank.tankNumber) === String(tankNumber));
