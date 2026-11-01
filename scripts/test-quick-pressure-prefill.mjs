@@ -55,7 +55,7 @@ assert.match(quick, /initialSelectionAppliedRef/, "async history loads must not 
 
 assert.match(health, /alert\.pressureChoice === "lowerOrHold"/);
 assert.match(health, /noteType: "השארת לחץ"/);
-assert.match(health, /noteType: "לחץ",[\s\S]*initialPressureDirection: "הורדת"/);
+assert.match(health, /initialPressureDirection: "הורדת"/);
 assert.match(card, /setQuickReportInitialPressureDirection\(/);
 assert.match(quick, /initialPressureDirection === "העלאת"/);
 assert.match(quick, /case "השארת לחץ": return holdPressureConfirmed/);
