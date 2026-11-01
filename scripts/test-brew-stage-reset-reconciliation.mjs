@@ -18,6 +18,9 @@ const ctx = {
 };
 vm.createContext(ctx);
 vm.runInContext(source, ctx);
+// The server defines its own network-backed stale-state guard: replace it
+// after evaluating the service so this test remains isolated and read-only.
+ctx.brewActionTankStillCurrent_ = () => true;
 ctx.processAction0({ tankNumber: 2, sheetUrl: "https://docs.google.com/spreadsheets/d/test", action: 0 });
 assert.equal(reconciliations, 1, "empty brew stages must clear stale live progress");
 assert.equal(extractedVolumes, 0, "an empty timeline must not accidentally transition ACTION 0");
