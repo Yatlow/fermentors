@@ -24,6 +24,7 @@ import {
   assignableTankReleasesForWeek,
   validateProduction,
   validateProductionIssues,
+  productionScopeForBrewAssignments,
   proposePendingPackagingVolumeCorrection,
   validateBrewReleases,
 } from "../../SERVICES/planning/productionCycle";
@@ -344,8 +345,29 @@ export default function PlanningBoard({
     // number. Keep validating this week and every future week's packaging;
     // validateBrewReleases below still checks current-cycle release.
     const productionScope = (weeks: WeekPlan[]) => {
-      if (confirmBrews && !packagingWasEdited)
-        return weeks.filter((week) => week.id >= effectiveNext.id);
+      if (confirmBrews && !packagingWasEdited) {
+        // A saved packaging decision on a different tank must not block
+        // approving these brew assignments. Keep all brews for dependency
+        // checks, but validate packaging only on tanks whose assignments
+        // actually changed. No unrelated future packaging is discarded from
+        // the persisted plan.
+        const before = new Map(current.brews.map((brew) => [brew.id, brew]));
+        const after = new Map(effectiveNext.brews.map((brew) => [brew.id, brew]));
+        const changed = [
+          ...current.brews.filter((brew) =>
+            JSON.stringify(brew) !== JSON.stringify(after.get(brew.id))),
+          ...effectiveNext.brews.filter((brew) =>
+            JSON.stringify(brew) !== JSON.stringify(before.get(brew.id))),
+        ];
+        const touched = new Set(changed.flatMap((brew) => [
+          brew.tankId,
+          before.get(brew.id)?.tankId,
+        ].filter((id): id is string => !!id)));
+        return productionScopeForBrewAssignments(
+          weeks.filter((week) => week.id >= effectiveNext.id),
+          touched,
+        );
+      }
       if (!packagingWasEdited) return weeks;
       // Replanning one physical batch must not revalidate an unrelated,
       // unchanged legacy packaging row against today's (possibly empty) tank.
