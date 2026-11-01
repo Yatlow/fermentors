@@ -12,7 +12,7 @@ import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestP
 import { getCoolingPlatoStabilityEvidence } from "./coolingPlatoStability";
 import { carbonationSpecKey, getFermentationEndPlatoLimit } from "./fermentationEndPlato";
 import { yeastDropAllowsCooling } from "./coolingYeastTiming";
-import { carbonationPressureContext, firstInRangePressureAdvice, subsequentCarbonationPressureAdvice, livePressureReading, preferredPressureReading } from "./carbonationPressureInsights";
+import { carbonationPressureContext, firstInRangePressureAdvice, subsequentCarbonationPressureAdvice, hasReachedCarbonationRange, livePressureReading, preferredPressureReading } from "./carbonationPressureInsights";
 
 
 
@@ -1280,6 +1280,17 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         )
         : null;
 
+    // While no carbonation test in THIS batch has ever reached the acceptable
+    // range, keep the existing generic pressure-change recommendation but let
+    // the brewer explicitly record a decision to hold the pressure instead.
+    // This is a UI/recording choice, not an automatic physical-pressure target.
+    const beforeFirstInRangeCarbonation = coldCarbNeedsPressureAdjustment &&
+        !hasReachedCarbonationRange(
+            sortedMeasurements,
+            todayDate,
+            (value) => !isCarbonationOutOfRange(value, style, givenSpecs).outOfSpec,
+        );
+
     const requiredBottomCarbonation = {
         display: false,
         req: false,
@@ -1331,7 +1342,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         // Two alternative operator decisions for low carbonation despite
         // confirmed high head pressure. No pressure change is reported unless
         // the operator actually chooses the lowering action.
-        pressureChoice: subsequentPressureAdvice?.kind === "lowerOrHold" ? "lowerOrHold" as const : undefined,
+        pressureChoice: subsequentPressureAdvice?.kind === "lowerOrHold"
+            ? "lowerOrHold" as const
+            : beforeFirstInRangeCarbonation ? "changeOrHold" as const : undefined,
         pressureSuggestion: firstInRangeAdvice?.direction ??
             (subsequentPressureAdvice?.kind === "lower" ? "lower" as const :
              subsequentPressureAdvice?.kind === "raise" ? "raise" as const : undefined),
@@ -1340,7 +1353,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 ? `מאז ההגעה הראשונה לטווח התקין, הגיזוז ירד ל-${subsequentPressureAdvice.carbonation} (יעד ${carbonationTarget}). ${advicePressureContext}. לחץ הראש גבוה מ-0.9 bar: ניתן להוריד לחץ או להשאיר אותו ללא שינוי כדי לאפשר ספיגת CO₂ נוספת. יש לבחור את הפעולה שבוצעה בפועל.`
                 : `לאחר שכבר הושג גיזוז תקין, הגיזוז כעת ${subsequentPressureAdvice.carbonation} (יעד ${carbonationTarget}). ${advicePressureContext}. מומלץ ${subsequentPressureAdvice.kind === "lower" ? "להוריד" : "להעלות"} לחץ.`
             : coldCarbNeedsPressureAdjustment
-                ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${advicePressureContext}. טרם הושג גיזוז תקין באצווה; מומלץ לבצע שינוי לחץ בהתאם להמלצה הקיימת או לוודא שבוצע.`
+                ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${advicePressureContext}. ${beforeFirstInRangeCarbonation
+                    ? "טרם הושג גיזוז תקין באצווה. ניתן לדווח על שינוי לחץ או לבחור להשאיר את הלחץ ללא שינוי בהתאם לשיקול דעת המבשלן."
+                    : "מומלץ לבצע שינוי לחץ בהתאם להמלצה הקיימת או לוודא שבוצע."}`
                 : firstInRangeAdvice
                     ? `הגיזוז הגיע לראשונה לטווח התקין (${firstInRangeAdvice.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${advicePressureContext}. מומלץ לשקול ${firstInRangeAdvice.direction === "lower" ? "הורדת" : "העלאת"} לחץ.`
                     : `מומלץ לכוון פורק ל ${effectivePressureTarget}, הלחץ כרגע ${Number(effectivePressureTarget) > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,

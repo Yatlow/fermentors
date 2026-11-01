@@ -7,7 +7,7 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const transpiled = ts.transpileModule(read("../src/SERVICES/cellering/carbonationPressureInsights.ts"), {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { latestPressureReading, carbonationPressureContext, firstInRangePressureAdvice, subsequentCarbonationPressureAdvice, livePressureReading, preferredPressureReading } =
+const { latestPressureReading, carbonationPressureContext, firstInRangePressureAdvice, subsequentCarbonationPressureAdvice, hasReachedCarbonationRange, livePressureReading, preferredPressureReading } =
     await import("data:text/javascript;base64," + Buffer.from(transpiled).toString("base64"));
 
 const today = "2026-10-28";
@@ -121,6 +121,67 @@ test("first in-range recommendation describes the first arrival, not the first t
         firstInRangePressureAdvice(earlierMeasurements, "2026-10-28", inRange)?.direction,
         "lower",
     );
+});
+
+test("pre-first-in-range phase permits a deliberate hold when all carbonation readings remain out of spec", () => {
+    const history = [
+        carb("2026-10-25_0900", 2.1, 0.4),
+        carb("2026-10-27_0920", 2.35, 1.1),
+        carb("2026-10-28_0830", 2.31, 0.7),
+    ];
+    assert.equal(hasReachedCarbonationRange(history, today, inRange), false);
+    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45), null);
+    // The operator should be able to hold even below 0.9 bar; this is an
+    // explicit choice, not an automatic instruction to alter head pressure.
+    history[2].pressure = 1.2;
+    assert.equal(hasReachedCarbonationRange(history, today, inRange), false);
+});
+
+test("a prior in-range measurement ends the pre-first phase permanently for that batch", () => {
+    const history = [
+        carb("2026-10-25_0800", 2.32, 0.5),
+        carb("2026-10-26_0800", 2.45, 0.8),
+        carb("2026-10-28_0800", 2.3, 0.8),
+    ];
+    assert.equal(hasReachedCarbonationRange(history, today, inRange), true);
+    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45)?.kind, "raise");
+    history[2].pressure = 0.91;
+    assert.equal(subsequentCarbonationPressureAdvice(history, today, inRange, 2.45)?.kind, "lowerOrHold");
+});
+
+test("only real in-range dates up to today end the first-acceptable-carbonation phase", () => {
+    assert.equal(hasReachedCarbonationRange([
+        carb("2026-10-25_0800", "", 1.0),
+        carb("2026-10-26_0840", null, 1.1),
+        carb("2026-10-28_0910", 2.3, 0.9),
+        carb("2026-10-29_0900", 2.45, 0.7),
+    ], today, inRange), false);
+    assert.equal(hasReachedCarbonationRange([
+        carb("2026-10-27_0800", 2.45, 0.8),
+        carb("2026-10-28_0855", 2.60, 1.1),
+    ], today, inRange), true);
+    assert.equal(hasReachedCarbonationRange([
+        carb("2026-10-25_0845", 2.3, 1.1),
+        carb("2026-10-28_1000", 2.44, 1.0),
+    ], today, inRange), true);
+});
+
+test("an explicit hold resolves today's carbonation intervention without changing pressure", async () => {
+    const actionSource = ts.transpileModule(read("../src/SERVICES/cellering/cellarActionState.ts"), {
+        compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const { hasCellarActionOnDate } = await import(
+        "data:text/javascript;base64," + Buffer.from(actionSource).toString("base64")
+    );
+    const note = "השארת לחץ ללא שינוי לאחר בדיקת גיזוז. החלטת סלרינג להמתין ללא שינוי לחץ.";
+    const history = [
+        { id: "2026-10-27_1000", notes: note },
+        { id: "2026-10-28_0810", carbonation: 2.3, pressure: 0.7, notes: "" },
+    ];
+    assert.equal(hasCellarActionOnDate(history, today, ["השארת לחץ ללא שינוי"]), false);
+    history.push({ id: "2026-10-28_1240", notes: note });
+    assert.equal(hasCellarActionOnDate(history, today, ["השארת לחץ ללא שינוי"]), true);
+    assert.equal(hasCellarActionOnDate(history, today, ["העלאת לחץ", "הורדת לחץ"]), false);
 });
 
 test("before the first in-range carbonation reading, the existing generic rule stays in force", () => {

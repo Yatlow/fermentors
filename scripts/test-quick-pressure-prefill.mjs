@@ -55,12 +55,30 @@ assert.match(quick, /initialSelectionAppliedRef/, "async history loads must not 
 
 assert.match(health, /alert\.pressureChoice === "lowerOrHold"/);
 assert.match(health, /noteType: "השארת לחץ"/);
-assert.match(health, /initialPressureDirection: "הורדת"/);
+assert.match(health, /initialPressureDirection: alert\.pressureChoice === "lowerOrHold" \? "הורדת" : undefined/);
 assert.match(card, /setQuickReportInitialPressureDirection\(/);
 assert.match(quick, /initialPressureDirection === "העלאת"/);
 assert.match(quick, /case "השארת לחץ": return holdPressureConfirmed/);
 assert.match(quick, /"השארת לחץ ללא שינוי לאחר בדיקת גיזוז/);
 assert.match(quick, /const isPressureAction = noteType === "לחץ"/);
+assert.doesNotMatch(quick, /const isPressureAction = noteType === "השארת לחץ"/);
+
+// The cellar KPI must offer BOTH choices before the very first in-spec test,
+// while preserving the earlier post-milestone lower-or-hold case unchanged.
+const engine = readFileSync(new URL("../src/SERVICES/cellering/calculateCelleringRecomendations.ts", import.meta.url), "utf8");
+assert.match(engine, /const beforeFirstInRangeCarbonation = coldCarbNeedsPressureAdjustment/);
+assert.match(engine, /!hasReachedCarbonationRange\(/);
+assert.match(engine, /beforeFirstInRangeCarbonation \? "changeOrHold" as const/);
+assert.match(engine, /"lowerOrHold" as const/);
+assert.match(health, /pressureChoice\?: "lowerOrHold" \| "changeOrHold"/);
+assert.match(health, /if \(alert\.pressureChoice && available\)/, "both variants show two quick actions in the KPI");
+assert.match(health, /alert\.pressureChoice === "lowerOrHold" \? "דווח הורדת לחץ" : "דווח שינוי לחץ"/);
+assert.match(health, /initialPressureDirection: alert\.pressureChoice === "lowerOrHold" \? "הורדת" : undefined/,
+  "the generic pre-milestone action must not invent a raise/lower direction");
+assert.match(health, /noteType: "השארת לחץ"/);
+assert.match(quick, /case "השארת לחץ": return holdPressureConfirmed/);
+assert.match(quick, /const isPressureAction = noteType === "לחץ"/,
+  "only a physical pressure change can write current tank pressure");
 assert.doesNotMatch(quick, /const isPressureAction = noteType === "השארת לחץ"/);
 
 console.log("Scheduled pressure quick-report prefill checks passed");

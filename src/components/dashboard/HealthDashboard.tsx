@@ -68,7 +68,7 @@ type HealthAlert = {
     scheduledActionType?: ScheduledCellarActionType | "ventAdjust";
     pressureDirection?: PressureChangeDirection;
     targetPressure?: number;
-    pressureChoice?: "lowerOrHold";
+    pressureChoice?: "lowerOrHold" | "changeOrHold";
     pressureSuggestion?: "lower" | "raise";
     importance?: number;
     dismissible?: boolean;
@@ -80,7 +80,7 @@ type Recommendation = {
     actionType?: ScheduledCellarActionType | "ventAdjust";
     pressureDirection?: PressureChangeDirection;
     targetPressure?: number;
-    pressureChoice?: "lowerOrHold";
+    pressureChoice?: "lowerOrHold" | "changeOrHold";
     pressureSuggestion?: "lower" | "raise";
     req?: boolean | "" | 0 | null;
     display?: boolean;
@@ -1426,7 +1426,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                         pressureAdjustment: "לחץ",
                                     };
                                     const scheduledMapping: Record<string, string> = { carbTest: "גיזוז", yeastDrop: "שמרים", bottomCarbonation: "גיזוז מלמטה התחלה", pressureChange: "לחץ", coolDown: "קירור", ventAdjust: "פורק" };
-                                    const noteType = alert.pressureChoice === "lowerOrHold" ? "לחץ" : alert.scheduledActionType ? scheduledMapping[alert.scheduledActionType] : alert.recommendationKey === "pressureAdjustment" && alert.detail.includes("לכוון פורק") ? "פורק" : mapping[alert.recommendationKey];
+                                    const noteType = alert.pressureChoice ? "לחץ" : alert.scheduledActionType ? scheduledMapping[alert.scheduledActionType] : alert.recommendationKey === "pressureAdjustment" && alert.detail.includes("לכוון פורק") ? "פורק" : mapping[alert.recommendationKey];
                                     const tank = brews.find(t => String(t.tankNumber) === String(alert.tankNumber));
                                     const isWarm = tank && Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";
                                     const warmOnly = ["סגירת מיכל", "דרייהופ", "דיאציטיל", "קירור"];
@@ -1445,18 +1445,18 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                         "דיאציטיל": { label: "דווח מנוחת דיאצטיל", Icon: ThermometerSun },
                                     };
                                     const ui = actionUI[noteType];
-                                    if (alert.pressureChoice === "lowerOrHold" && available) {
+                                    if (alert.pressureChoice && available) {
                                         return <div className="health-pressure-choices" role="group" aria-label="בחירת פעולה לאחר בדיקת גיזוז">
                                             <button type="button" className="health-quick-report-button" onClick={(event) =>
                                                 window.dispatchEvent(new CustomEvent("cellar-open-quick-report", {
                                                     detail: {
                                                         tankNumber: String(alert.tankNumber),
                                                         noteType: "לחץ",
-                                                        initialPressureDirection: "הורדת",
+                                                        initialPressureDirection: alert.pressureChoice === "lowerOrHold" ? "הורדת" : undefined,
                                                         anchorRect: event.currentTarget.getBoundingClientRect().toJSON(),
                                                     },
                                                 }))}>
-                                                <ClockPlus size={16} aria-hidden="true" />דווח הורדת לחץ
+                                                <ClockPlus size={16} aria-hidden="true" />{alert.pressureChoice === "lowerOrHold" ? "דווח הורדת לחץ" : "דווח שינוי לחץ"}
                                             </button>
                                             <button type="button" className="health-quick-report-button" onClick={(event) =>
                                                 window.dispatchEvent(new CustomEvent("cellar-open-quick-report", {
