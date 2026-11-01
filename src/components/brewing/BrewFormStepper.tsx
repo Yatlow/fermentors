@@ -1012,6 +1012,7 @@ export default function BrewFormStepper({
   // onChange updates execution immediately, so onBlur cannot use `fields` to
   // discover the previously committed kettle volume. Keep that value separately.
   const committedKettleVolumeRef = useRef<Record<number, number | null>>({});
+  const stageTimeBeforeEditRef = useRef<Record<string, string>>({});
   const initialProductionPullKey = useRef("");
   const lastHandledSheetEditRevision = useRef<number | null>(null);
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2195,7 +2196,7 @@ export default function BrewFormStepper({
 
     const duration = knownDuration(stage);
     if (!value) {
-      const oldStart = String(fields[`${stage.key}.start`] || "").trim();
+      const oldStart = String(stageTimeBeforeEditRef.current[`${currentBlock}:${stage.key}.start`] ?? fields[`${stage.key}.start`] ?? "").trim();
       const calculatedEnd = oldStart && duration !== null ? addMinutesToTime(oldStart, duration) : "";
       if (calculatedEnd &&
           String(fields[`${stage.key}.end`] || "").trim() === calculatedEnd) {
@@ -2269,7 +2270,7 @@ export default function BrewFormStepper({
       ];
 
       if (!value) {
-        const priorEnd = String(fields[`${stage.key}.end`] || "").trim();
+        const priorEnd = String(stageTimeBeforeEditRef.current[`${currentBlock}:${stage.key}.end`] ?? fields[`${stage.key}.end`] ?? "").trim();
         if (priorEnd) nextExecution = clearCalculatedSuccessors(stage, priorEnd, nextExecution, writes);
       }
       let nextStage = value ? nextTimelineStage(stage) : null;
@@ -4193,6 +4194,9 @@ export default function BrewFormStepper({
                         : ""
                     }
                     value={localValue(`${stage.key}.start`)}
+                    onFocus={() => {
+                      stageTimeBeforeEditRef.current[`${currentBlock}:${stage.key}.start`] = localValue(`${stage.key}.start`);
+                    }}
                     onChange={(e) =>
                       setLocal(`${stage.key}.start`, formatTimeWhileTyping(e.target.value))
                     }
@@ -4229,6 +4233,9 @@ export default function BrewFormStepper({
                           : ""
                       }
                       value={localValue(`${stage.key}.end`)}
+                      onFocus={() => {
+                        stageTimeBeforeEditRef.current[`${currentBlock}:${stage.key}.end`] = localValue(`${stage.key}.end`);
+                      }}
                       onChange={(e) =>
                         setLocal(`${stage.key}.end`, formatTimeWhileTyping(e.target.value))
                       }
