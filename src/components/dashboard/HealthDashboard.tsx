@@ -737,7 +737,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                      unresolvedScheduled.some((row) => row.actionType === "coolDown"))
                                 )
                             ),
-                            ...manualDue.map((row) => {
+                            ...manualDue.map((row): KeyedRecommendation => {
                                 const conflict = row.actionType === "pressureChange"
                                     ? scheduledPressureDecisionConflictText(row, measurements)
                                     : null;
