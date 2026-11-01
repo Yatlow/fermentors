@@ -69,6 +69,10 @@ const engine = readFileSync(new URL("../src/SERVICES/cellering/calculateCellerin
 assert.match(engine, /const beforeFirstInRangeCarbonation = coldCarbNeedsPressureAdjustment/);
 assert.match(engine, /!hasReachedCarbonationRange\(/);
 assert.match(engine, /beforeFirstInRangeCarbonation \? "changeOrHold" as const/);
+assert.match(engine, /firstInRangeAdvice\?\.direction === "lower" && firstInRangeAdvice\.pressure\.value > 0\.9/,
+  "first in-range carbonation with pressure over 0.9 must offer lowering OR holding");
+assert.match(engine, /subsequentPressureAdvice\?\.kind === "lowerOrHold" \|\|/,
+  "post-milestone dual choice must remain intact");
 assert.match(engine, /"lowerOrHold" as const/);
 assert.match(health, /pressureChoice\?: "lowerOrHold" \| "changeOrHold"/);
 assert.match(health, /if \(alert\.pressureChoice && available\)/, "both variants show two quick actions in the KPI");
