@@ -166,7 +166,20 @@ function processAction0(fermentor) {
     return;
   }
 
-  if (!stageInfo || !stageInfo.lastBlock) {
+  if (!stageInfo) return;
+
+  // Reconciliation is two-way. If the operator deleted the last test time,
+  // clear the previously published live stage instead of retaining a
+  // one-way/stale brewProgress label forever. No ACTION transition is inferred
+  // from an entirely empty process timeline.
+  if (!stageInfo.lastBlock) {
+    try {
+      updateFermentorBrewProgress(tankNumber, stageInfo, function () {
+        return brewActionTankStillCurrent_(fermentor);
+      });
+    } catch (error) {
+      Logger.log("Empty-stage reconciliation failed: " + error.message);
+    }
     return;
   }
 
