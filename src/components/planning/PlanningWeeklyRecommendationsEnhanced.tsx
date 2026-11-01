@@ -9,7 +9,7 @@ import {
     type Product,
     type Tank,
 } from "../../SERVICES/planning/planningEngine";
-import { futureTanks, openRuns, shortDate } from "../../SERVICES/planning/dailyPlanner";
+import { futureTanks, forecastableProductionPlans, openRuns, shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, isCoreStyle } from "../../SERVICES/planning/planningPresentation";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
@@ -202,7 +202,10 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         run.nonInventoryStyle && run.nonInventoryType
             ? virtualProduct(run.nonInventoryStyle, run.nonInventoryType)
             : product(run.productId);
-    const packagingTankPool = useMemo(() => futureTanks(tanks, plans, settings), [tanks, plans, settings]);
+    const packagingTankPool = useMemo(
+        () => futureTanks(tanks, forecastableProductionPlans(tanks, plans, today), settings),
+        [tanks, plans, settings, today],
+    );
     const cycleIdForRun = (run: Pick<Plan, "tankId" | "brewId">) =>
         run.brewId && packagingTankPool.some((tank) => tank.id === `planned:${run.brewId}`)
             ? `planned:${run.brewId}` : (run.tankId ?? "");
