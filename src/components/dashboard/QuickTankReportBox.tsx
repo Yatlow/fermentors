@@ -267,7 +267,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
             case "שמרים": return (value === "" || value2 === "") ? null : `הורדת ${value} דליי שמרים, לחץ אחרי ${value2} bar`;
             case "לחץ": return (direction === "" || value === "") ? null : `${direction} לחץ ל: ${value} bar`;
             case "השארת לחץ": return holdPressureConfirmed
-                ? "השארת לחץ ללא שינוי לאחר בדיקת גיזוז. ממתינים לספיגת CO₂ מלחץ הראש." : null;
+                ? "השארת לחץ ללא שינוי לאחר בדיקת גיזוז. החלטת סלרינג להמתין ללא שינוי לחץ." : null;
             case "פורק": return value === "" ? null : `כיוון פורק ל: ${value} bar`;
             case "סגירת מיכל": return value === "" ? null : `סגירת נשם, כיוון פורק ל ${value}`;
             case "גיזוז מלמטה התחלה":
@@ -699,7 +699,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
 
                             {noteType === "השארת לחץ" && (
                                 <div className="quickReportPressureHold">
-                                    <p>הלחץ במיכל לא ישתנה. הפעולה תירשם כהחלטה להמתין לספיגת הגז מלחץ הראש, ולא כמדידת לחץ או כשינוי לחץ בפועל.</p>
+                                    <p>הלחץ במיכל יישאר כפי שהוא. הדיווח יתעד את ההחלטה שלא לשנות לחץ כעת, ללא יצירת מדידת לחץ חדשה וללא סימון שינוי לחץ בפועל.</p>
                                     <label className="quickReportCheckbox">
                                         <input type="checkbox" checked={holdPressureConfirmed} disabled={isSending}
                                             onChange={(event) => setHoldPressureConfirmed(event.target.checked)} />
