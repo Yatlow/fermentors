@@ -744,7 +744,7 @@ export default function SendMessurmentsHeader({
                                         </div>
                                     )}
 
-                                    <HealthDashboard brews={brews} specs={specs} recommendationsOnly />
+                                    <HealthDashboard brews={brews} specs={specs} recommendationsOnly compactRecommendations />
 
                                     <p>{""}</p>
                                 </div>

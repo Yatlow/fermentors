@@ -176,6 +176,10 @@
     line-height: 1;
 }
 
+.health-recommendations-only .health-dashboard-details {
+    border-top: 0;
+}
+
 .health-dashboard-details {
     display: grid;
     gap: 8px;
