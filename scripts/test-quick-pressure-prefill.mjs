@@ -87,7 +87,8 @@ assert.match(quick, /case "השארת לחץ": return "השארת לחץ ללא 
 assert.match(quick, /const isPressureAction = noteType === "לחץ"/);
 assert.doesNotMatch(quick, /const isPressureAction = noteType === "השארת לחץ"/);
 
-assert.match(quick, /הטקסט שיירשם בגיליון:/);
+assert.doesNotMatch(quick, /הטקסט שיירשם בגיליון:/,
+  "hold-pressure note preview must not show a redundant Sheets label");
 assert.match(quick, /className="quickReportNotePreview">\{buildNoteText\(\)\}/,
   "preview must display the exact note sent to Sheets");
 assert.doesNotMatch(quick, /holdPressureConfirmed|setHoldPressureConfirmed/,

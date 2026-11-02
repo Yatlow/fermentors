@@ -173,7 +173,7 @@ test("an explicit hold resolves today's carbonation intervention without changin
     const { hasCellarActionOnDate } = await import(
         "data:text/javascript;base64," + Buffer.from(actionSource).toString("base64")
     );
-    const note = "השארת לחץ ללא שינוי לאחר בדיקת גיזוז. החלטת סלרינג להמתין ללא שינוי לחץ.";
+    const note = "השארת לחץ ללא שינוי לאחר בדיקת גיזוז";
     const history = [
         { id: "2026-10-27_1000", notes: note },
         { id: "2026-10-28_0810", carbonation: 2.3, pressure: 0.7, notes: "" },
