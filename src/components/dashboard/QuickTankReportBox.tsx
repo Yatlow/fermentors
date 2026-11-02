@@ -696,7 +696,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
 
                             {noteType === "השארת לחץ" && (
                                 <div className="quickReportPressureHold">
-                                    <p className="quickReportNotePreviewLabel">הטקסט שיירשם בגיליון:</p>
                                     <p className="quickReportNotePreview">{buildNoteText()}</p>
                                 </div>
                             )}
