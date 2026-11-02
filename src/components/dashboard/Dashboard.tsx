@@ -175,7 +175,7 @@ export default function Dashboard({
 
     return (
         <div className="dashboard">
-            <HealthDashboard brews={healthBrews ?? filteredBrews} specs={specs} onRecommendedTanksChange={onRecommendedTanksChange} onOpenRecommendationCountChange={onOpenRecommendationCountChange} onPendingMeasurementTanksChange={onPendingMeasurementTanksChange} />
+            <HealthDashboard compactRecommendations brews={healthBrews ?? filteredBrews} specs={specs} onRecommendedTanksChange={onRecommendedTanksChange} onOpenRecommendationCountChange={onOpenRecommendationCountChange} onPendingMeasurementTanksChange={onPendingMeasurementTanksChange} />
             <SheetSyncStatus />
 
             <div className="dashboard-filter-info">
