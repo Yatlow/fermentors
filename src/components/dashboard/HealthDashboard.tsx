@@ -138,6 +138,8 @@ type Props = {
     brews: Fermentor[];
     specs: SpecChart | null;
     recommendationsOnly?: boolean;
+    /** In the dashboard, show only active recommendations; keep the score engine running. */
+    compactRecommendations?: boolean;
 };
 
 const EMPTY_DAILY_ACTION_PROGRESS: DailyActionProgress = {
@@ -242,7 +244,7 @@ const severityOrder: Record<Severity, number> = {
     info: 1,
 };
 
-export default function HealthDashboard({ brews, specs, recommendationsOnly = false, onRecommendedTanksChange, onOpenRecommendationCountChange, onPendingMeasurementTanksChange }: Props & { onPendingMeasurementTanksChange?: (tankNumbers: string[]) => void; onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
+export default function HealthDashboard({ brews, specs, recommendationsOnly = false, compactRecommendations = false, onRecommendedTanksChange, onOpenRecommendationCountChange, onPendingMeasurementTanksChange }: Props & { onPendingMeasurementTanksChange?: (tankNumbers: string[]) => void; onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
     const [expanded, setExpanded] = useState(recommendationsOnly);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
     const [analyzing, setAnalyzing] = useState(true);
@@ -1258,6 +1260,44 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
         } finally {
             setIgnoreSavingId(null);
         }
+    }
+
+    // The dashboard's recommendations list is deliberately read-only. The
+    // score, measurement and KPI calculations above still run for the navbar,
+    // recommendation filters and the existing 100% celebration behaviour.
+    if (compactRecommendations) {
+        const activeAlerts = analysis.alerts.filter(
+            (alert) => alert.recommendationKey !== "measurementRound"
+        );
+        return (
+            <>
+                {!recommendationsOnly && <BeerCelebration open={celebrationOpen} onClose={() => setCelebrationOpen(false)} />}
+                <section className="health-dashboard health-recommendations-only" dir="rtl" aria-label="המלצות סלרינג פעילות">
+                    <div className="health-dashboard-details">
+                        {analyzing ? (
+                            <div className="health-empty-state">מחשב המלצות סלרינג…</div>
+                        ) : activeAlerts.length === 0 ? (
+                            <div className="health-empty-state">אין כרגע המלצות סלרינג פעילות.</div>
+                        ) : activeAlerts.map((alert) => (
+                            <article
+                                key={alert.id}
+                                className={`health-alert health-alert-${alert.severity}${alert.userDecision ? " health-alert-user-decision" : ""}`}
+                            >
+                                <span className="health-alert-icon" aria-hidden="true">
+                                    {alert.userDecision
+                                        ? <UserShield size={14} aria-hidden="true" />
+                                        : alert.severity === "critical" ? "!" : alert.severity === "warning" ? "•" : "i"}
+                                </span>
+                                <span className="health-alert-copy">
+                                    <strong>{alert.title}</strong>
+                                    <span>{alert.detail}</span>
+                                </span>
+                            </article>
+                        ))}
+                    </div>
+                </section>
+            </>
+        );
     }
 
     return (
