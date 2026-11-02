@@ -264,7 +264,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
         switch (noteType) {
             case "שמרים": return (value === "" || value2 === "") ? null : `הורדת ${value} דליי שמרים, לחץ אחרי ${value2} bar`;
             case "לחץ": return (direction === "" || value === "") ? null : `${direction} לחץ ל: ${value} bar`;
-            case "השארת לחץ": return "השארת לחץ ללא שינוי לאחר בדיקת גיזוז. החלטת סלרינג להמתין ללא שינוי לחץ.";
+            case "השארת לחץ": return "השארת לחץ ללא שינוי לאחר בדיקת גיזוז";
             case "פורק": return value === "" ? null : `כיוון פורק ל: ${value} bar`;
             case "סגירת מיכל": return value === "" ? null : `סגירת נשם, כיוון פורק ל ${value}`;
             case "גיזוז מלמטה התחלה":
