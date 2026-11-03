@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext, shouldRecommendCarbonationRetestOnDate } from "../src/SERVICES/cellering/carbonationRetestPolicy";
+import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext, carbonationRetestTestPressureContext, shouldRecommendCarbonationRetestOnDate } from "../src/SERVICES/cellering/carbonationRetestPolicy";
 
 test("out-of-spec carbonation from two days ago is due today when untreated", () => {
   const policy = carbonationRetestPolicy(
@@ -304,4 +304,33 @@ test("live recommendation applies Friday severity only to retests, not first coo
   assert.match(source, /if \(retestPolicy\.due && shouldRecommendCarbonationRetestOnDate\(todayDate, lastCarbSpec\.importance\)\)/);
   assert.match(source, /!hasCarbonationAfterCooling/);
   assert.match(source, /CoolAge >= 1/);
+});
+
+test("repeat-test shows pressure at failed carbonation, not arbitrary previous pressure", () => {
+  const measurements = [
+    { id: "2026-11-01_0800", pressure: 1.05 },
+    { id: "2026-11-01_1000", carbonation: 2.51, pressure: 0.88 },
+    { id: "2026-11-02_0900", pressure: 0.54 },
+    { id: "2026-11-03_0900", pressure: 0.6 },
+  ];
+  assert.match(
+    carbonationRetestTestPressureContext(measurements, "2026-11-03"),
+    /לחץ בזמן בדיקת הגיזוז הלא תקינה \\(01\\/11\\/2026\\): 0.88 bar · לחץ נוכחי במיכל: 0.6 bar/,
+  );
+});
+
+test("repeat-test prefers newer batch-safe live pressure and handles missing test pressure", () => {
+  const measurements = [
+    { id: "2026-11-01_0800", pressure: 0.83 },
+    { id: "2026-11-01_1000", carbonation: 2.51 },
+    { id: "2026-11-03_0800", pressure: 0.65 },
+  ];
+  assert.match(
+    carbonationRetestTestPressureContext(measurements, "2026-11-03", { value: 0.5, date: "2026-11-03", time: "09:00" }),
+    /01\\/11\\/2026\\): 0.83 bar · לחץ נוכחי במיכל: 0.5 bar/,
+  );
+  assert.match(
+    carbonationRetestTestPressureContext([{ id: "2026-11-01_1000", carbonation: 2.51 }], "2026-11-03"),
+    /לא נמדד · לחץ נוכחי במיכל: אין מדידה זמינה/,
+  );
 });
