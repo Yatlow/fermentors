@@ -60,7 +60,8 @@ function recordedMoment(measurement: ColdNeglectMeasurement): RecordedMoment | n
     };
 }
 
-function hasActualCooling(notes: string): boolean {
+/** Completed cooling action, not a passing reference to cooling in an explanatory note. */
+export function hasActualCooling(notes: string): boolean {
     return notes.split(/[|;\n]/).some((part) =>
         /^(?:קירור(?:$|\s+מיכל|\s+ל\s*\d)|התחלת קירור|(?:המיכל\s+)?הועבר לקירור|(?:המיכל\s+)?הוחזר לקירור|חזרה לקירור|החזרה לקירור)/.test(part.trim())
     );
