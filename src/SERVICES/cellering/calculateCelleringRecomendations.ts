@@ -8,7 +8,7 @@ import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshol
 import { shouldShowNeglectedTank } from "./neglectWeekday";
 import { evaluateColdTankNeglect } from "./neglectAfterCooling";
 import { hasCellarActionOnDate } from "./cellarActionState";
-import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestPressureContext, shouldRecommendCarbonationRetestOnDate } from "./carbonationRetestPolicy";
+import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestTestPressureContext, shouldRecommendCarbonationRetestOnDate } from "./carbonationRetestPolicy";
 import { getCoolingPlatoStabilityEvidence } from "./coolingPlatoStability";
 import { carbonationSpecKey, getFermentationEndPlatoLimit } from "./fermentationEndPlato";
 import { yeastDropAllowsCooling } from "./coolingYeastTiming";
@@ -473,6 +473,16 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     const todayDate =
         getTodayDateString();
+
+    // Shared batch-safe live pressure for both repeat-test context and pressure advice.
+    const sourceTank = brews.find((tank) => String(tank.tankNumber) === String(tankNumber));
+    const liveData = sourceTank?.currentData as
+        ({ pressure?: unknown; pressureUpdatedAt?: unknown; pressureBatchNumber?: unknown } | null | undefined);
+    const normalizeBatch = (value: unknown) => String(value ?? "").replace(/^#/, "").trim();
+    const pressureBelongsToBatch = !normalizeBatch(liveData?.pressureBatchNumber) ||
+        normalizeBatch(liveData?.pressureBatchNumber) === normalizeBatch(sourceTank?.batchNumber);
+    const currentLivePressure = pressureBelongsToBatch ? livePressureReading(liveData) : null;
+
 
 
     // ============================================================
@@ -1023,6 +1033,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         // as "yesterdayMeasurement" are useful for copy, but they become wrong
         // when multiple reports exist on the same day. Use the actual dated
         // carbonation/treatment history to decide whether a repeat test is due.
+
         const retestPolicy = carbonationRetestPolicy(
             sortedMeasurements,
             todayDate
@@ -1046,7 +1057,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
                     const retestReason = carbonationRetestDueReason(retestPolicy) ??
                         `בדיקת הגיזוז האחרונה לא היתה תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
-                    const pressureContext = carbonationRetestPressureContext(sortedMeasurements, todayDate);
+                    const pressureContext = carbonationRetestTestPressureContext(sortedMeasurements, todayDate, currentLivePressure);
                     requiresCarbTest.reason = pressureContext
                         ? `${retestReason}. ${pressureContext}`
                         : retestReason;
@@ -1222,13 +1233,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const carbonationTarget = givenSpecs.carbonation?.[carbonationSpecKey(style)] ?? givenSpecs.carbonation?.other;
     // Pressure changes update the live tank but never overwrite the morning
     // measurement in Sheets. Prefer the freshest timestamped source.
-    const sourceTank = brews.find((tank) => String(tank.tankNumber) === String(tankNumber));
-    const liveData = sourceTank?.currentData as
-        ({ pressure?: unknown; pressureUpdatedAt?: unknown; pressureBatchNumber?: unknown } | null | undefined);
-    const normalizeBatch = (value: unknown) => String(value ?? "").replace(/^#/, "").trim();
-    const pressureBelongsToBatch = !normalizeBatch(liveData?.pressureBatchNumber) ||
-        normalizeBatch(liveData?.pressureBatchNumber) === normalizeBatch(sourceTank?.batchNumber);
-    const currentLivePressure = pressureBelongsToBatch ? livePressureReading(liveData) : null;
     const actualAdvicePressure = preferredPressureReading(sortedMeasurements, todayDate, currentLivePressure);
     const advicePressureContext = actualAdvicePressure?.date === todayDate
         ? `לחץ במיכל: ${actualAdvicePressure.value} bar`
