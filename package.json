@@ -19,7 +19,7 @@
     "test:dashboard": "node scripts/test-dashboard.mjs",
     "test:planning-snapshots": "node scripts/test-planning-snapshots.mjs",
     "test:cellar-action-kpis": "node scripts/test-cellar-action-kpis.mjs",
-    "test": "npm run test:fermentor-snapshot-identity && npm run test:quick-pressure-prefill && npm run test:dryhop-exception && npm run test:dryhop-sheet-row && npm run test:brew-stage-reset && npm run test:brew-date-draft && npm run test:shipment-sublabel && npm run test:shipment-report-sort && npm run test:yesterday-actions && npm run test:pressure-reconciliation && npm run test:cellar-action-kpis && npm run test:carb-pressure && npm run test:fermentation-end && npm run test:preview-root && npm run test:salinity && npm run test:hydrometer && npm run test:brew-material-sheet-rows && npm run test:brew-batch-deletion && npm run test:brew-fermentation-layout && npm run test:hop-volume && npm run test:packaging-print-text && npm run test:planning && npm run test:dashboard && npm run test:overlay-stacking && npm run test:neglect-after-cooling && npm run test:scheduled-date-policy && npm run test:planning-snapshots && npm run test:server-regressions && npm run test:packaging-pallets && npm run test:shipment-traceability && npm run test:batch-traceability",
+    "test": "npm run test:fermentor-snapshot-identity && npm run test:quick-pressure-prefill && npm run test:dryhop-exception && npm run test:dryhop-sheet-row && npm run test:brew-stage-reset && npm run test:brew-date-draft && npm run test:shipment-sublabel && npm run test:shipment-report-sort && npm run test:yesterday-actions && npm run test:pressure-reconciliation && npm run test:cellar-action-kpis && npm run test:cellar-transfer-grace && npm run test:carb-pressure && npm run test:fermentation-end && npm run test:preview-root && npm run test:salinity && npm run test:hydrometer && npm run test:brew-material-sheet-rows && npm run test:brew-batch-deletion && npm run test:brew-fermentation-layout && npm run test:hop-volume && npm run test:packaging-print-text && npm run test:planning && npm run test:dashboard && npm run test:overlay-stacking && npm run test:neglect-after-cooling && npm run test:scheduled-date-policy && npm run test:planning-snapshots && npm run test:server-regressions && npm run test:packaging-pallets && npm run test:shipment-traceability && npm run test:batch-traceability",
     "test:server-regressions": "node scripts/test-server-regressions.mjs",
     "test:packaging-pallets": "node scripts/test-packaging-pallet-defaults.mjs",
     "test:shipment-traceability": "node --test scripts/test-shipment-traceability.mjs",
@@ -40,7 +40,8 @@
     "test:preview-root": "node --test scripts/test-preview-root-routing.mjs",
     "test:pressure-reconciliation": "node scripts/test-pressure-action-reconciliation.mjs",
     "test:brew-date-draft": "node scripts/test-brew-date-draft.mjs",
-    "test:shipment-report-sort": "node scripts/test-shipment-report-sort.mjs"
+    "test:shipment-report-sort": "node scripts/test-shipment-report-sort.mjs",
+    "test:cellar-transfer-grace": "node scripts/test-cellar-transfer-grace.mjs"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
