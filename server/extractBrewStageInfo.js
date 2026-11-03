@@ -773,6 +773,26 @@ function extractBrewStageInfo(spreadSheetId, fermentorHint) {
     }
   }
 
+  // The grace clock is anchored to the *actual reported completion* of the
+  // final A/B/C transfer, not the moment ACTION 0 was detected as ACTION 1.
+  // Use the final block's explicit brew date (the single brew may use H1).
+  // Do not infer a missing B/C date from A: consecutive brews can start at
+  // the same clock time on different days, without a detectable rollover.
+  const lastHeaderBlock = blocks[blocks.length - 1] || null;
+  const finalBrewDate = lastHeaderBlock
+    ? (lastHeaderBlock.explicitDate ||
+       (blocks.length === 1 ? (fermentorDate || topHeaderInfo.date) : null))
+    : null;
+  const datedFinalStages = finalBrewDate && lastHeaderBlock
+    ? brewStageBuildDatedStages_(lastHeaderBlock.rawStages, finalBrewDate)
+    : [];
+  const completedFinalTransfer = datedFinalStages.filter(function (stage) {
+    return stage.code === STAGE_CODE_OUT_TO_FERMENTOR && stage.endDateTime;
+  }).pop();
+  const transferCompletedAt = completedFinalTransfer
+    ? completedFinalTransfer.endDateTime.toISOString()
+    : null;
+
   const headerCount = blocks.length;
   const blockCount = startedBlocks.length;
   const hasUnstartedHeader = headerCount > blockCount;
@@ -795,6 +815,8 @@ function extractBrewStageInfo(spreadSheetId, fermentorHint) {
     lastBlock: lastBlock,
     currentBlockIndex: currentBlockIndex,
     currentStage: currentStage,
+    // ISO time is independent of when the brewer enters the value.
+    transferCompletedAt: transferCompletedAt,
     blockStarts: brewStageBlockStartsArray_(blockStarts)
   };
 }

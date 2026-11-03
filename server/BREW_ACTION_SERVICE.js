@@ -1606,7 +1606,10 @@ function updateFermentorForNextBrew_(
     // both in the same PATCH prevents the newly assigned waiting brew from
     // inheriting stale cellar measurements or a stale brewing-stage label.
     "currentData",
-    "brewProgress"
+    "brewProgress",
+    // These are batch-scoped. Never inherit the old brew's grace anchor.
+    "fermentationTransferCompletedAt",
+    "fermentationTransferBatchNumber"
   ];
 
   const url =

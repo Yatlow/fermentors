@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { completedDailyRoundKpi, fermentationGraceEnd, graceDayStart, measurementGraceTankIds } from "../../SERVICES/dashboard/cellarGrace";
+import { completedDailyRoundKpi, fermentationGraceEnd, graceDayStart, measurementGraceTankIds, timestampMillis } from "../../SERVICES/dashboard/cellarGrace";
 import { cellarBadgeFieldsForDay } from "../../SERVICES/dashboard/cellarMeasurementBadge";
 import { CELLAR_CELEBRATION_ACK_KEY, evaluateCellarCelebration, type SettledCellarScore } from "../../SERVICES/dashboard/cellarCelebrationPolicy";
 import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
@@ -12,6 +12,8 @@ import {
     type Measurement,
 } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import { bottomCarbonationRecommendation } from "../../SERVICES/cellering/bottomCarbonation";
+import { hasActualCooling } from "../../SERVICES/cellering/neglectAfterCooling";
+import { isCompletedYeastDrop } from "../../SERVICES/cellering/coolingYeastTiming";
 import {
     getMeasurementsByBatch,
     MEASUREMENTS_UPDATED_EVENT,
@@ -316,7 +318,14 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
             .filter(tank => Number(tank.action) === 1)
             .map(tank => fermentationGraceEnd(tank))
             .filter((end): end is number => end !== null && end > now.getTime());
-        const next = Math.min(midnight, nextGraceBoundary.getTime(), ...upcomingTwelveHourEnds);
+        // A future-dated transfer-end entry must switch from the ACTION-1
+        // fallback clock at its actual event time, not only at midnight.
+        const upcomingTransferCompletions = brews
+            .filter(tank => Number(tank.action) === 1)
+            .map(tank => timestampMillis(tank.fermentationTransferCompletedAt))
+            .filter((end): end is number => end !== null && end > now.getTime());
+        const next = Math.min(midnight, nextGraceBoundary.getTime(),
+            ...upcomingTwelveHourEnds, ...upcomingTransferCompletions);
         const timer = window.setTimeout(() => {
             setMeasurementRefresh(current => current + 1);
         }, Math.max(1000, next - now.getTime() + 200));
@@ -552,8 +561,12 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             measurement.carbonation !== "" &&
                             Number.isFinite(Number(measurement.carbonation))
                         );
-                        const hasTodayYeast = /שמרים|שמרי/.test(todayNotes);
-                        const hasTodayCooling = /קירור/.test(todayNotes);
+                        const hasTodayYeast = todayRows.some((measurement) =>
+                            isCompletedYeastDrop(measurement.notes)
+                        );
+                        const hasTodayCooling = todayRows.some((measurement) =>
+                            hasActualCooling(String(measurement.notes ?? ""))
+                        );
                         const carbCompletedToday = hasTodayCarbonation;
 
                         const naturalCarb = Boolean(
@@ -875,7 +888,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             if (pattern.test(todayNotes)) addCompleted(`reported-${key}-${tank.id}`, label);
                         });
                         if (todayNotes.includes("כשות")) addCompleted(`dryhop-${tank.id}`, "דרייהופ");
-                        if (todayNotes.includes("קירור") && !completedScheduledCooling) addCompleted(`cooling-${tank.id}`, "התחלת קירור");
+                        if (hasTodayCooling && !completedScheduledCooling) addCompleted(`cooling-${tank.id}`, "התחלת קירור");
                         // Award the daily action only when bottom carbonation STARTED today.
                         // Closing yesterday's session today is not a new start.
                         if (todayNotes.includes("תחילת גיזוז מלמטה") && !completedScheduledBottomCarbonation) addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
