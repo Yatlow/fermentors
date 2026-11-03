@@ -251,3 +251,64 @@ export function carbonationRetestPressureContext(
   const delta = Math.round((current.pressure - previous.pressure) * 100) / 100;
   return delta === 0 ? summary : `${summary} · הפרש: ${delta > 0 ? "עלייה" : "ירידה"} של ${Math.abs(delta).toFixed(2)} bar`;
 }
+
+/**
+ * Compare the pressure recorded at the latest failed carbonation test with
+ * the freshest known pressure now. Never use an unrelated previous reading as
+ * the test baseline. If the test has no pressure, use the latest dated reading
+ * at or before that test; never infer a numeric value from a treatment note.
+ */
+export function carbonationRetestTestPressureContext(
+  measurements: CarbonationRetestMeasurement[],
+  todayDate: string,
+  currentPressure?: { value: number; date: string; time: string | null } | null,
+): string {
+  const entries = measurements
+    .map((reading) => ({
+      reading,
+      key: String(reading.id ?? ""),
+      date: measurementDate(reading.id),
+    }))
+    .filter((entry) => entry.date !== null && entry.date <= todayDate)
+    .sort((a, b) => a.key.localeCompare(b.key));
+  const lastCarb = [...entries].reverse().find(
+    (entry) => numericCarbonation(entry.reading.carbonation) !== null,
+  );
+  if (!lastCarb) return "";
+
+  const atTest = [...entries].reverse().find(
+    (entry) => entry.key <= lastCarb.key &&
+      numericCarbonation(entry.reading.pressure) !== null,
+  );
+  const atTestValue = atTest ? numericCarbonation(atTest.reading.pressure) : null;
+  const datedPressures = entries.filter((entry) =>
+    numericCarbonation(entry.reading.pressure) !== null
+  );
+  const latestHistory = datedPressures[datedPressures.length - 1];
+  const latestHistoryValue = latestHistory
+    ? numericCarbonation(latestHistory.reading.pressure) : null;
+  const historyKey = latestHistory?.key ?? "";
+  const liveKey = currentPressure
+    ? currentPressure.date + "_" + (currentPressure.time?.replace(":", "") ?? "0000")
+    : "";
+  const useLive = currentPressure && currentPressure.date <= todayDate &&
+    Number.isFinite(currentPressure.value) && liveKey >= historyKey;
+  const nowValue = useLive ? currentPressure.value : latestHistoryValue;
+  const nowDate = useLive ? currentPressure.date : latestHistory?.date;
+
+  const format = (number: number) => Number(number.toFixed(2)).toString();
+  const parts: string[] = [];
+  if (atTestValue !== null) {
+    const date = lastCarb.date!.split("-").reverse().join("/");
+    parts.push(`לחץ בזמן בדיקת הגיזוז הלא תקינה (${date}): ${format(atTestValue)} bar`);
+  } else {
+    parts.push("לחץ בזמן בדיקת הגיזוז הלא תקינה: לא נמדד");
+  }
+  if (nowValue !== null && nowDate) {
+    const age = nowDate === todayDate ? "" : ` (נמדד ב-${nowDate.split("-").reverse().join("/")})`;
+    parts.push(`לחץ נוכחי במיכל: ${format(nowValue)} bar${age}`);
+  } else {
+    parts.push("לחץ נוכחי במיכל: אין מדידה זמינה");
+  }
+  return parts.join(" · ");
+}
