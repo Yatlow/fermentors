@@ -50,7 +50,7 @@ export function projectPlatoThresholdRecheck(
   return [{
     id: `${tank.id}:plato-recheck:${dueDate}`,
     tankNumber, dueDate,
-    title: hoppy ? "בדיקת תנאים לדרייהופ" : "בדיקת תנאים לסגירת נשם",
+    title: hoppy ? "צפי לדרייהופ — בדיקת תנאים" : "צפי לסגירת מיכל — בדיקת תנאים",
     basis: `הערכת מועד לפי ירידת פלאטו ${rate.toFixed(2)}°P ליום; מותנה במדידת פלאטו, טמפרטורה ולחץ באותו יום`,
   }];
 }
