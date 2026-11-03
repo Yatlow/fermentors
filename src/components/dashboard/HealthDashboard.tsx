@@ -12,6 +12,8 @@ import {
     type Measurement,
 } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import { bottomCarbonationRecommendation } from "../../SERVICES/cellering/bottomCarbonation";
+import { hasActualCooling } from "../../SERVICES/cellering/neglectAfterCooling";
+import { isCompletedYeastDrop } from "../../SERVICES/cellering/coolingYeastTiming";
 import {
     getMeasurementsByBatch,
     MEASUREMENTS_UPDATED_EVENT,
@@ -559,8 +561,12 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             measurement.carbonation !== "" &&
                             Number.isFinite(Number(measurement.carbonation))
                         );
-                        const hasTodayYeast = /שמרים|שמרי/.test(todayNotes);
-                        const hasTodayCooling = /קירור/.test(todayNotes);
+                        const hasTodayYeast = todayRows.some((measurement) =>
+                            isCompletedYeastDrop(measurement.notes)
+                        );
+                        const hasTodayCooling = todayRows.some((measurement) =>
+                            hasActualCooling(String(measurement.notes ?? ""))
+                        );
                         const carbCompletedToday = hasTodayCarbonation;
 
                         const naturalCarb = Boolean(
@@ -882,7 +888,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             if (pattern.test(todayNotes)) addCompleted(`reported-${key}-${tank.id}`, label);
                         });
                         if (todayNotes.includes("כשות")) addCompleted(`dryhop-${tank.id}`, "דרייהופ");
-                        if (todayNotes.includes("קירור") && !completedScheduledCooling) addCompleted(`cooling-${tank.id}`, "התחלת קירור");
+                        if (hasTodayCooling && !completedScheduledCooling) addCompleted(`cooling-${tank.id}`, "התחלת קירור");
                         // Award the daily action only when bottom carbonation STARTED today.
                         // Closing yesterday's session today is not a new start.
                         if (todayNotes.includes("תחילת גיזוז מלמטה") && !completedScheduledBottomCarbonation) addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
