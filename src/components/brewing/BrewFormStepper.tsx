@@ -1035,6 +1035,9 @@ export default function BrewFormStepper({
   }, [execution, firestoreHydrated]);
   const ingredientLibrary = ingredients;
   const [previousBatchDate, setPreviousBatchDate] = useState("");
+  // Keep the uncommitted date visible while typing and across A/B/C navigation.
+  // Only a validated ISO date belongs in brewingExecution/Firestore/Sheets.
+  const [brewDateDrafts, setBrewDateDrafts] = useState<Record<number, string>>({});
 
   const currentBlock = Math.min(
     Math.max(execution.activeBlockIndex || 1, 1),
@@ -1604,6 +1607,17 @@ export default function BrewFormStepper({
     return fields[key] || "";
   }
 
+  function editBrewDate(rawValue: string, blockIndex: number) {
+    // Mark typing as a local edit even before the value is validated on blur.
+    // Otherwise an in-flight startup Sheet read can replace nearby edits.
+    latestLocalEditAt.current = Date.now();
+    const formatted = formatIsraeliDateTyping(rawValue);
+    setBrewDateDrafts((previous) => ({ ...previous, [blockIndex]: formatted }));
+    setValidationNotice((previous) =>
+      previous?.key === "brewDate" ? null : previous,
+    );
+  }
+
   function selectedMaterialLot(
     ingredient: IngredientDefinition,
   ): IngredientLot | undefined {
@@ -1692,6 +1706,7 @@ export default function BrewFormStepper({
     if (value === null) {
       setValidationNotice({
         kind: "error",
+        key: "brewDate",
         text: "תאריך הבישול חייב להיות בפורמט DD/MM/YY.",
       });
       return;
@@ -1762,9 +1777,20 @@ export default function BrewFormStepper({
     }
 
     latestLocalEditAt.current = Date.now();
-    let next = setBrewingExecutionField(execution, currentBlock, "brewDate", value);
-    next = setBrewingExecutionField(next, currentBlock, "brewDate.manual", options.manual === false ? "" : value);
-    setExecution(next);
+    // The blur can coincide with a remote update or a click on another brew
+    // block. Always merge into the latest execution, never a render-time copy.
+    setExecution((previous) => {
+      let next = setBrewingExecutionField(previous, currentBlock, "brewDate", value);
+      next = setBrewingExecutionField(next, currentBlock, "brewDate.manual", options.manual === false ? "" : value);
+      return next;
+    });
+    setBrewDateDrafts((previous) => {
+      if (!(currentBlock in previous)) return previous;
+      const next = { ...previous };
+      delete next[currentBlock];
+      return next;
+    });
+    setValidationNotice((previous) => previous?.key === "brewDate" ? null : previous);
     writeSheet("brewDate", writes);
   }
 
@@ -3988,7 +4014,11 @@ export default function BrewFormStepper({
   }, [firestoreHydrated, run.batchNumber, run.sheetId]);
 
   async function selectBlock(index: number) {
-    setExecution(setBrewingExecutionActiveStep(setBrewingExecutionActiveBlock(execution, index), 0));
+    // Clicking B/C immediately after editing A must not restore an older
+    // render snapshot over the date just committed by the blur handler.
+    setExecution((previous) =>
+      setBrewingExecutionActiveStep(setBrewingExecutionActiveBlock(previous, index), 0)
+    );
     setActiveStepState(0);
     setMessage("");
   }
@@ -4572,19 +4602,14 @@ export default function BrewFormStepper({
               <label>
                 תאריך
                 <input
-                  key={`${currentBlock}-${localValue("brewDate")}`}
                   type="text"
                   inputMode="tel"
                   dir="ltr"
                   placeholder="DD/MM/YY"
                   required
-                  defaultValue={shortIsraeliDate(localValue("brewDate"))}
-                  onInput={(e) => {
-                    e.currentTarget.value = formatIsraeliDateTyping(
-                      e.currentTarget.value,
-                    );
-                  }}
-                  onBlur={(e) => void commitBrewDate(e.target.value)}
+                  value={brewDateDrafts[currentBlock] ?? shortIsraeliDate(localValue("brewDate"))}
+                  onChange={(e) => editBrewDate(e.target.value, currentBlock)}
+                  onBlur={(e) => void commitBrewDate(e.currentTarget.value)}
                 />
               </label>
             </article>
