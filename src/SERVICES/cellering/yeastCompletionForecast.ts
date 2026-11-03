@@ -1,4 +1,6 @@
 import type { ForecastTank, ConditionalForecast } from "./coldCellarForecast";
+import { hasActualCooling } from "./neglectAfterCooling";
+import { isCompletedYeastDrop } from "./coolingYeastTiming";
 
 /** Complements only documented, quantity-known yeast drops; uncertain text is not scored. */
 export type YeastCompletionReading = { id?: string | number | null; notes?: string | number | null; temp?: string | number | null };
@@ -45,11 +47,11 @@ export function projectKnownYeastCompletions(
     number >= 5 && number <= 8 ? "double" : number >= 9 && number <= 19 ? "triple" : null;
   if (!style || !size || !["בתסיסה", "קר"].includes(tank.stage?.name ?? "")) return [];
   const sorted = [...readings].sort((a,b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
-  const cooling = sorted.find((row) => /קירור/.test(String(row.notes ?? "")));
+  const cooling = [...sorted].reverse().find((row) => hasActualCooling(String(row.notes ?? "")));
   const coolingDate = cooling ? dateOf(cooling.id) : null;
   const drops = sorted.flatMap((row) => {
     const note = String(row.notes ?? "");
-    if (!/שמרים|שמרי/.test(note)) return [];
+    if (!isCompletedYeastDrop(note)) return [];
     const date = dateOf(row.id), quantity = parseAmount(note), temp = row.temp;
     if (!date || quantity === null || temp == null || temp === "" || !Number.isFinite(Number(temp))) return [];
     return [{ date, quantity, phase: Number(temp) <= 9 ? "cold" as const : "warm" as const }];
