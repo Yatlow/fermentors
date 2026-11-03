@@ -474,6 +474,16 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const todayDate =
         getTodayDateString();
 
+    // Shared batch-safe live pressure for both repeat-test context and pressure advice.
+    const sourceTank = brews.find((tank) => String(tank.tankNumber) === String(tankNumber));
+    const liveData = sourceTank?.currentData as
+        ({ pressure?: unknown; pressureUpdatedAt?: unknown; pressureBatchNumber?: unknown } | null | undefined);
+    const normalizeBatch = (value: unknown) => String(value ?? "").replace(/^#/, "").trim();
+    const pressureBelongsToBatch = !normalizeBatch(liveData?.pressureBatchNumber) ||
+        normalizeBatch(liveData?.pressureBatchNumber) === normalizeBatch(sourceTank?.batchNumber);
+    const currentLivePressure = pressureBelongsToBatch ? livePressureReading(liveData) : null;
+
+
 
     // ============================================================
     // LAST MEASUREMENT UP TO DATE
@@ -1023,13 +1033,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         // as "yesterdayMeasurement" are useful for copy, but they become wrong
         // when multiple reports exist on the same day. Use the actual dated
         // carbonation/treatment history to decide whether a repeat test is due.
-    const sourceTank = brews.find((tank) => String(tank.tankNumber) === String(tankNumber));
-    const liveData = sourceTank?.currentData as
-        ({ pressure?: unknown; pressureUpdatedAt?: unknown; pressureBatchNumber?: unknown } | null | undefined);
-    const normalizeBatch = (value: unknown) => String(value ?? "").replace(/^#/, "").trim();
-    const pressureBelongsToBatch = !normalizeBatch(liveData?.pressureBatchNumber) ||
-        normalizeBatch(liveData?.pressureBatchNumber) === normalizeBatch(sourceTank?.batchNumber);
-    const currentLivePressure = pressureBelongsToBatch ? livePressureReading(liveData) : null;
 
         const retestPolicy = carbonationRetestPolicy(
             sortedMeasurements,
