@@ -6,12 +6,12 @@ import type { TankStageInfo } from "../dashboard/tankstage";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
 import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshold";
 import { shouldShowNeglectedTank } from "./neglectWeekday";
-import { evaluateColdTankNeglect } from "./neglectAfterCooling";
+import { evaluateColdTankNeglect, hasActualCooling } from "./neglectAfterCooling";
 import { hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestTestPressureContext, shouldRecommendCarbonationRetestOnDate } from "./carbonationRetestPolicy";
 import { getCoolingPlatoStabilityEvidence } from "./coolingPlatoStability";
 import { carbonationSpecKey, getFermentationEndPlatoLimit } from "./fermentationEndPlato";
-import { yeastDropAllowsCooling } from "./coolingYeastTiming";
+import { isCompletedYeastDrop, yeastDropAllowsCooling } from "./coolingYeastTiming";
 import { carbonationPressureContext, firstInRangePressureAdvice, subsequentCarbonationPressureAdvice, hasReachedCarbonationRange, livePressureReading, preferredPressureReading } from "./carbonationPressureInsights";
 
 
@@ -376,7 +376,7 @@ export function extractYeastDrops(measurements: Measurement[]): YeastDrop[] {
     return sorted
         .map((measurement) => {
             const note = String(measurement.notes ?? "");
-            if (!note.includes("שמרים") && !note.includes("שמרי")) return null;
+            if (!isCompletedYeastDrop(note)) return null;
 
             const amount = parseYeastDropAmount(note);
             if (amount === null) return null;
@@ -562,12 +562,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 String(measurement.notes || "")
                     .includes("כשות")
         );
-    const CooledHopMeasurement =
-        measurements.find(
-            measurement =>
-                String(measurement.notes || "")
-                    .includes("קירור")
-        );
+    // Only an actual recorded cooling event changes the cooling clock.
+    // "בעקבות הקירור" inside a later yeast/pressure note is NOT a new cooling.
+    const CooledHopMeasurement = sortedMeasurements.findLast(
+        measurement => hasActualCooling(String(measurement.notes ?? ""))
+    );
 
     const dryHopDate =
         getMeasurementDate(dryHopMeasurement?.id);
@@ -580,17 +579,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     measurement.notes || ""
                 ).includes("כשות")
         );
-    const yeastDroppedOnce =
-        measurements.some(
-            measurement =>
-                String(
-                    measurement.notes || ""
-                ).includes("הורדת שמרים")
-        ) || measurements.some(
-            measurement =>
-                String(
-                    measurement.notes || ""
-                ).includes("שמרים"));
+    const yeastDroppedOnce = measurements.some(
+        measurement => isCompletedYeastDrop(measurement.notes)
+    );
 
     const latestPlatoMeasurement = [...sortedMeasurements]
         .reverse()
@@ -754,7 +745,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const oldTemp = toDaysAgoMeasurement?.temp;
     const lastNote = lastMeasurement?.notes?.toString();
     const coolingIndex = sortedMeasurements.findLastIndex(
-        m => m.notes?.toString().includes("קירור")
+        measurement => hasActualCooling(String(measurement.notes ?? ""))
     );
 
     const measurementsAfterCooling =
@@ -763,7 +754,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             : [];
 
     const yeastMeasurementsAfterCooling = measurementsAfterCooling.filter(
-        (measurement) => /שמרים|שמרי/.test(String(measurement.notes ?? ""))
+        (measurement) => isCompletedYeastDrop(measurement.notes)
     );
     const firstColdYeastMeasurement = yeastMeasurementsAfterCooling[0];
     const firstColdYeastDate = getMeasurementDate(firstColdYeastMeasurement?.id);
@@ -871,7 +862,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         .filter((measurement) => getMeasurementDate(measurement.id) === todayDate)
         .map((measurement) => String(measurement.notes ?? ""))
         .join(" | ");
-    const YeastDroppedToday = /שמרים|שמרי/.test(todayMeasurementNotes);
+    const YeastDroppedToday = isCompletedYeastDrop(todayMeasurementNotes);
     const requiiersWedYeastDropOnThus = {
         req: false,
         display: false,
@@ -1435,10 +1426,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     String(measurement.notes ?? "");
 
                 // חייב להיות קשור לשמרים
-                if (
-                    !note.includes("שמרים") &&
-                    !note.includes("שמרי")
-                ) {
+                if (!isCompletedYeastDrop(note)) {
                     return null;
                 }
 
