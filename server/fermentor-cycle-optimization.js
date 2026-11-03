@@ -48,8 +48,9 @@ BEHAVIOR:
 var FC_CYCLE_CONTEXT_ = null;
 const FC_CYCLE_LEASE_KEY_ = "fc_cycle_lease_v2";
 const FC_CYCLE_LEASE_TTL_MS_ = 9 * 60 * 1000;
-// v2 revisits unchanged active Sheets once to recover legacy note-only pressure.
-const FC_SHEET_REVISION_PREFIX_ = "fc_sheet_revision_v4:";
+// v5 performs one initial reconciliation of unchanged Sheets so already
+// reported transfer-end times become available to the cellar grace clock.
+const FC_SHEET_REVISION_PREFIX_ = "fc_sheet_revision_v5:";
 
 function fcTimed_(label, callback) {
   const started = Date.now();
@@ -262,7 +263,9 @@ function runFermentorCycle() {
 
 function fcFermentorPayload_(fermentor) {
   const names = ["tankNumber", "tankStatus", "batchNumber", "beerStyle", "brewDate",
-    "beerVolume", "sheetUrl", "uid", "startingPlato", "cellarState", "lastChangeSource", "updatedAt"];
+    "beerVolume", "sheetUrl", "uid", "startingPlato", "cellarState",
+    "fermentationTransferCompletedAt", "fermentationTransferBatchNumber",
+    "lastChangeSource", "updatedAt"];
   const payload = {};
   names.forEach(function (name) {
     if (Object.prototype.hasOwnProperty.call(fermentor, name) && fermentor[name] !== undefined) {
@@ -337,6 +340,12 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
           return extractBrew(sheetUrl);
         });
         if (!brew || !brew.tankNumber) { stats.skipped++; return; }
+        // Reuse this cycle's one in-memory Sheet snapshot. The end time of
+        // the final A/B/C transfer is separate from the ACTION 0 -> 1 timer.
+        // Reading it on Sheet revision also picks up late or corrected entries.
+        const transferInfo = fcTimed_("final transfer " + entry.id, function () {
+          return extractBrewStageInfo(sheetUrl, entry.data);
+        });
         const next = {
           tankNumber: String(brew.tankNumber).trim(),
           tankStatus: brew.tankStatus === true || String(brew.tankStatus).trim().toUpperCase() === "TRUE",
@@ -348,7 +357,9 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
           cellarState: brew.cellarState || null,
           sheetUrl: brew.sheetUrl || null,
           uid: entry.id,
-          startingPlato: brew.startingPlato == null ? null : brew.startingPlato
+          startingPlato: brew.startingPlato == null ? null : brew.startingPlato,
+          fermentationTransferCompletedAt: transferInfo.transferCompletedAt || null,
+          fermentationTransferBatchNumber: String(brew.batchNumber || "").replace(/^#/, "").trim() || null
         };
         // The Sheet may be read before a newer browser report reaches Firestore.
         // Never roll its older pressure snapshot over a later live observation.
