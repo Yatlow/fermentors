@@ -30,6 +30,27 @@ const done = (id, title, batchNumber = "1601", tankNumber = "8") =>
     ({ id, title, batchNumber, tankNumber });
 const count = (alerts, actions = []) => calculateActionKpis(alerts, actions);
 
+test("review-only cooling caveat is visible but not actionable in KPI", () => {
+    const caveat = pending("coolDown", "1604", "7", {
+        title: "מיכל 7: סייג לפני קירור",
+        reviewOnly: true,
+        detail: "פלאטו עדיין מעל סף סיום התסיסה",
+    });
+    assert.deepEqual(count([caveat]), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 0, total: 0 },
+    });
+    // Actual cooling recommendations must still count as actions.
+    assert.deepEqual(count([caveat, pending("coolDown", "1605", "11")]), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 0, total: 1 },
+    });
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    assert.match(dashboard, /if \(!recommendation\.reviewOnly\) scoreRecommendations\.push/);
+    assert.match(dashboard, /!alert\.reviewOnly && alert\.severity === "info"/);
+    assert.match(dashboard, /reviewOnly: recommendation\.reviewOnly/);
+});
+
 test("counts two different other actions in one batch separately", () => {
     assert.deepEqual(count([pending("dryHop"), pending("coolDown")]).other, { done: 0, total: 2 });
 });
