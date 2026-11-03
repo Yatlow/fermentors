@@ -1,4 +1,6 @@
 import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshold";
+import { hasActualCooling } from "./neglectAfterCooling";
+import { isCompletedYeastDrop } from "./coolingYeastTiming";
 export type ForecastTank = BatchDryHopSettings & { id: string; tankNumber?: string | number | null; uid?: string | number | null; beerStyle?: string | null; stage?: { name?: string } | null };
 export type ForecastMeasurement = { id?: string | number | null; notes?: string | number | null; carbonation?: string | number | null };
 
@@ -17,14 +19,14 @@ export type ConditionalForecast = {
 export function projectColdCellarMilestones(tank: ForecastTank, measurements: ForecastMeasurement[], today: string): ConditionalForecast[] {
     if (tank.stage?.name !== "קר") return [];
     const sorted = [...measurements].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
-    const cooling = [...sorted].reverse().find((item) => /קירור/.test(String(item.notes ?? "")));
+    const cooling = [...sorted].reverse().find((item) => hasActualCooling(String(item.notes ?? "")));
     const cooledOn = String(cooling?.id ?? "").match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
     if (!cooledOn || cooledOn > today) return [];
     const postCooling = sorted.filter((item) => String(item.id ?? "").slice(0, 10) >= cooledOn);
     const hasCarb = postCooling.some((item) => item.carbonation !== null && item.carbonation !== undefined &&
         item.carbonation !== "" && Number.isFinite(Number(item.carbonation)));
     const yeastActions = postCooling.filter((item) =>
-        String(item.id ?? "") > String(cooling?.id ?? "") && /שמרים|שמרי/.test(String(item.notes ?? "")));
+        String(item.id ?? "") > String(cooling?.id ?? "") && isCompletedYeastDrop(item.notes));
     const result: ConditionalForecast[] = [];
     const add = (date: string, key: string, title: string, basis: string) => {
         // Do not silently move an overdue recommendation to a fabricated future date.
@@ -65,7 +67,7 @@ export function projectYeastAfterDryHop(
     if (!dryHopDate || dryHopDate > today) return [];
     // The live engine considers an already-reported yeast drop a completed action.
     if (sorted.some((row) => /שמרים/.test(String(row.notes ?? "")))) return [];
-    if (sorted.some((row) => String(row.notes ?? "").includes("קירור"))) return [];
+    if (sorted.some((row) => hasActualCooling(String(row.notes ?? "")))) return [];
     const target = new Date(dryHopDate + "T12:00:00Z");
     target.setUTCDate(target.getUTCDate() + 5);
     const dueDate = target.toISOString().slice(0, 10);
