@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { completedDailyRoundKpi, fermentationGraceEnd, graceDayStart, measurementGraceTankIds } from "../../SERVICES/dashboard/cellarGrace";
+import { completedDailyRoundKpi, fermentationGraceEnd, graceDayStart, measurementGraceTankIds, timestampMillis } from "../../SERVICES/dashboard/cellarGrace";
 import { cellarBadgeFieldsForDay } from "../../SERVICES/dashboard/cellarMeasurementBadge";
 import { CELLAR_CELEBRATION_ACK_KEY, evaluateCellarCelebration, type SettledCellarScore } from "../../SERVICES/dashboard/cellarCelebrationPolicy";
 import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
@@ -316,7 +316,14 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
             .filter(tank => Number(tank.action) === 1)
             .map(tank => fermentationGraceEnd(tank))
             .filter((end): end is number => end !== null && end > now.getTime());
-        const next = Math.min(midnight, nextGraceBoundary.getTime(), ...upcomingTwelveHourEnds);
+        // A future-dated transfer-end entry must switch from the ACTION-1
+        // fallback clock at its actual event time, not only at midnight.
+        const upcomingTransferCompletions = brews
+            .filter(tank => Number(tank.action) === 1)
+            .map(tank => timestampMillis(tank.fermentationTransferCompletedAt))
+            .filter((end): end is number => end !== null && end > now.getTime());
+        const next = Math.min(midnight, nextGraceBoundary.getTime(),
+            ...upcomingTwelveHourEnds, ...upcomingTransferCompletions);
         const timer = window.setTimeout(() => {
             setMeasurementRefresh(current => current + 1);
         }, Math.max(1000, next - now.getTime() + 200));
