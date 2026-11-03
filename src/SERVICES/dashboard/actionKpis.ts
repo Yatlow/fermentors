@@ -7,6 +7,8 @@ export type ActionRecord = {
     detail?: string;
     recommendationKey?: string;
     scheduledActionType?: string;
+    /** Informational caveats are displayed but require no action. */
+    reviewOnly?: boolean;
 };
 export type ActionCount = { done: number; total: number };
 
@@ -57,7 +59,7 @@ export function calculateActionKpis(alerts: ActionRecord[], completedActions: Ac
     const completed = { pressure: new Set<string>(), other: new Set<string>() };
     for (const alert of alerts) {
         const key = alert.recommendationKey;
-        if (!key || key === "measurementRound" || !alert.tankNumber) continue;
+        if (!key || key === "measurementRound" || !alert.tankNumber || alert.reviewOnly) continue;
         // Classify by structured action type, never by explanatory prose. A carbonation
         // follow-up can mention yesterday\'s pressure change without being a pressure action.
         // An untyped pressureAdjustment is ambiguous: the old key may mean
