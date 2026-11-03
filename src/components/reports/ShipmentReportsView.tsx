@@ -18,6 +18,7 @@ import { db } from "../../firebase";
 import ShipmentDocumentModal from "../cooler/ShipmentDocumentModal";
 import "../cooler/ShipmentDocument.css";
 import ManualShipmentCreator from "./ManualShipmentCreator";
+import { sortShipmentReportsNewestFirst } from "../../SERVICES/cooler/shipmentReportSort";
 
 function formatDate(timestamp?: Timestamp | null): string {
     if (!timestamp) return "";
@@ -62,7 +63,7 @@ export default function ShipmentReportsView() {
                     } as Shipment)
                 );
 
-                setShipments(data);
+                setShipments(sortShipmentReportsNewestFirst(data));
                 setLoadingShipments(false);
             },
             (error) => {
