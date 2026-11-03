@@ -8,7 +8,7 @@ export type CoolingYeastMeasurement = {
     notes?: string | number | null;
 };
 
-function isCompletedYeastDrop(note: unknown): boolean {
+export function isCompletedYeastDrop(note: unknown): boolean {
     return String(note ?? "").split(/[|;\n]/).some((part) =>
         /^(?:הורדת|הורדתי|הורדו|הוצאת|הוצאתי)\s+(?:(?:\d+(?:[.,]\d+)?\s+)?(?:דלי(?:י|ים)?\s+)?(?:של\s+)?)?(?:שמרים|שמרי)(?:$|[\s,:])/u.test(part.trim())
     );
