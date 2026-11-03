@@ -1171,10 +1171,12 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
         recommendationsOnly,
     ]);
 
+    // The attention headline counts work to do, not informational caveats.
+    // Keep review-only cooling cautions visible in the recommendation list.
     const counts = useMemo(() => ({
-        critical: analysis.alerts.filter((alert) => alert.severity === "critical").length,
-        warning: analysis.alerts.filter((alert) => alert.severity === "warning").length,
-        info: analysis.alerts.filter((alert) => alert.severity === "info").length,
+        critical: analysis.alerts.filter((alert) => !alert.reviewOnly && alert.severity === "critical").length,
+        warning: analysis.alerts.filter((alert) => !alert.reviewOnly && alert.severity === "warning").length,
+        info: analysis.alerts.filter((alert) => !alert.reviewOnly && alert.severity === "info").length,
     }), [analysis.alerts]);
 
     const ignoredForDisplay = useMemo(() => [
