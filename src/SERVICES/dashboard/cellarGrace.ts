@@ -7,6 +7,9 @@ type GraceTank = {
   tankNumber?: string | number | null;
   action?: string | number | null;
   fermentationStartedAt?: unknown;
+  batchNumber?: string | number | null;
+  fermentationTransferCompletedAt?: unknown;
+  fermentationTransferBatchNumber?: string | number | null;
 };
 
 export type DailyRoundFields = { temp: boolean; pressure: boolean; plato: boolean; pH: boolean };
@@ -30,8 +33,25 @@ export function timestampMillis(value: unknown): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-export function fermentationGraceEnd(tank: GraceTank): number | null {
-  const start = timestampMillis(tank.fermentationStartedAt);
+/**
+ * Prefer the actual reported end of the FINAL transfer (A, B or C).
+ * Unlike a save timestamp, this date/time can be entered hours later.
+ * An unrelated batch's value or an event in the future is never used;
+ * until a valid completion exists, preserve the ACTION 0 -> 1 fallback.
+ */
+export function fermentationGraceStart(tank: GraceTank, at: Date = new Date()): number | null {
+  const detectedAt = timestampMillis(tank.fermentationStartedAt);
+  const batch = String(tank.batchNumber ?? "").replace(/^#/, "").trim();
+  const anchorBatch = String(tank.fermentationTransferBatchNumber ?? "").replace(/^#/, "").trim();
+  const completedAt = timestampMillis(tank.fermentationTransferCompletedAt);
+  if (batch && batch === anchorBatch && completedAt !== null && completedAt <= at.getTime()) {
+    return completedAt;
+  }
+  return detectedAt;
+}
+
+export function fermentationGraceEnd(tank: GraceTank, at: Date = new Date()): number | null {
+  const start = fermentationGraceStart(tank, at);
   return start === null ? null : start + FERMENTATION_GRACE_MS;
 }
 
@@ -44,8 +64,8 @@ export function graceDayStart(at: Date = new Date()): Date {
 
 export function isInInitialMeasurementGrace(tank: GraceTank, at: Date = new Date()): boolean {
   if (Number(tank.action) !== 1 || Number(tank.tankNumber) === 1) return false;
-  const start = timestampMillis(tank.fermentationStartedAt);
-  const end = fermentationGraceEnd(tank);
+  const start = fermentationGraceStart(tank, at);
+  const end = fermentationGraceEnd(tank, at);
   return start !== null && end !== null && at.getTime() >= start && at.getTime() < end;
 }
 
@@ -79,7 +99,7 @@ export function measurementGraceTankIds(
   const cycleStartMs = graceDayStart(at).getTime();
   const active = tanks.filter(tank => Number(tank.action) === 1 && Number(tank.tankNumber) !== 1);
   const veterans = active.filter(tank => {
-    const end = fermentationGraceEnd(tank);
+    const end = fermentationGraceEnd(tank, at);
     return end === null || end <= cycleStartMs;
   });
   const completeRound = (fields: Record<string, DailyRoundFields>) =>
@@ -87,8 +107,8 @@ export function measurementGraceTankIds(
   const veteransComplete = completeRound(fieldsByTankId) || completeRound(calendarTodayFieldsByTankId);
 
   return new Set(active.filter(tank => {
-    const start = timestampMillis(tank.fermentationStartedAt);
-    const end = fermentationGraceEnd(tank);
+    const start = fermentationGraceStart(tank, at);
+    const end = fermentationGraceEnd(tank, at);
     if (start === null || end === null || start > nowMs) return false;
     if (nowMs < end) return true; // Absolute minimum of 12 hours, even over 04:00.
     return end > cycleStartMs && veteransComplete;
@@ -97,7 +117,7 @@ export function measurementGraceTankIds(
 
 /** hh:mm elapsed from transfer (hours do not wrap after 24). */
 export function elapsedFermentationHours(tank: GraceTank, at: Date = new Date()): string | null {
-  const start = timestampMillis(tank.fermentationStartedAt);
+  const start = fermentationGraceStart(tank, at);
   if (start === null || at.getTime() < start) return null;
   const minutes = Math.floor((at.getTime() - start) / 60000);
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
