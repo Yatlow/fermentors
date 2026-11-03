@@ -315,7 +315,7 @@ test("repeat-test shows pressure at failed carbonation, not arbitrary previous p
   ];
   assert.match(
     carbonationRetestTestPressureContext(measurements, "2026-11-03"),
-    /לחץ בזמן בדיקת הגיזוז הלא תקינה \\(01\\/11\\/2026\\): 0.88 bar · לחץ נוכחי במיכל: 0.6 bar/,
+    /לחץ בזמן בדיקת הגיזוז הלא תקינה \(01\/11\/2026\): 0.88 bar · לחץ נוכחי במיכל: 0.6 bar/,
   );
 });
 
@@ -327,7 +327,7 @@ test("repeat-test prefers newer batch-safe live pressure and handles missing tes
   ];
   assert.match(
     carbonationRetestTestPressureContext(measurements, "2026-11-03", { value: 0.5, date: "2026-11-03", time: "09:00" }),
-    /01\\/11\\/2026\\): 0.83 bar · לחץ נוכחי במיכל: 0.5 bar/,
+    /01\/11\/2026\): 0.83 bar · לחץ נוכחי במיכל: 0.5 bar/,
   );
   assert.match(
     carbonationRetestTestPressureContext([{ id: "2026-11-01_1000", carbonation: 2.51 }], "2026-11-03"),
