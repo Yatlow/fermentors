@@ -61,7 +61,7 @@ export function currentRecordedBrewStage<T extends ClockStage>(
     const fields = blocks[String(blockIndex)]?.fields || {};
     const explicit = brewDay(fields.brewDate || "");
     const first = firstClock(fields, stages);
-    const day = new Date((explicit || precedingBlockDay || fallback).getTime());
+    const day: Date = new Date((explicit || precedingBlockDay || fallback).getTime());
 
     if (!explicit && precedingBlockDay && precedingFirstClock !== null &&
         first !== null && precedingFirstClock - first > ROLLOVER_GAP_MINUTES) {
