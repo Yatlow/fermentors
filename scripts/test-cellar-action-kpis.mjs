@@ -595,7 +595,7 @@ test("packaging pressure is not independently credited to the cellar KPI (tank 6
     ], today), 2.3);
     for (const note of [
         "הורדת 40 בקבוקים | הורדת לחץ ל-0.7",
-        "הורדת 20 חביות, סה"כ 400.00 ליטר | הורדת לחץ ל-0.8 bar",
+        'הורדת 20 חביות, סה"כ 400.00 ליטר | הורדת לחץ ל-0.8 bar',
     ]) {
         assert.equal(isCellarPressureActionNote(note), false);
     }
