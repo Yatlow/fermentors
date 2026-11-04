@@ -191,7 +191,7 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                         {item.dueDate < day.date && new Date(item.dueDate + "T12:00:00Z").getUTCDay() !== 6 ? <small> · באיחור מאז {item.dueDate}</small> : null}</div>
                     </div>)}
                     {day.conditionalRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
-                        <span className="cellar-forecast-type cellar-forecast-conditional">{item.id.includes(":plato-recheck:") || (item.id.includes(":diacetyl-plato-recheck:") || item.id.includes(":cooling-readiness:") || item.id.includes(":non-hoppy-warm-yeast:")) ? "צפי" : "לפי כלל"}</span>
+                        <span className="cellar-forecast-type cellar-forecast-conditional">{item.id.includes(":plato-recheck:") || (item.id.includes(":diacetyl-plato-recheck:") || item.id.includes(":cooling-readiness:") || item.id.includes(":cooling-conditions:") || item.id.includes(":non-hoppy-warm-yeast:")) ? "צפי" : "לפי כלל"}</span>
                         <div><strong>מיכל {item.tankNumber}</strong> · {item.title.includes("תנאים ל") ?
                             item.title.replace("בדיקת תנאים ל", "צפוי להתקרב לסף ") :
                             item.title}
