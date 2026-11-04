@@ -26,7 +26,7 @@ function moduleDataUrl(file) {
 const dir = resolve("src/SERVICES/cellering");
 const { projectCarbonationRetest, projectNonHoppyWarmYeast } =
     await import(moduleDataUrl(resolve(dir, "actionForecast.ts")));
-const { forecastRoutinesForDate } =
+const { forecastRoutinesForDate, anticipatedColdTanksForSunday } =
     await import(moduleDataUrl(resolve(dir, "forecastRoutines.ts")));
 const { projectKnownYeastCompletions } =
     await import(moduleDataUrl(resolve(dir, "yeastCompletionForecast.ts")));
@@ -176,4 +176,84 @@ test("forecast component wires all five requested capabilities", () => {
         "projectKnownYeastCompletions", "projectPlatoThresholdRecheck", "forecastRoutinesForDate"]) {
         assert.match(source, new RegExp(name + "\\("));
     }
+});
+
+test("Sunday also includes warm tanks with committed cooling before Sunday as conditional work", () => {
+    const projected = anticipatedColdTanksForSunday({
+        today: "2026-11-04", sunday: "2026-11-08",
+        tanks: [
+            { tankNumber: 11, batchNumber: "#1610", stage: { name: "בתסיסה" } },
+            { tankNumber: 12, batchNumber: "1611", stage: { name: "בתסיסה" } },
+        ],
+        scheduled: [
+            { tankNumber: "11", batchNumber: "1610", actionType: "coolDown", dueDate: "2026-11-06" },
+            { tankNumber: "12", batchNumber: "1610", actionType: "coolDown", dueDate: "2026-11-06" },
+        ],
+        conditional: [],
+    });
+    assert.deepEqual(projected, ["11"]);
+    const routines = forecastRoutinesForDate({
+        date: "2026-11-08", weekday: 0,
+        coldTankNumbers: ["9"], anticipatedColdTankNumbers: projected,
+        nextWeekPackagingTankNumbers: [], scheduled: [], conditional: [],
+    });
+    assert.equal(routines.length, 4);
+    assert.deepEqual(routines.filter((row) => row.tankNumber === "11").map((row) => row.source),
+        ["sunday-predicted-cold", "sunday-predicted-cold"]);
+    assert.deepEqual(routines.filter((row) => row.tankNumber === "9").map((row) => row.source),
+        ["sunday", "sunday"]);
+});
+
+test("cooling readiness can suggest Sunday work but does not claim that cooling occurred", () => {
+    const conditional = [{
+        id: "17:cooling-readiness:2026-11-07",
+        tankNumber: "17", dueDate: "2026-11-07", title: "צפי לבדיקת מוכנות לקירור", basis: "",
+    }];
+    const projected = anticipatedColdTanksForSunday({
+        today: "2026-11-04", sunday: "2026-11-08",
+        tanks: [{ tankNumber: 17, batchNumber: "1617", stage: { name: "בתסיסה" } }],
+        scheduled: [], conditional,
+    });
+    assert.deepEqual(projected, ["17"]);
+    assert.deepEqual(anticipatedColdTanksForSunday({
+        today: "2026-11-04", sunday: "2026-11-08",
+        tanks: [{ tankNumber: 17, batchNumber: "1617", stage: { name: "בתסיסה" } }],
+        scheduled: [], conditional: [{ ...conditional[0], dueDate: "2026-11-08" }],
+    }), []);
+});
+
+test("a same-day, stale or unrelated cooling plan cannot invent Sunday cold tank actions", () => {
+    const tank = { tankNumber: 17, batchNumber: "1617", stage: { name: "בתסיסה" } };
+    for (const dueDate of ["2026-11-03", "2026-11-08", "2026-11-09"]) {
+        assert.deepEqual(anticipatedColdTanksForSunday({
+            today: "2026-11-04", sunday: "2026-11-08", tanks: [tank],
+            scheduled: [{ tankNumber: "17", batchNumber: "1617", actionType: "coolDown", dueDate }],
+            conditional: [],
+        }), []);
+    }
+    assert.deepEqual(anticipatedColdTanksForSunday({
+        today: "2026-11-04", sunday: "2026-11-08", tanks: [{ ...tank, stage: { name: "קר" } }],
+        scheduled: [{ tankNumber: "17", batchNumber: "1617", actionType: "coolDown", dueDate: "2026-11-05" }],
+        conditional: [],
+    }), []);
+});
+
+test("Sunday conditional work deduplicates against planned work and known cold tanks", () => {
+    const result = forecastRoutinesForDate({
+        date: "2026-11-08", weekday: 0,
+        coldTankNumbers: ["11"], anticipatedColdTankNumbers: ["11", "17"],
+        nextWeekPackagingTankNumbers: [],
+        scheduled: [{ tankNumber: "17", actionType: "carbTest" }],
+        conditional: [{ id: "17:yeast:2026-11-08", tankNumber: "17", dueDate: "2026-11-08",
+            title: "השלמת הורדת שמרים", basis: "" }],
+    });
+    assert.deepEqual(result.map((row) => row.tankNumber), ["11", "11"]);
+});
+
+test("scheduled 'other' notes are displayed, including long free-form instructions", () => {
+    const source = readFileSync(resolve("src/components/cellering/CellaringForecast.tsx"), "utf8");
+    assert.match(source, /item\.note\?\.trim\(\)/);
+    assert.match(source, /item\.actionType === "other"/);
+    assert.match(source, /cellar-forecast-scheduled-note/);
+    assert.match(source, /מותנה בקירור/);
 });
