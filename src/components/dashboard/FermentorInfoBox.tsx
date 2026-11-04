@@ -239,26 +239,26 @@ export default function FermentorInfoBox({
             .map((measurement) => String(measurement.notes ?? ""))
             .join(" | ");
         const hasTodayCarbonation = todayMeasurements.some((measurement) => {
-            const value = Number(measurement.carbonation);
-            return measurement.carbonation !== null &&
-                measurement.carbonation !== undefined &&
-                Number.isFinite(value);
+            const value = measurement.carbonation;
+            return value !== null && value !== undefined &&
+                String(value).trim() !== "" &&
+                Number.isFinite(Number(String(value).replace(",", ".")));
         });
-        const handledPressureAfterCarb =
-            recomendations?.pressureAdjustmentHandledToday?.completed === true;
+        // A pressure-treatment note can mention "בדיקת גיזוז" without any
+        // carbonation TEST being performed today. Keep the two actions separate.
+        const hasExplicitCarbTestNote = todayMeasurements.some((measurement) =>
+            String(measurement.notes ?? "").split(/[|\n]/).some((part) =>
+                /^בדיקת\s+גיזוז(?:\s|$)/.test(part.trim())
+            )
+        );
 
         const performed = new Set<ScheduledCellarActionType>();
-        if (
-            /בדיקת\s+גיזוז/.test(todayNotes) ||
-            hasTodayCarbonation ||
-            handledPressureAfterCarb
-        ) {
+        if (hasTodayCarbonation || hasExplicitCarbTestNote) {
             performed.add("carbTest");
         }
         if (/שמרים|שמרי/.test(todayNotes)) performed.add("yeastDrop");
         if (/תחילת\s+גיזוז\s+מלמטה/.test(todayNotes)) performed.add("bottomCarbonation");
         if (/קירור מיכל ל|התחלת קירור|הועבר לקירור/.test(todayNotes)) performed.add("coolDown");
-        if (handledPressureAfterCarb) performed.add("pressureChange");
         if (performed.size === 0) return;
 
         const due = dueScheduledForTank(

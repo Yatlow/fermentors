@@ -472,3 +472,98 @@ test("manager snapshot and tank/dashboard completion gates use numeric pressure 
     assert.match(info, /scheduledPressureDecisionConflictText\(row, measurements\)/);
     assert.match(dashboard, /scheduledPressureDecisionConflictText\(row, measurements\)/);
 });
+
+
+test("carbonation pressure credit requires a preceding numeric test in this batch", async () => {
+    const source = readFileSync(new URL("../src/SERVICES/cellering/cellarActionState.ts", import.meta.url), "utf8");
+    const js = ts.transpileModule(source, {
+        compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
+    }).outputText;
+    const { completedCarbonationPressureAdjustmentOnDate: completed } = await import(
+        "data:text/javascript;base64," + Buffer.from(js).toString("base64")
+    );
+    const today = "2026-11-04";
+    const pressure = (id) => ({ id, notes: "העלאת לחץ ל: 1.6 bar" });
+    const carbonation = (id, value) => ({ id, carbonation: value });
+
+    // Tank 7 has a perfectly normal pressure action without a carbonation test.
+    assert.equal(completed([{
+        id: "2026-11-04_0607", notes: "העלאת לחץ ל: 1.6 bar | קירור מיכל ל0.3°"
+    }], today), null);
+
+    // A report before its first carbonation test cannot earn treatment credit.
+    assert.equal(completed([
+        pressure("2026-11-04_0800"), carbonation("2026-11-04_0900", 2.26)
+    ], today), null);
+    assert.equal(completed([pressure("2026-11-04_0930")], today), null);
+
+    // Real tests of any result (within or outside spec) qualify if first.
+    assert.equal(completed([
+        carbonation("2026-11-04_0830", 2.45), pressure("2026-11-04_0900")
+    ], today), 2.45);
+    assert.equal(completed([
+        carbonation("2026-11-04_0830", "2,26"), pressure("2026-11-04_0900")
+    ], today), 2.26);
+
+    // A test from a prior day of the same batch can precede today's action.
+    assert.equal(completed([
+        carbonation("2026-11-01_1030", 2.26), pressure("2026-11-04_0800")
+    ], today), 2.26);
+
+    // Unsorted input, later rows and three-digit historical times.
+    assert.equal(completed([
+        pressure("2026-11-04_1000"),
+        { id: "2026-11-04_1350", temp: 1.2 },
+        carbonation("2026-11-04_917", 2.4),
+    ], today), 2.4);
+
+    // Later actions/tests never retroactively qualify an earlier action.
+    assert.equal(completed([
+        carbonation("2026-11-04_1200", 2.3),
+        pressure("2026-11-04_0800"),
+    ], today), null);
+    assert.equal(completed([
+        carbonation("2026-11-05_0800", 2.3),
+        pressure("2026-11-04_0900"),
+    ], today), null);
+
+    // Blank/non-numeric test fields, advice, and pressure holds are not evidence.
+    assert.equal(completed([
+        carbonation("2026-11-04_0800", "—"),
+        pressure("2026-11-04_0900"),
+    ], today), null);
+    assert.equal(completed([
+        carbonation("2026-11-04_0800", 2.2),
+        { id: "2026-11-04_0900", notes: "מומלץ להעלות לחץ" },
+    ], today), null);
+    assert.equal(completed([
+        carbonation("2026-11-04_0800", 2.2),
+        { id: "2026-11-04_0900", notes: "השארת לחץ ללא שינוי לאחר בדיקת גיזוז" },
+    ], today), null);
+
+    // Same timestamp/row provides no reliable before/after evidence.
+    assert.equal(completed([{
+        id: "2026-11-04_0900", carbonation: 2.2,
+        notes: "העלאת לחץ ל: 1.6 bar",
+    }], today), null);
+    // An earlier test *does* establish order for a later combined row.
+    assert.equal(completed([
+        carbonation("2026-11-04_0730", 2.3),
+        { id: "2026-11-04_0900", carbonation: 2.45, notes: "הורדת לחץ ל: 1.2 bar" },
+    ], today), 2.3);
+});
+
+test("one physical pressure action earns one entry and does not rewrite journal notes", () => {
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    const quickReport = readFileSync(new URL("../src/components/dashboard/QuickTankReportBox.tsx", import.meta.url), "utf8");
+    const engine = readFileSync(new URL("../src/SERVICES/cellering/calculateCelleringRecomendations.ts", import.meta.url), "utf8");
+    const info = readFileSync(new URL("../src/components/dashboard/FermentorInfoBox.tsx", import.meta.url), "utf8");
+    assert.match(engine, /completedCarbonationPressureAdjustmentOnDate\(/);
+    assert.doesNotMatch(engine, /fromFailedCarbonation/);
+    assert.match(dashboard, /completedScheduledPressure \|\| recommendations\?\.pressureAdjustmentHandledToday\?\.completed/);
+    assert.doesNotMatch(dashboard, /pressureTreatmentContext/);
+    assert.match(quickReport, /case "לחץ": return \(direction === "" \|\| value === ""\) \? null :/);
+    assert.doesNotMatch(quickReport, /FAILED_CARBONATION_PRESSURE_NOTE|pressureTreatmentContext/);
+    assert.doesNotMatch(info, /handledPressureAfterCarb\s*\|\|/);
+    assert.match(info, /hasTodayCarbonation \|\| hasExplicitCarbTestNote/);
+});

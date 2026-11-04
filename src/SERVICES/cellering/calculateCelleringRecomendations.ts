@@ -7,7 +7,7 @@ import { findOpenBottomCarbonation } from "./bottomCarbonation";
 import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshold";
 import { shouldShowNeglectedTank } from "./neglectWeekday";
 import { evaluateColdTankNeglect, hasActualCooling } from "./neglectAfterCooling";
-import { hasCellarActionOnDate } from "./cellarActionState";
+import { completedCarbonationPressureAdjustmentOnDate, hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestTestPressureContext, shouldRecommendCarbonationRetestOnDate } from "./carbonationRetestPolicy";
 import { getCoolingPlatoStabilityEvidence } from "./coolingPlatoStability";
 import { carbonationSpecKey, getFermentationEndPlatoLimit } from "./fermentationEndPlato";
@@ -798,18 +798,18 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
 
     const carbRes = lastMeasurement.carbonation;
-    const pressureHandledToday = hasCellarActionOnDate(
+    // Match a real pressure change only when a batch carbonation reading precedes it.
+    // Ordinary pressure reports without a prior carbonation test earn regular credit.
+    const completedCarbonationPressure = completedCarbonationPressureAdjustmentOnDate(
         sortedMeasurements,
         todayDate,
-        ["הורדת לחץ", "העלאת לחץ", "להוריד לחץ", "להעלות לחץ", "גיזוז מלמטה", "השארת לחץ ללא שינוי"],
     );
-    // Bottom carbonation satisfies the treatment recommendation, but it is
-    // NOT a pressure increase/decrease for the separate pressure KPI.
-    const pressureChangedToday = hasCellarActionOnDate(
-        sortedMeasurements,
-        todayDate,
-        ["הורדת לחץ", "העלאת לחץ", "להוריד לחץ", "להעלות לחץ"],
-    );
+    const pressureHandledToday = completedCarbonationPressure !== null ||
+        hasCellarActionOnDate(
+            sortedMeasurements,
+            todayDate,
+            ["גיזוז מלמטה", "השארת לחץ ללא שינוי"],
+        );
     const prvHandledToday = hasCellarActionOnDate(
         sortedMeasurements,
         todayDate,
@@ -1315,14 +1315,13 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         !isPressureOutOfRangeVal.onSpec;
 
     const pressureAdjustmentHandledToday = {
-        completed: Boolean(
-            stage.name === "קר" &&
-            pressureChangedToday
-        ),
-        reason: pressureChangedToday
-            ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז לא תקינה (${lastMeasurement?.carbonation})`
+        completed: stage.name === "קר" && completedCarbonationPressure !== null,
+        reason: completedCarbonationPressure !== null
+            ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז (${completedCarbonationPressure})`
             : "",
-        importance: latestCarbSpec.importance,
+        importance: completedCarbonationPressure !== null
+            ? isCarbonationOutOfRange(completedCarbonationPressure, style, givenSpecs).importance
+            : 1,
     };
 
     const requiredPressureAdjustment = {

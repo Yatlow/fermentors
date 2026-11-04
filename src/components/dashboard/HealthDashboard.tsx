@@ -897,7 +897,8 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                         reportedActions.forEach(({ key, label, pattern }) => {
                             // One matching pressure report can fulfill a scheduled
                             // pressure decision; don't credit it as two actions.
-                            if (key === "pressure-change" && completedScheduledPressure) return;
+                            if (key === "pressure-change" &&
+                                (completedScheduledPressure || recommendations?.pressureAdjustmentHandledToday?.completed)) return;
                             if (pattern.test(todayNotes)) addCompleted(`reported-${key}-${tank.id}`, label);
                         });
                         if (todayNotes.includes("כשות")) addCompleted(`dryhop-${tank.id}`, "דרייהופ");
