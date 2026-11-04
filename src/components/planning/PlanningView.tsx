@@ -238,7 +238,7 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
       // single case, a shipment may be saved provisionally after confirmation;
       // the shortage remains in the audit until packaging is reported.
       const provisional = confirmableUnpackedShipmentShortages(
-        increases, nextPlans, settings.products, actuals, canonical.id);
+        increases, nextPlans, settings.products, actuals, canonical.id, today, after);
       const { blocking, confirmable: futureShortages } =
         classifyPlanningShortageIncreases(
           increases.filter((increase) => !provisional.includes(increase)),
@@ -251,7 +251,7 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
         const description = provisional.map((increase) =>
           "• " + describePlanningShortageIncrease(increase, settings.products)).join("\n");
         const accepted = await confirmPlanning(
-          "⚠️ המשלוח מתבסס על אריזה שתוכננה לשבוע הזה אך טרם שובצה לתאריך או בוצעה:\n\n" +
+          "⚠️ המשלוח מתבסס על אריזה לא מתוארכת מהשבוע הנוכחי, משבוע קודם או משבוע המשלוח, שטרם בוצעה:\n\n" +
           description +
           "\n\nהמשלוח יישמר כתכנון מותנה בלבד. חובה לשבץ ולבצע את האריזה לפני היציאה; כל עוד אין מלאי פיזי זמין, אי אפשר להעמיס או לשלח את הפריטים הללו.\n\nלאשר את התכנון המותנה?"
         );
