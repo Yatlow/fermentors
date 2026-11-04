@@ -798,12 +798,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
 
     const carbRes = lastMeasurement.carbonation;
-    // Unlike a generic pressure report, a carbonation-pressure treatment
-    // requires an explicit attribution and an earlier failed carbonation test.
+    // Match a real pressure change only when a batch carbonation reading precedes it.
+    // Ordinary pressure reports without a prior carbonation test earn regular credit.
     const completedCarbonationPressure = completedCarbonationPressureAdjustmentOnDate(
         sortedMeasurements,
         todayDate,
-        (carbonation) => isCarbonationOutOfRange(carbonation, style, givenSpecs).outOfSpec,
     );
     const pressureHandledToday = completedCarbonationPressure !== null ||
         hasCellarActionOnDate(
@@ -1318,7 +1317,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const pressureAdjustmentHandledToday = {
         completed: stage.name === "קר" && completedCarbonationPressure !== null,
         reason: completedCarbonationPressure !== null
-            ? `בוצע היום שינוי לחץ בעקבות בדיקת גיזוז לא תקינה (${completedCarbonationPressure})`
+            ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז (${completedCarbonationPressure})`
             : "",
         importance: completedCarbonationPressure !== null
             ? isCarbonationOutOfRange(completedCarbonationPressure, style, givenSpecs).importance
@@ -1332,7 +1331,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         // but explicitly distinguish raising/lowering pressure from vent tuning.
         actionType: coldCarbNeedsPressureAdjustment || firstInRangeAdvice
             ? "pressureChange" as const : "ventAdjust" as const,
-        fromFailedCarbonation: coldCarbNeedsPressureAdjustment,
         // Offer the physical pressure report OR a deliberate hold only until
         // the first valid in-range result, inclusive. Once this batch has ever
         // been in range, later out-of-range results are directional only.
