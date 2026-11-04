@@ -105,7 +105,10 @@ function environment(options = {}) {
     FC_CYCLE_CONTEXT_: null,
     extractSpreadsheetId() { return "test-sheet-id"; },
     normalizeFirestoreValue(field) { return field.value; },
-    brewActionTankStillCurrent_() { return options.stale !== true; },
+    getFermentorFromFirestore(_project, id) {
+      assert.equal(id, "13");
+      return options.stale ? { ...data, action: 1 } : data;
+    },
   };
   vm.runInNewContext(source, context, { filename: "brewSheetHourlyReconciliation.js" });
   return { context, rows, calls, entry, properties, sheet };
@@ -248,4 +251,17 @@ test("no extra trigger is installed: the existing optimized cycle owns the hourl
   assert.match(optimized, /brewSheetHourlyMaintenance_\(fermentors, new Date\(\)\)/);
   assert.match(source, /BREW_SHEET_HOURLY_INTERVAL_MS_ = 60 \* 60 \* 1000/);
   assert.doesNotMatch(source, /ScriptApp\.newTrigger/);
+});
+
+
+test("the newest intentional manual Sheet clear is never repopulated from an old execution", () => {
+  const h = environment();
+  const first = 4 - 1 + 13;
+  h.entry.data.brewSheetEditRevision = Date.now();
+  h.entry.data.brewSheetEditRange = "C17";
+  h.entry.data.brewSheetEditValue = "";
+  const result = h.context.brewSheetHourlyMaintenance_([h.entry], now);
+  assert.equal(result.repaired, 3);
+  assert.equal(h.rows[first][2], "", "the manually cleared HLT temperature must stay blank");
+  assert.equal(h.rows[first][1], "1550");
 });
