@@ -567,3 +567,46 @@ test("one physical pressure action earns one entry and does not rewrite journal 
     assert.doesNotMatch(info, /handledPressureAfterCarb\s*\|\|/);
     assert.match(info, /hasTodayCarbonation \|\| hasExplicitCarbTestNote/);
 });
+
+
+test("packaging pressure is not independently credited to the cellar KPI (tank 6)", async () => {
+    const source = readFileSync(new URL("../src/SERVICES/cellering/cellarActionState.ts", import.meta.url), "utf8");
+    const js = ts.transpileModule(source, {
+        compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
+    }).outputText;
+    const { completedCarbonationPressureAdjustmentOnDate, isCellarPressureActionNote } = await import(
+        "data:text/javascript;base64," + Buffer.from(js).toString("base64")
+    );
+    const today = "2026-11-04";
+    const previousCarb = { id: "2026-11-01_0855", carbonation: 2.3 };
+    const packaging = {
+        id: "2026-11-04_0607",
+        notes: "הורדת 20 חביות, סה״כ 400.00 ליטר | הורדת לחץ ל-0.8 bar",
+    };
+    assert.equal(isCellarPressureActionNote(packaging.notes), false);
+    assert.equal(completedCarbonationPressureAdjustmentOnDate([previousCarb, packaging], today), null);
+    assert.equal(count([], [done("reported-pressure-change-6", "שינוי לחץ", "1609", "6")]).pressure.done, 1,
+        "Actual cellar pressure actions still count normally");
+    assert.equal(isCellarPressureActionNote("העלאת לחץ ל: 1.6 bar"), true);
+    assert.equal(isCellarPressureActionNote("הורדת לחץ ל: 0.8 bar"), true);
+    assert.equal(completedCarbonationPressureAdjustmentOnDate([
+        previousCarb,
+        { id: "2026-11-04_0607", notes: "הורדת לחץ ל: 0.8 bar" },
+    ], today), 2.3);
+    for (const note of [
+        "הורדת 40 בקבוקים | הורדת לחץ ל-0.7",
+        "הורדת 20 חביות, סה"כ 400.00 ליטר | הורדת לחץ ל-0.8 bar",
+    ]) {
+        assert.equal(isCellarPressureActionNote(note), false);
+    }
+    const decision = {
+        id: "pressure-6", tankNumber: "6", batchNumber: "1609", actionType: "pressureChange",
+        dueDate: today, status: "active", createdByIsCellarManager: false,
+    };
+    assert.equal(scheduledRecommendationCompletionDate(decision, [packaging]), null);
+    assert.equal(scheduledRecommendationCompletionDate(decision, [
+        { ...packaging, notes: "הורדת לחץ ל: 0.8 bar" }
+    ]), today);
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    assert.match(dashboard, /todayRows\.some\(\(row\) => isCellarPressureActionNote\(row\.notes\)\)/);
+});
