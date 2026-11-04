@@ -129,13 +129,14 @@ function calculateWeeklyStyleAverages(force) {
 
       if (!accumulator[style][day]) {
 
-        accumulator[style][day] = {};
+        accumulator[style][day] = { _batchIds: {} };
 
         METRIC_KEYS.forEach(function (metric) {
 
           accumulator[style][day][metric] = {
             sum: 0,
-            count: 0
+            count: 0,
+            batchIds: {}
           };
 
         });
@@ -170,6 +171,9 @@ function calculateWeeklyStyleAverages(force) {
 
         accumulator[style][day][metric].count +=
           1;
+        // Unique brew identity, regardless of how many physical readings.
+        accumulator[style][day][metric].batchIds[brew.id] = true;
+        accumulator[style][day]._batchIds[brew.id] = true;
 
       });
 
@@ -233,6 +237,9 @@ function calculateWeeklyStyleAverages(force) {
 
           averages.sampleCount =
             daySamples;
+          averages.batchCount = Object.keys(dayMetrics._batchIds).length;
+          averages.platoBatchCount = Object.keys(dayMetrics.plato.batchIds).length;
+          averages.platoSampleCount = dayMetrics.plato.count;
 
           totalSamples +=
             daySamples;
