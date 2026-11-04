@@ -17,7 +17,7 @@
 
 const BREW_SHEET_HOURLY_LAST_AT_KEY_ = "brew_sheet_hourly_reconcile_last_at_v1";
 const BREW_SHEET_HOURLY_INTERVAL_MS_ = 60 * 60 * 1000;
-const BREW_SHEET_HOURLY_MAX_TANKS_ = 6;
+const BREW_SHEET_HOURLY_MAX_TANKS_ = 18; // all operational tanks; no starvation
 const BREW_SHEET_HOURLY_MAX_CELLS_ = 80;
 
 function brewSheetReconcileText_(value) {
@@ -324,10 +324,14 @@ function brewSheetReconcileSingle_(entry, projectId, now) {
     return { skipped: 1, repaired: 0, verified: 0, conflicts: 0, errors: 0, unmapped: 0 };
   }
 
-  // Revalidate the live ACTION 0/batch/sheet assignment immediately before
-  // touching the Sheet, not only against this cycle's earlier tank snapshot.
-  const descriptor = Object.assign({ uid: entry.id }, tank);
-  if (!brewActionTankStillCurrent_(descriptor)) {
+  // Refresh the LIVE fermentor document immediately before writing. This
+  // protects a brew that just changed ACTION/batch/Sheet and also exposes
+  // the latest manual Sheet edit, including an intentional blanking.
+  const liveTank = getFermentorFromFirestore(projectId, entry.id);
+  if (FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.io) FC_CYCLE_CONTEXT_.io.firestoreReads++;
+  if (!liveTank || Number(liveTank.action) !== 0 ||
+      brewSheetReconcileBatch_(liveTank.batchNumber) !== batch ||
+      brewSheetReconcileText_(liveTank.sheetUrl) !== brewSheetReconcileText_(tank.sheetUrl)) {
     return { skipped: 1, repaired: 0, verified: 0, conflicts: 0, errors: 0, unmapped: 0 };
   }
   const fileId = extractSpreadsheetId(tank.sheetUrl);
@@ -346,7 +350,22 @@ function brewSheetReconcileSingle_(entry, projectId, now) {
   }
 
   const plan = brewSheetReconcilePlan_(values, execution, batch);
-  const result = brewSheetReconcileApply_(sheet, plan, BREW_SHEET_HOURLY_MAX_CELLS_);
+  const manualEditRange = brewSheetReconcileText_(liveTank.brewSheetEditRange)
+    .replace(/^[^!]+!/, "").replace(/\\$/g, "").toUpperCase();
+  // A deliberate manual clear must not be resurrected from an older
+  // Firestore execution snapshot if the Sheet onEdit handler is delayed.
+  // Even if that handler fails to update the execution, its revision
+  // record is sufficient to conservatively suppress this one cell.
+  const manualCleared = Number(liveTank.brewSheetEditRevision) > 0 &&
+    liveTank.brewSheetEditValue !== undefined &&
+    brewSheetReconcileText_(liveTank.brewSheetEditValue) === "";
+  const safePlan = {
+    candidates: manualCleared
+      ? plan.candidates.filter(function (item) { return item.a1.toUpperCase() !== manualEditRange; })
+      : plan.candidates,
+    unmapped: plan.unmapped
+  };
+  const result = brewSheetReconcileApply_(sheet, safePlan, BREW_SHEET_HOURLY_MAX_CELLS_);
   result.skipped = 0;
   return result;
 }
