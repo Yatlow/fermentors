@@ -2167,6 +2167,7 @@ export default function BrewFormStepper({
     if (stage.key === "restLt") return 50;
     if (stage.key === "circulation") return 60;
     if (stage.key === "outToBoil") return 70;
+    if (/^rinse\d+$/.test(stage.key)) return 80;
     if (stage.key === "endTransfer") return 90;
     if (stage.key === "boil") return 100;
     if (stage.key === "outToFermentor") return 120;
@@ -2182,9 +2183,29 @@ export default function BrewFormStepper({
     // Latest chronological recorded operation across *all* A/B/C brews.
     // A later recipe stage in A must not mask a newer stage in B, and
     // precalculated future boil/transfer times must not count as reached.
+    const recordedStages: StageDef[] = [
+      ...MASH_STAGES,
+      ...LAUTER_STAGES,
+      ...Array.from({ length: 7 }, (_, index) => ({
+        key: `rinse${index + 1}`,
+        label: `שטיפה ${index + 1}`,
+        rowOffset: 18 + index,
+        showEnd: false,
+      })),
+      END_TRANSFER_STAGE,
+      ...BOIL_STAGES,
+      ...boilHops.slice(3).map((_, index) => ({
+        key: `hop${index + 4}`,
+        label: `הוספת כשות ${index + 4}`,
+        rowOffset: 36 + index * 2,
+        showEnd: false,
+      })),
+      WP_STAGE,
+      OUT_STAGE,
+    ];
     const latest = currentRecordedBrewStage(
       nextExecution.blocks,
-      TIMELINE_STAGES,
+      recordedStages,
       totalBlocks,
       run.brewDate || "",
     );
