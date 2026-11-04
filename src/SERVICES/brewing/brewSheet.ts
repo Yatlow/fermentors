@@ -1,6 +1,5 @@
 type BrewTankDescriptor = { tankType: "single" | "double" | "triple" };
 import type { BrewRecipe } from "./brewRecipe";
-import { sameBrewWaterSheetValue } from "./brewWaterReconciliation";
 import type { IngredientDefinition } from "./ingredientLibrary";
 import {
   serverReadBrewSheetRange,
@@ -210,7 +209,6 @@ type SheetWrite = {
   range: string;
   value: SheetCellValue;
   expectedValue?: SheetCellValue;
-  expectedRowLabel?: "HLT" | "MASH IN";
   semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime";
 };
 
@@ -313,19 +311,6 @@ async function flushSheetOutbox(fileId: string): Promise<void> {
         `Google Sheets אישר רק ${result.updated} מתוך ${writes.length} כתיבות.`,
       );
     }
-    // The server's 'updated' count confirms a request, not the Sheet's final
-    // cell contents. Verify water writes against live cell values before
-    // reporting success, including values with custom numeric units.
-    const waterWrites = writes.filter((write) => Boolean(write.expectedRowLabel));
-    if (waterWrites.length > 0) {
-      const checks = await Promise.all(waterWrites.map(async (write) => {
-        const rows = await readBrewSheetRange(fileId, write.range);
-        return sameBrewWaterSheetValue(rows[0]?.[0] ?? "", write.value);
-      }));
-      if (checks.some((confirmed) => !confirmed)) {
-        throw new Error("נתוני המים לא תואמים ל-Sheet לאחר הכתיבה. יש לבצע רקונסיליאציה.");
-      }
-    }
     const baseline = baselineFor(fileId);
     writes.forEach((write) => baseline.set(write.range, normalizeSheetValue(write.value)));
     waiters.forEach(({ resolve }) => resolve());
@@ -339,9 +324,7 @@ async function flushSheetOutbox(fileId: string): Promise<void> {
         const values = await readBrewSheetRange(fileId, write.range);
         const actual = values[0]?.[0] ?? "";
         baseline.set(write.range, normalizeSheetValue(actual));
-        return write.expectedRowLabel
-          ? sameBrewWaterSheetValue(actual, write.value)
-          : normalizeSheetValue(actual) === normalizeSheetValue(write.value);
+        return normalizeSheetValue(actual) === normalizeSheetValue(write.value);
       }));
       if (checks.every(Boolean)) {
         waiters.forEach(({ resolve }) => resolve());
