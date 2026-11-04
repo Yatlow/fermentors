@@ -20,11 +20,6 @@ import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldPersistBrewUnmount, hasUnsavedBrewFields } from "../../SERVICES/brewing/brewSyncGuards";
 import { recordedBrewPosition, reviewedStepsFromRecordedWork } from "../../SERVICES/brewing/brewValidationProgress";
 import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
-import {
-  missingBrewWaterSheetCells,
-  sameBrewWaterSheetValue,
-  type MissingBrewWaterCell,
-} from "../../SERVICES/brewing/brewWaterReconciliation";
 import { persistBrewBeforeExit } from "../../SERVICES/brewing/brewExitPersistence";
 import {
   readBrewSheetRange,
@@ -987,8 +982,6 @@ export default function BrewFormStepper({
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null);
   const [lastPullAt, setLastPullAt] = useState<Date | null>(null);
   const [syncMismatches, setSyncMismatches] = useState<SyncMismatch[]>([]);
-  const [missingSheetWater, setMissingSheetWater] = useState<MissingBrewWaterCell[]>([]);
-  const [repairingSheetWater, setRepairingSheetWater] = useState(false);
   const [syncError, setSyncError] = useState("");
   const [validationNotice, setValidationNotice] =
     useState<ValidationNotice | null>(null);
@@ -1083,7 +1076,6 @@ export default function BrewFormStepper({
     let cancelled = false;
     setFirestoreHydrated(false);
     setInitialSheetReconciled(false);
-    setMissingSheetWater([]);
     const hydrationStartedAt = Date.now();
     loadBrewingExecutionFromFirestore(run.batchNumber)
       .then((remote) => {
@@ -1565,7 +1557,7 @@ export default function BrewFormStepper({
 
   function writeSheet(
     key: string,
-    writes: Array<{ range: string; value: string | number | boolean | null; expectedRowLabel?: "HLT" | "MASH IN"; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
+    writes: Array<{ range: string; value: string | number | boolean | null; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
   ) {
     if (!run.sheetId || writes.length === 0) return;
 
@@ -1596,7 +1588,7 @@ export default function BrewFormStepper({
   async function commit(
     key: string,
     value: string,
-    writes: Array<{ range: string; value: string | number | boolean | null; expectedRowLabel?: "HLT" | "MASH IN"; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
+    writes: Array<{ range: string; value: string | number | boolean | null; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
   ) {
     let baseExecution = execution;
     const dateWrites: Array<{ range: string; value: string | number | boolean | null }> = [];
@@ -2918,31 +2910,23 @@ export default function BrewFormStepper({
       }
     }
 
-    try {
-      const writes: Array<{
-        range: string;
-        value: string | number | boolean | null;
-        expectedRowLabel?: "HLT" | "MASH IN";
-      }> = [
-        {
-          range: `'גיליון1'!${target.column}${mappedWaterRow(target.source)}`,
-          expectedRowLabel: target.source === "hlt" ? "HLT" : "MASH IN",
-          value:
-            field.endsWith("Temp") && value
-              ? num(value) ?? value
-              : value,
-        },
-      ];
-      // Never clear unrelated historical offsets, especially three-rest brews.
-      await commit(field, value, writes);
-    } catch (error) {
-      // Missing semantic row metadata used to escape as an unhandled onBlur
-      // rejection, while the React/Firestore form still showed a green check.
-      const detail = error instanceof Error ? error.message : String(error);
-      setSyncError(`שדה מים ${field} לא נכתב ל-Sheet: ${detail}`);
-      setMessage(`שדה המים נשמר בטופס בלבד. יש לבצע רקונסיליאציה: ${detail}`);
-      console.error("Brew water Sheet commit failed before enqueue", field, error);
-    }
+    const writes: Array<{
+      range: string;
+      value: string | number | boolean | null;
+    }> = [
+      {
+        range: `'גיליון1'!${target.column}${mappedWaterRow(target.source)}`,
+        value:
+          field.endsWith("Temp") && value
+            ? num(value) ?? value
+            : value,
+      },
+    ];
+
+    // Never clear an unrelated historical offset as a cleanup side effect.
+    // On an expanded wheat template that offset can now hold real brew data.
+
+    await commit(field, value, writes);
   }
 
   async function commitPh(key: string, value: string, range: string) {
@@ -3741,7 +3725,6 @@ export default function BrewFormStepper({
       );
 
       const startupConflicts: SyncMismatch[] = [];
-      const detectedMissingWater: MissingBrewWaterCell[] = [];
       for (let index = 1; index <= totalBlocks; index += 1) {
         const discovered = discoveredBlocks[index - 1];
         if (!discovered) {
@@ -3780,9 +3763,6 @@ export default function BrewFormStepper({
         // acknowledged Firestore data. Explicit pulls can still use the Sheet
         // as an authoritative source when the brewer chooses to reconcile.
         const startup = reconcileBrewStartupFields(existing, pulled);
-        // A filled app field is NOT proof that the Sheet contains it. Detect
-        // blank Sheet cells from their live, semantically discovered A/B/C rows.
-        detectedMissingWater.push(...missingBrewWaterSheetCells(index, existing, pulled));
         const mappingDiscoveryOnly = positionAfterPull && silent;
         if (mappingDiscoveryOnly) {
           startupConflicts.push(
@@ -3822,7 +3802,6 @@ export default function BrewFormStepper({
       setExecution(nextExecution);
       setLastPullAt(new Date());
       setSyncMismatches(startupConflicts);
-      setMissingSheetWater(detectedMissingWater);
       setSyncError("");
       setInitialSheetReconciled(true);
       // Persist reconciliation explicitly; do not rely on a later render/effect.
@@ -3845,81 +3824,6 @@ export default function BrewFormStepper({
       return false;
     } finally {
       if (!silent) setPulling(false);
-    }
-  }
-
-  async function repairMissingWaterInSheet(): Promise<void> {
-    if (!run.sheetId || repairingSheetWater || missingSheetWater.length === 0 ||
-        pendingSheetWrites.current.size > 0) return;
-    setRepairingSheetWater(true);
-    setSyncError("");
-    const targetCells = [...missingSheetWater];
-    const verifiedRefs = new Set<string>();
-    const operation = (async () => {
-      let repaired = 0;
-      for (const cell of targetCells) {
-        // Don't race with fresh edits made AFTER the last reconciliation.
-        const current = String(latestExecutionRef.current.blocks[String(cell.blockIndex)]
-          ?.fields?.[cell.field] ?? "").trim();
-        if (current !== cell.expected) {
-          throw new Error(`נתון ${cell.label} בבישול ${String.fromCharCode(64 + cell.blockIndex)} השתנה. יש לרענן את הבדיקה לפני תיקון.`);
-        }
-        // Confirm that the dynamic semantic row still belongs to HLT or
-        // MASH IN. A concurrent sheet layout edit must never redirect a
-        // repair into some unrelated measurement.
-        const rowNumber = Number(cell.range.match(/(\d+)$/)?.[1]);
-        const currentRow = await readBrewSheetRange(run.sheetId,
-          `'גיליון1'!A${rowNumber}:C${rowNumber}`);
-        const label = String(currentRow[0]?.[0] ?? "").trim().replace(/\s+/g, "").toUpperCase();
-        const expectedLabel = cell.field.startsWith("hlt") ? "HLT" : "MASHIN";
-        if (label !== expectedLabel) {
-          throw new Error(`מבנה הגיליון השתנה ליד ${cell.range}. הכתיבה נחסמה — יש לבצע קריאה מחודשת.`);
-        }
-        const actual = String(currentRow[0]?.[cell.range.includes("!B") ? 1 : 2] ?? "").trim();
-        if (actual) {
-          if (sameBrewWaterSheetValue(actual, cell.expected)) {
-            // Already repaired by another user/device; never write again.
-            repaired += 1;
-            verifiedRefs.add(`${cell.blockIndex}:${cell.field}:${cell.expected}`);
-            continue;
-          }
-          throw new Error(`התא ${cell.range} השתנה ב-Sheet ל־"${actual}". לא בוצעה דריסה של שינוי ידני.`);
-        }
-        // The server repeats the blank-cell check atomically before setValue.
-        // Never send a guessed address or an unconditional overwrite.
-        await writeBrewSheetCells(run.sheetId, [{
-          range: cell.range,
-          value: Number.isFinite(Number(cell.expected)) ? Number(cell.expected) : cell.expected,
-          expectedValue: "",
-          expectedRowLabel: cell.field.startsWith("hlt") ? "HLT" : "MASH IN",
-        }]);
-        const verified = await readBrewSheetRange(run.sheetId, cell.range);
-        const sheetValue = verified[0]?.[0] ?? "";
-        if (!sameBrewWaterSheetValue(sheetValue, cell.expected)) {
-          throw new Error(`הכתיבה ל־${cell.range} התקבלה אך אימות הקריאה נכשל. נדרש סנכרון חוזר.`);
-        }
-        repaired += 1;
-        verifiedRefs.add(`${cell.blockIndex}:${cell.field}:${cell.expected}`);
-      }
-      // All resolved candidates were independently read back. The full Sheet
-      // pull cannot run here because this operation itself is in the pending
-      // write set; report only the individual cells we have actually verified.
-      setMessage(`אומתו ${repaired} תאי מים בגיליון. אפשר לקרוא שוב מה-Sheet לבדיקת שדות נוספים.`);
-      setLastPushAt(new Date());
-    })();
-    pendingSheetWrites.current.add(operation);
-    try {
-      await operation;
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      setSyncError(`רקונסיליאציית נתוני מים לא הושלמה: ${detail}`);
-    } finally {
-      // Retain unresolved warnings even after partial success or a conflict.
-      // Also preserve any later edit with a new expected app value.
-      setMissingSheetWater((previous) => previous.filter((cell) =>
-        !verifiedRefs.has(`${cell.blockIndex}:${cell.field}:${cell.expected}`)));
-      pendingSheetWrites.current.delete(operation);
-      setRepairingSheetWater(false);
     }
   }
 
@@ -4542,26 +4446,6 @@ export default function BrewFormStepper({
         </div>
       )}
       {message && <div className="brewing-message">{message}</div>}
-
-      {missingSheetWater.length > 0 && (
-        <div className="brewing-message brewing-message-error" role="alert">
-          <strong>קיים פער בין טופס הבישול לגיליון: {missingSheetWater.length} תאי מים חסרים ב-Sheet.</strong>
-          <p>השלמת שדות בטופס אינה מעידה שהנתונים נשמרו בגיליון. אפשר להשלים רק תאים ריקים לאחר אימות, ללא דריסת ערכים קיימים.</p>
-          <ul>
-            {missingSheetWater.map((cell) => (
-              <li key={`${cell.blockIndex}:${cell.field}`}>
-                בישול {String.fromCharCode(64 + cell.blockIndex)} · {cell.label}:
-                באפליקציה {cell.expected}, בגיליון ריק ({cell.range})
-              </li>
-            ))}
-          </ul>
-          <button type="button" disabled={repairingSheetWater || syncing !== "" ||
-            pendingSheetWrites.current.size > 0}
-            onClick={() => void repairMissingWaterInSheet()}>
-            {repairingSheetWater ? "מאמת ומתקן נתוני מים…" : "בדוק והשלם תאי מים חסרים בגיליון"}
-          </button>
-        </div>
-      )}
 
       {syncMismatches.length > 0 && (
         <details className="brew-sync-diff" open>
