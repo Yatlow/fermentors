@@ -20,6 +20,8 @@ import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldPersistBrewUnmount, hasUnsavedBrewFields } from "../../SERVICES/brewing/brewSyncGuards";
 import { recordedBrewPosition, reviewedStepsFromRecordedWork } from "../../SERVICES/brewing/brewValidationProgress";
 import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
+import { resolveBrewPrepSheetTargets, type BrewPrepSheetTargets } from "../../SERVICES/brewing/brewPrepSheetMapping";
+import { serverReadBrewSheetRange } from "../../SERVICES/brewing/brewingSheetServer";
 import { persistBrewBeforeExit } from "../../SERVICES/brewing/brewExitPersistence";
 import {
   readBrewSheetRange,
@@ -1590,17 +1592,13 @@ export default function BrewFormStepper({
     value: string,
     writes: Array<{ range: string; value: string | number | boolean | null; expectedRowLabel?: "HLT" | "MASH IN"; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
   ) {
-    let baseExecution = execution;
-    const dateWrites: Array<{ range: string; value: string | number | boolean | null }> = [];
-
-    const next = setBrewingExecutionField(
-      baseExecution,
-      currentBlock,
-      key,
-      value,
+    // A semantic row discovery may have completed while the operator was
+    // typing. Merge the field into the latest state instead of replacing its
+    // newly discovered row metadata with an old render-time snapshot.
+    setExecution((previous) =>
+      setBrewingExecutionField(previous, currentBlock, key, value),
     );
-    setExecution(next);
-    writeSheet(key, [...dateWrites, ...writes]);
+    writeSheet(key, writes);
   }
 
   function localValue(key: string) {
@@ -1746,52 +1744,54 @@ export default function BrewFormStepper({
       return;
     }
 
-    const currentBlockFields =
-      execution.blocks[String(currentBlock)]?.fields || {};
-    const discoveredHeaderRow = Number(currentBlockFields["__sheetRow.header"]);
-    const headerRow =
-      Number.isInteger(discoveredHeaderRow) && discoveredHeaderRow > 0
-        ? discoveredHeaderRow
-        : sheetRowFromMeta("__sheetRow.header", blockHeaderRow(run.tankType, currentBlock));
-    const display = sheetDateFromIso(value);
-    const writes: Array<{
-      range: string;
-      value: string | number | boolean | null;
-      semanticField?: "fermentation.brewDate";
-    }> = [
-      {
-        range: `'גיליון1'!H${headerRow}`,
-        value: display,
-      },
-    ];
-
-    if (currentBlock === 1) {
-      writes.push(
-        { range: "'גיליון1'!H1", value: display },
-        {
-          range: `'גיליון1'!B${mappedFermentationRow()}`,
-          value: display,
-          semanticField: "fermentation.brewDate",
-        },
-      );
-    }
-
+    const dateBlock = currentBlock;
     latestLocalEditAt.current = Date.now();
     // The blur can coincide with a remote update or a click on another brew
     // block. Always merge into the latest execution, never a render-time copy.
     setExecution((previous) => {
-      let next = setBrewingExecutionField(previous, currentBlock, "brewDate", value);
-      next = setBrewingExecutionField(next, currentBlock, "brewDate.manual", options.manual === false ? "" : value);
+      let next = setBrewingExecutionField(previous, dateBlock, "brewDate", value);
+      next = setBrewingExecutionField(next, dateBlock, "brewDate.manual", options.manual === false ? "" : value);
       return next;
     });
     setBrewDateDrafts((previous) => {
-      if (!(currentBlock in previous)) return previous;
+      if (!(dateBlock in previous)) return previous;
       const next = { ...previous };
-      delete next[currentBlock];
+      delete next[dateBlock];
       return next;
     });
     setValidationNotice((previous) => previous?.key === "brewDate" ? null : previous);
-    writeSheet("brewDate", writes);
+
+    // Keep an accepted brew day in the app even if mapping the target Sheet
+    // takes time or fails. Read exact A/B/C header and fermentation labels
+    // before writing; never route a date to a guessed legacy offset.
+    if (!run.sheetId) return;
+    try {
+      const targets = await ensureLiveBrewPrepRows(dateBlock, "date");
+      const display = sheetDateFromIso(value);
+      const writes: Array<{
+        range: string;
+        value: string | number | boolean | null;
+        semanticField?: "fermentation.brewDate";
+      }> = [
+        { range: `'גיליון1'!H${targets.headerRow}`, value: display },
+      ];
+      if (dateBlock === 1) {
+        if (!targets.fermentationRow) throw new Error("חסר מיפוי יום בישול בדף התסיסה.");
+        writes.push(
+          { range: "'גיליון1'!H1", value: display },
+          {
+            range: `'גיליון1'!B${targets.fermentationRow}`,
+            value: display,
+            semanticField: "fermentation.brewDate",
+          },
+        );
+      }
+      writeSheet("brewDate", writes);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setSyncError(`התאריך נשמר בטופס, אך הכתיבה ל-Sheet נכשלה: ${detail}`);
+      setMessage(`תאריך הבישול נשמר באפליקציה. הסנכרון לגיליון דורש בדיקה: ${detail}`);
+    }
   }
 
   async function confirmMaterials() {
@@ -2027,6 +2027,44 @@ export default function BrewFormStepper({
       throw new Error(`חסר מיפוי סמנטי עבור ${key}. השמירה ל-Sheet נחסמה כדי להגן על נתוני הבישול.`);
     }
     return fallbackRow;
+  }
+
+  async function ensureLiveBrewPrepRows(
+    blockIndex: number,
+    required: "water" | "date",
+  ): Promise<BrewPrepSheetTargets> {
+    // A browser-local Sheet metadata map may be absent after a failed or
+    // edit-interrupted startup pull. Resolve ONLY immutable row identities
+    // directly from the live Sheet, even if the brewer has another input
+    // focused; never use a fallback offset or replace typed values.
+    const response = await serverReadBrewSheetRange(run.sheetId, "'גיליון1'!A1:H220");
+    const targets = resolveBrewPrepSheetTargets(
+      response.values ?? [], run.batchNumber, blockIndex, required,
+    );
+    const metadata: Record<string, string> = {
+      "__sheetRow.header": String(targets.headerRow),
+    };
+    if (targets.hltRow) metadata["__sheetRow.water.hlt"] = String(targets.hltRow);
+    if (targets.mashWaterRow) metadata["__sheetRow.water.mashIn"] = String(targets.mashWaterRow);
+    if (targets.fermentationRow) metadata["__sheetRow.fermentation"] = String(targets.fermentationRow);
+
+    setExecution((previous) => {
+      if (previous.batchNumber !== String(run.batchNumber)) return previous;
+      const id = String(blockIndex);
+      const existing = previous.blocks[id] || { fields: {} };
+      const nextFields = { ...existing.fields, ...metadata };
+      if (Object.entries(metadata).every(([key, value]) => existing.fields[key] === value)) {
+        return previous;
+      }
+      return {
+        ...previous,
+        blocks: {
+          ...previous.blocks,
+          [id]: { ...existing, fields: nextFields },
+        },
+      };
+    });
+    return targets;
   }
 
   function mappedWaterRow(key: "hlt" | "mashIn") {
@@ -2926,22 +2964,37 @@ export default function BrewFormStepper({
     }
 
     try {
+      const waterBlock = currentBlock;
+      const fieldRowKey = `__sheetRow.water.${target.source}`;
+      const knownRow = Number(
+        latestExecutionRef.current.blocks[String(waterBlock)]?.fields[fieldRowKey] ?? "",
+      );
+      const liveTargets = run.sheetId &&
+          !(Number.isSafeInteger(knownRow) && knownRow > 0)
+        ? await ensureLiveBrewPrepRows(waterBlock, "water")
+        : null;
+      const row = liveTargets
+        ? (target.source === "hlt" ? liveTargets.hltRow : liveTargets.mashWaterRow)
+        : (Number.isSafeInteger(knownRow) && knownRow > 0 ? knownRow : null);
+      if (!row && run.sheetId) throw new Error(`חסר מיפוי סמנטי לשדה ${field}`);
       const writes: Array<{
         range: string;
         value: string | number | boolean | null;
         expectedRowLabel?: "HLT" | "MASH IN";
-      }> = [
+      }> = row ? [
         {
-          range: `'גיליון1'!${target.column}${mappedWaterRow(target.source)}`,
+          range: `'גיליון1'!${target.column}${row}`,
           expectedRowLabel: target.source === "hlt" ? "HLT" : "MASH IN",
           value:
             field.endsWith("Temp") && value
               ? num(value) ?? value
               : value,
         },
-      ];
-      // Never clear unrelated historical offsets, especially three-rest brews.
+      ] : [];
+      // No guessed fallback. In a non-Sheet test or local session, preserve
+      // the input without sending a write.
       await commit(field, value, writes);
+      if (run.sheetId) setSyncError("");
     } catch (error) {
       // Missing semantic row metadata used to escape as an unhandled onBlur
       // rejection, while the React/Firestore form still showed a green check.
