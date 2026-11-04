@@ -1019,6 +1019,9 @@ export default function BrewFormStepper({
   const lastHandledSheetEditRevision = useRef<number | null>(null);
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSheetWrites = useRef(new Set<Promise<void>>());
+  // Guard asynchronous on-demand row discovery against an older blur writing
+  // over a newer value entered into the same brew/block/field.
+  const prepCommitVersionRef = useRef<Record<string, number>>({});
   const latestExecutionRef = useRef(execution);
   const remoteBaselineRef = useRef<BrewExecution | null>(null);
   const isReadyToPersistRef = useRef(false);
@@ -1745,6 +1748,9 @@ export default function BrewFormStepper({
     }
 
     const dateBlock = currentBlock;
+    const dateCommitKey = `${dateBlock}:brewDate`;
+    const dateCommitVersion = (prepCommitVersionRef.current[dateCommitKey] ?? 0) + 1;
+    prepCommitVersionRef.current[dateCommitKey] = dateCommitVersion;
     latestLocalEditAt.current = Date.now();
     // The blur can coincide with a remote update or a click on another brew
     // block. Always merge into the latest execution, never a render-time copy.
@@ -1767,6 +1773,7 @@ export default function BrewFormStepper({
     if (!run.sheetId) return;
     try {
       const targets = await ensureLiveBrewPrepRows(dateBlock, "date");
+      if (prepCommitVersionRef.current[dateCommitKey] !== dateCommitVersion) return;
       const display = sheetDateFromIso(value);
       const writes: Array<{
         range: string;
@@ -2961,6 +2968,9 @@ export default function BrewFormStepper({
 
     try {
       const waterBlock = currentBlock;
+      const waterCommitKey = `${waterBlock}:${field}`;
+      const waterCommitVersion = (prepCommitVersionRef.current[waterCommitKey] ?? 0) + 1;
+      prepCommitVersionRef.current[waterCommitKey] = waterCommitVersion;
       const fieldRowKey = `__sheetRow.water.${target.source}`;
       const knownRow = Number(
         latestExecutionRef.current.blocks[String(waterBlock)]?.fields[fieldRowKey] ?? "",
@@ -2969,6 +2979,7 @@ export default function BrewFormStepper({
           !(Number.isSafeInteger(knownRow) && knownRow > 0)
         ? await ensureLiveBrewPrepRows(waterBlock, "water")
         : null;
+      if (prepCommitVersionRef.current[waterCommitKey] !== waterCommitVersion) return;
       const row = liveTargets
         ? (target.source === "hlt" ? liveTargets.hltRow : liveTargets.mashWaterRow)
         : (Number.isSafeInteger(knownRow) && knownRow > 0 ? knownRow : null);
@@ -2990,7 +3001,6 @@ export default function BrewFormStepper({
       // No guessed fallback. In a non-Sheet test or local session, preserve
       // the input without sending a write.
       await commit(field, value, writes);
-      if (run.sheetId) setSyncError("");
     } catch (error) {
       // Missing semantic row metadata used to escape as an unhandled onBlur
       // rejection, while the React/Firestore form still showed a green check.
