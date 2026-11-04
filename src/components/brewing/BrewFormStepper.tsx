@@ -2067,10 +2067,6 @@ export default function BrewFormStepper({
     return targets;
   }
 
-  function mappedWaterRow(key: "hlt" | "mashIn") {
-    return sheetRowFromMeta(`__sheetRow.water.${key}`, baseRow + (key === "hlt" ? 8 : 9));
-  }
-
   function mappedFermentationRow() {
     return sheetRowFromMeta("__sheetRow.fermentation", fermentationStartingRow(run.tankType));
   }
