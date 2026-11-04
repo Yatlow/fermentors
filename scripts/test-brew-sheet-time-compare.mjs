@@ -32,3 +32,40 @@ test("Never auto-resurrect user-deleted mash hours during form startup", () => {
   const form = readFileSync(new URL("../src/components/brewing/BrewFormStepper.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(form, /planMissingMashTimeSheetWrites|missingMashWrites/);
 });
+
+
+test("missing mash-rest duration is restored only from the matching configured recipe", async () => {
+  const file = readFileSync(new URL("../src/SERVICES/brewing/mashRestDurationFallback.ts", import.meta.url), "utf8");
+  const code = ts.transpileModule(file, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const { restoreMissingMashRestDurations: restore } = await import(
+    "data:text/javascript;base64," + Buffer.from(code).toString("base64")
+  );
+  const snapshot = {
+    style: "IPA",
+    mash: { steps: [
+      { id: "rest1", minutes: undefined }, { id: "rest2", minutes: 15 },
+      { id: "rest3", minutes: 0 }, { id: "heat1", minutes: undefined },
+    ] },
+  };
+  const current = { style: "IPA", mash: { steps: [
+    { id: "rest1", minutes: 30 }, { id: "rest2", minutes: 25 },
+    { id: "rest3", minutes: 10 }, { id: "heat1", minutes: 10 },
+  ] } };
+  const result = restore(snapshot, current);
+  assert.deepEqual(result.mash.steps.map(s => s.minutes), [30, 15, 0, undefined]);
+  assert.equal(snapshot.mash.steps[0].minutes, undefined, "never mutate source recipe");
+  assert.equal(restore(snapshot, { ...current, style: "Stout" }), snapshot);
+  assert.equal(restore(snapshot, null), snapshot);
+});
+
+test("mash time cascade saves app state before checking mapping and warns on missing rest duration", () => {
+  const form = readFileSync(new URL("../src/components/brewing/BrewFormStepper.tsx", import.meta.url), "utf8");
+  const routine = form.slice(form.indexOf("async function commitStageStart("), form.indexOf("async function commitStage(", form.indexOf("async function commitStageStart(")));
+  assert.match(routine, /const calculatedEnd = addMinutesToTime\(value, duration\)/);
+  assert.ok(routine.indexOf("setExecution(nextExecution)") < routine.indexOf("writePlannedStageSheetCells("));
+  assert.match(routine, /duration === null/);
+  assert.match(form, /הזמנים נשמרו בטופס, אך לא נכתבו ל-Sheet/);
+  assert.match(form, /clearCalculatedSuccessors/);
+});
