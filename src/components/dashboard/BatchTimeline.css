@@ -24,6 +24,32 @@
     font-size: 0.72rem;
 }
 
+.batch-timeline-heading-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.batch-timeline-latest {
+    font: inherit;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #245f9e;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 5px 9px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.batch-timeline-latest:hover,
+.batch-timeline-latest:focus-visible {
+    background: #eef5fb;
+}
+
 .batch-timeline-scroll-shell {
     position: relative;
     min-width: 0;

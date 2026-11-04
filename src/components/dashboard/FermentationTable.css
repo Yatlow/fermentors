@@ -41,6 +41,25 @@
     justify-content: flex-end;
 }
 
+.fermentation-sort-button {
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: #ffffff;
+    color: #245f9e;
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 750;
+    padding: 6px 10px;
+    white-space: nowrap;
+    min-height: 34px;
+    cursor: pointer;
+}
+
+.fermentation-sort-button:hover,
+.fermentation-sort-button:focus-visible {
+    background: #eef5fb;
+}
+
 .fermentation-zoom-controls {
     display: inline-flex;
     align-items: center;
