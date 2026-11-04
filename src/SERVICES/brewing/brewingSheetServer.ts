@@ -12,7 +12,6 @@ export type BrewingSheetWrite = {
     | "fermentation.tankNumber" | "fermentation.brewDate"
     | "fermentation.startingPlato" | "fermentation.yeastPitchTime";
   expectedValue?: string | number | boolean | null;
-  expectedRowLabel?: "HLT" | "MASH IN";
 };
 
 export type BrewingSheetHistoryRow = {
