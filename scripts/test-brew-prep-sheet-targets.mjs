@@ -80,7 +80,8 @@ test("fail closed on wrong batch, duplicate or unlabelled water rows", () => {
 test("on-demand metadata discovery does not replace live form inputs", () => {
   const form = readFileSync(new URL("../src/components/brewing/BrewFormStepper.tsx", import.meta.url), "utf8");
   const helper = form.slice(form.indexOf("async function ensureLiveBrewPrepRows("), form.indexOf("function mappedFermentationRow("));
-  assert.match(helper, /serverReadBrewSheetRange\(run\.sheetId/);
+  assert.match(helper, /serverReadBrewSheetRange\(sheetId/);
+  assert.match(helper, /if \(!sheetId\) throw new Error/);
   assert.match(helper, /resolveBrewPrepSheetTargets\(/);
   assert.match(helper, /fields: nextFields/);
   assert.doesNotMatch(helper, /readBrewSheetRange\(run\.sheetId/);
