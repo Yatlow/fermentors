@@ -247,7 +247,7 @@ export default function FermentorInfoBox({
         // A pressure-treatment note can mention "בדיקת גיזוז" without any
         // carbonation TEST being performed today. Keep the two actions separate.
         const hasExplicitCarbTestNote = todayMeasurements.some((measurement) =>
-            String(measurement.notes ?? "").split(/[|\\n]/).some((part) =>
+            String(measurement.notes ?? "").split(/[|\n]/).some((part) =>
                 /^בדיקת\s+גיזוז(?:\s|$)/.test(part.trim())
             )
         );
