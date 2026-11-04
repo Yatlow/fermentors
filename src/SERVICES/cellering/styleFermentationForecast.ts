@@ -220,8 +220,18 @@ export function projectHybridFermentationMilestones(
     const curve = styleProjection(tank, readings, today, average);
     const hopOrClose = curve ? projectedHopOrClose(tank, readings, today, specs, curve) : [];
     const cooling = curve ? projectedCoolingReadiness(tank, readings, today, specs, curve) : [];
+    // A well-supported non-linear curve is authoritative even when its next
+    // threshold crossing is beyond this week's horizon. Use a local straight
+    // line only when style evidence is absent or insufficient.
+    const futureCoverage = curve
+        ? Array.from({ length: MAX_HORIZON_DAYS }, (_, index) => curve.platoAtAge(curve.currentAge + index + 1))
+            .filter((value) => value !== null).length
+        : 0;
+    const useLinearFallback = futureCoverage < 5;
     return [
-        ...(hopOrClose.length ? hopOrClose : projectPlatoThresholdRecheck(tank, readings, today, specs)),
-        ...(cooling.length ? cooling : projectCoolingReadinessCheck(tank, readings, today, specs)),
+        ...(hopOrClose.length ? hopOrClose :
+            useLinearFallback ? projectPlatoThresholdRecheck(tank, readings, today, specs) : []),
+        ...(cooling.length ? cooling :
+            useLinearFallback ? projectCoolingReadinessCheck(tank, readings, today, specs) : []),
     ];
 }
