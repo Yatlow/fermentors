@@ -6,6 +6,7 @@ import { writeReadingsToSheets } from "../../SERVICES/getAndPost/writeReadingToS
 import { updatePackagingInfo } from "../../SERVICES/cellering/updatePackagingInfo";
 import { resolveFinalPackagingTotal } from "../../SERVICES/cellering/resolveFinalPackagingTotal";
 import { getQuickReportPressureDefault } from "../../SERVICES/cellering/quickReportDefaults";
+import { FAILED_CARBONATION_PRESSURE_NOTE } from "../../SERVICES/cellering/cellarActionState";
 import { pressurePrefillFromScheduledDecision, type QuickReportPressureDecision } from "../../SERVICES/cellering/quickReportPressureDecision";
 import { assignDryHopToHopsTable } from "../../SERVICES/cellering/assignDryHop";
 import { dryHopActionCount } from "../../SERVICES/cellering/dryHopHistory";
@@ -56,6 +57,7 @@ type QuickTankReportBoxProps = {
     initialNoteType?: string;
     initialPressureDecision?: QuickReportPressureDecision | null;
     initialPressureDirection?: "העלאת" | "הורדת" | null;
+    initialPressureTreatmentContext?: "failedCarbonation" | null;
 };
 
 export const RobotVacuum = createLucideIcon("RobotVacuum", [
@@ -101,7 +103,7 @@ function buildMeasurementId(date: Date = new Date()) {
     return `${y}-${m}-${d}_${hh}${mm}`;
 }
 
-export default function QuickTankReportBox({ tank, specs, onClose, position, initialNoteType = "", initialPressureDecision = null, initialPressureDirection = null }: QuickTankReportBoxProps) {
+export default function QuickTankReportBox({ tank, specs, onClose, position, initialNoteType = "", initialPressureDecision = null, initialPressureDirection = null, initialPressureTreatmentContext = null }: QuickTankReportBoxProps) {
     const isWarm = Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";
     const stage: "warm" | "cold" = isWarm ? "warm" : "cold";
     const isColdTank = tank.stage?.name === "קר";
@@ -263,7 +265,8 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
     function buildNoteText(): string | null {
         switch (noteType) {
             case "שמרים": return (value === "" || value2 === "") ? null : `הורדת ${value} דליי שמרים, לחץ אחרי ${value2} bar`;
-            case "לחץ": return (direction === "" || value === "") ? null : `${direction} לחץ ל: ${value} bar`;
+            case "לחץ": return (direction === "" || value === "") ? null :
+                `${direction} לחץ ל: ${value} bar${initialPressureTreatmentContext === "failedCarbonation" ? FAILED_CARBONATION_PRESSURE_NOTE : ""}`;
             case "השארת לחץ": return "השארת לחץ ללא שינוי לאחר בדיקת גיזוז";
             case "פורק": return value === "" ? null : `כיוון פורק ל: ${value} bar`;
             case "סגירת מיכל": return value === "" ? null : `סגירת נשם, כיוון פורק ל ${value}`;
