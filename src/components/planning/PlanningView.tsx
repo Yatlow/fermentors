@@ -11,6 +11,7 @@ import { truckPlanningGroupKey } from "../../SERVICES/planning/truckPlanner";
 import { planningReadRequirements } from "../../SERVICES/planning/planningReadCoverage";
 import { pendingStockExecutionPlans } from "../../SERVICES/planning/planningStockExecution";
 import { auditShipmentAvailability, classifyPlanningShortageIncreases, describePlanningShortageIncrease, newlyWorsenedShipmentShortages } from "../../SERVICES/planning/shipmentAvailabilityAudit";
+import { confirmableUnpackedShipmentShortages } from "../../SERVICES/planning/shipmentProvisionalPlanning";
 import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
@@ -233,11 +234,28 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
       const after = auditShipmentAvailability(settings, pallets, nextPlans, actuals, today, data.actualShipments);
       const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments);
       const increases = newlyWorsenedShipmentShortages(before, after);
+      // An undated packaging decision is a legitimate weekly draft. For this
+      // single case, a shipment may be saved provisionally after confirmation;
+      // the shortage remains in the audit until packaging is reported.
+      const provisional = confirmableUnpackedShipmentShortages(
+        increases, nextPlans, settings.products, actuals, canonical.id);
       const { blocking, confirmable: futureShortages } =
-        classifyPlanningShortageIncreases(increases, canonical.id);
+        classifyPlanningShortageIncreases(
+          increases.filter((increase) => !provisional.includes(increase)),
+          canonical.id);
       if (blocking.length) {
         throw new Error("לא ניתן לשמור חוסר חדש בשבוע הנערך או שיבוץ משטח/משאית בלתי תקינים: " +
           blocking.map((increase) => describePlanningShortageIncrease(increase, settings.products)).join("; "));
+      }
+      if (provisional.length) {
+        const description = provisional.map((increase) =>
+          "• " + describePlanningShortageIncrease(increase, settings.products)).join("\n");
+        const accepted = await confirmPlanning(
+          "⚠️ המשלוח מתבסס על אריזה שתוכננה לשבוע הזה אך טרם שובצה לתאריך או בוצעה:\n\n" +
+          description +
+          "\n\nהמשלוח יישמר כתכנון מותנה בלבד. חובה לשבץ ולבצע את האריזה לפני היציאה; כל עוד אין מלאי פיזי זמין, אי אפשר להעמיס או לשלח את הפריטים הללו.\n\nלאשר את התכנון המותנה?"
+        );
+        if (!accepted) throw new Error("השמירה בוטלה: תלות באריזה שלא הושלמה לא אושרה.");
       }
       if (futureShortages.length) {
         const description = futureShortages.map((increase) =>
