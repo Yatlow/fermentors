@@ -1,4 +1,17 @@
-import { requiresFermentationPlatoPh } from "./fermentationMeasurementRequirements";
+/** Fermenting tank with no valid current temperature is UNKNOWN, not cold.
+ * Unknown temperatures require Plato/pH once the usual grace expires.
+ * A valid <=9°C keeps the established cold-reading behavior.
+ */
+export function requiresFermentationPlatoPh(tank: {
+  stage?: { name?: string } | null;
+  currentData?: { temp?: string | number | null } | null;
+}): boolean {
+  if (tank.stage?.name !== "בתסיסה") return false;
+  const temp = tank.currentData?.temp;
+  if (temp === null || temp === undefined || String(temp).trim() === "") return true;
+  const numeric = Number(temp);
+  return !Number.isFinite(numeric) || numeric > 9;
+}
 
 /** The cellar grace clock is independent of the 00:00 daily measurement reset. */
 export const FERMENTATION_GRACE_MS = 12 * 60 * 60 * 1000;
