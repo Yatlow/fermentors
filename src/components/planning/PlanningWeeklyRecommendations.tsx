@@ -30,6 +30,7 @@ import { projectedPallets, truckPlanningGroupKey } from "../../SERVICES/planning
 import { nominalPlanningUnits } from "../../SERVICES/planning/shipmentRecommendation";
 import { groupPlannedShipments, matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { replaceShipmentTrip } from "../../SERVICES/planning/shipmentEdit";
+import { formatPlannedPackagingDay, weeklyShipmentPackagingRuns, weeklyShipmentPackagingUnits } from "../../SERVICES/planning/shipmentProvisionalPlanning";
 import { buildWeeklyPlanningModel, forecastPackagingUnits, plannedPackagingCover } from "../../SERVICES/planning/weeklyPlanningModel";
 import {
     brewLitersForSize,
@@ -232,18 +233,35 @@ export default function PlanningWeeklyRecommendations({
             .sort()[0] ?? addDays(week, 1);
     };
 
-    const sameWeekPackagingQty = (p: Product) => {
-        const dispatchDate = shipmentDispatchDate(p.id);
-        return currentOpenPackaging
-            .filter(
-                (run) =>
-                    run.productId === p.id &&
-                    // Undated packaging is a legitimate weekly planning draft.
-                    // It can back a *provisional* shipping decision, not a
-                    // physical pallet reservation or a dispatch-ready forecast.
-                    (!run.date || run.date <= dispatchDate),
-            )
+    const sameWeekPackagingQty = (p: Product) =>
+        weeklyShipmentPackagingUnits(currentOpenPackaging, week, p.id);
+    const pendingPackagingSchedule = (p: Product) =>
+        weeklyShipmentPackagingRuns(currentOpenPackaging, week, p.id).map((run) => {
+            const tankNumber = tanks.find((tank) => tank.id === run.tankId)?.number ??
+                sources.find((source) => source.id === run.tankId)?.tankNumber ??
+                run.tankNumber;
+            return {
+                ...run,
+                tankNumber,
+                dayLabel: formatPlannedPackagingDay(run.date),
+                afterTruck: !!run.date && run.date > shipmentDispatchDate(p.id),
+            };
+        });
+
+    // Shipment planning is a weekly quantity decision. A Tuesday/Thursday
+    // packaging plan can provisionally back that week's shipment even if the
+    // default truck date is Monday. The physical audit remains date-sensitive.
+    const packagingAfterPlannedDispatch = (p: Product) => currentOpenPackaging
+        .filter((run) => run.productId === p.id && !!run.date &&
+            run.date > shipmentDispatchDate(p.id) &&
+            run.date >= week && run.date <= model.weekEnd);
+    const shipmentDependsOnLaterPackaging = (p: Product, quantity: number) => {
+        if (!quantity || !packagingAfterPlannedDispatch(p).length) return false;
+        const before = currentOpenPackaging
+            .filter((run) => run.productId === p.id && !!run.date &&
+                run.date <= shipmentDispatchDate(p.id))
             .reduce((sum, run) => sum + run.remaining, 0);
+        return quantity > safeShipmentQty(p) + before;
     };
 
     const safeShipmentQty = (p: Product) =>
@@ -462,7 +480,7 @@ export default function PlanningWeeklyRecommendations({
                     ? "נשמר אישור חריגת קיבולת למשאית זו (גם אם המשטחים החלקיים יצריכו יותר מקומות מהתכנון הנומינלי)."
                     : slots > 0 && slots < MAX_TRUCK_SLOTS
                         ? `נשמר משלוח חלקי ${slots}/${MAX_TRUCK_SLOTS}.`
-                        : "החלטת המשלוח נשמרה."}${packagingDependent ? " ⚠️ חלק מהמלאי ייארז באותו שבוע." : ""}`);
+                        : "החלטת המשלוח נשמרה."}${packagingDependent ? " ⚠️ המשלוח מותנה בביצוע אריזה לפני מועד היציאה בפועל." : ""}`);
         } catch (e) {
             setMessage(e instanceof Error ? e.message : "שמירת המשלוח נכשלה");
         } finally {
@@ -958,7 +976,8 @@ export default function PlanningWeeklyRecommendations({
         : Object.fromEntries(products.map((p) => [p.id, currentShipmentQty(p.id)])));
     const packagingDependentLines = products
         .map((p) => ({ p, quantity: editing === "delivery" ? shipDraft[p.id] ?? 0 : currentShipmentQty(p.id) }))
-        .map((x) => ({ ...x, dependency: packagingDependencyQty(x.p, x.quantity) }))
+        .map((x) => ({ ...x, dependency: packagingDependencyQty(x.p, x.quantity),
+            schedule: pendingPackagingSchedule(x.p) }))
         .filter((x) => x.dependency > 0);
     const selectedWeekText = `שבוע ${weekNumber(week)} · ${shortDate(week)}–${shortDate(model.weekEnd)}`;
     const packagingDecisionCount = currentOpenPackaging.length + current.packaging.filter((run) => !!run.nonInventoryStyle && !!run.nonInventoryType && run.quantity > 0).length;
@@ -1012,9 +1031,14 @@ export default function PlanningWeeklyRecommendations({
                     {" · "}נותרו {Number.isFinite(usedShipSlots) ? Math.max(0, MAX_TRUCK_SLOTS - Number(usedShipSlots)) : 0}
                 </div>
                 {packagingDependentLines.length > 0 && <div className="bp-same-week-warning" role="alert">
-                    <b>⚠️ משלוח מתוכנן על בסיס אריזה שטרם בוצעה</b><span>חובה להשלים את האריזה לפני יציאת המשאית; החלטת המשלוח אינה אישור להעמיס סחורה שאינה קיימת.</span>
-                    {packagingDependentLines.map(({ p, dependency }) =>
-                        <small key={p.id}>{palletLabel(dependency, p)} {displayStyle(p.style)} עדיין תלויים באריזה השבוע.</small>)}
+                    <b>⚠️ משלוח מתוכנן על בסיס אריזה שטרם בוצעה</b><span>חובה להשלים את האריזה לפני היציאה. אם האריזה מתוכננת לאחר יום יציאת המשאית, יש להקדים את האריזה או לדחות את היציאה. תכנון אינו אישור להעמסה.</span>
+                    {packagingDependentLines.map(({ p, dependency, schedule }) =>
+                        <div key={p.id}>
+                            <small><b>{displayStyle(p.style)}</b> · {palletLabel(dependency, p)} תלויים באריזה השבוע:</small>
+                            {schedule.map((run) =>
+                                <small key={run.key}>מיכל {String(run.tankNumber ?? "לא ידוע")} · {fmt(run.remaining)} {p.type === "crates" ? "ארגזים" : "חביות"} · {run.dayLabel}
+                                    {run.afterTruck ? ` ⚠️ אחרי יציאת המשאית המתוכננת (${shortDate(shipmentDispatchDate(p.id))})` : ""}</small>)}
+                        </div>)}
                 </div>}
                 <div className="bp-actions">
                     {editing === "delivery" ? <>
@@ -1062,6 +1086,10 @@ export default function PlanningWeeklyRecommendations({
                         const unavailable = maxShipmentQty(p) <= 0 && decided <= 0;
                         const undatedPackaging = currentOpenPackaging.some((run) =>
                             run.productId === p.id && !run.date && run.remaining > 0);
+                        const laterPackaging = shipmentDependsOnLaterPackaging(p, draftQty);
+                        const laterPackagingDates = [...new Set(packagingAfterPlannedDispatch(p)
+                            .map((run) => run.date!).filter(Boolean))].sort().map(formatPlannedPackagingDay).join(", ");
+                        const schedule = pendingPackagingSchedule(p);
                         return <div className={`bp-shipment-plan-row ${coverageClass(expectedCover, settings.targetWeeks)} ${unavailable ? "is-unavailable" : ""}`} key={p.id}>
                             <span className={`bp-week-sku ${beerStyleClass(p.style).className}`}><b>{displayStyle(p.style)}</b><small>{p.id.startsWith("noninventory-style:") ? "אריזה מיוחדת" : p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
                             <span>{coverLabel(expectedCover)}</span>
@@ -1070,7 +1098,10 @@ export default function PlanningWeeklyRecommendations({
                                 {rec && <small>{rec.slots} מקומות</small>}
                                 {rec && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}
                                 {unavailable && <small className="bp-risk-text">אין מלאי זמין או אריזה מתוכננת לפריט זה בשבוע הנבחר.</small>}
+                                {schedule.length > 0 && <small>אריזות מתוכננות: {schedule.map((run) =>
+                                    `${run.dayLabel} · מיכל ${String(run.tankNumber ?? "לא ידוע")} · ${fmt(run.remaining)} ${p.type === "crates" ? "ארגזים" : "חביות"}`).join("; ")}</small>}
                                 {undatedPackaging && <small className="bp-risk-text">⚠️ אריזה מתוכננת ללא תאריך: חובה לשבץ ולהשלים לפני המשלוח.</small>}
+                                {laterPackaging && <small className="bp-risk-text" role="alert">⚠️ אריזה ב־{laterPackagingDates}, אחרי יום היציאה המתוכנן ({shortDate(shipmentDispatchDate(p.id))}). יש להקדים אריזה או לדחות את היציאה.</small>}
                             </span>
                             <span>{editing === "delivery" ?
                                 <div className="bp-stepper">

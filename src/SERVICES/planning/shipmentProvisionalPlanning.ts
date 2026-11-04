@@ -1,6 +1,7 @@
-import { openRuns } from "./dailyPlanner";
-import type { Actual, Product, WeekPlan } from "./planningEngine";
-import type { PlanningShortageIncrease } from "./shipmentAvailabilityAudit";
+import type { Pallet } from "../cooler/Pallettypes ";
+import { openRuns, type ShipmentEvent } from "./dailyPlanner";
+import { addDays, type Actual, type Product, type Settings, type WeekPlan } from "./planningEngine";
+import { auditShipmentAvailability, type PlanningShortageIncrease } from "./shipmentAvailabilityAudit";
 
 /**
  * A saved weekly packaging decision without a date is a planning intention,
@@ -27,6 +28,46 @@ export function sameWeekUnscheduledPackagingUnits(
 }
 
 /**
+ * Shipment selection is a WEEKLY planning choice. Any outstanding packaging
+ * in that same week may back a conditional manifest, including a Tuesday or
+ * Thursday date after a Monday default truck date. This is not physical stock.
+ */
+export function weeklyShipmentPackagingRuns<
+  T extends { week: string; productId: string; date?: string; remaining: number },
+>(
+  open: readonly T[],
+  weekId: string,
+  productId: string,
+): T[] {
+  const lastDay = addDays(weekId, 6);
+  return open
+    .filter((run) => run.week === weekId && run.productId === productId &&
+      run.remaining > 0 && (!run.date ||
+        (run.date >= weekId && run.date <= lastDay)))
+    .sort((a, b) => (a.date ?? "9999").localeCompare(b.date ?? "9999"));
+}
+
+export function weeklyShipmentPackagingUnits(
+  open: readonly { week: string; productId: string; date?: string; remaining: number }[],
+  weekId: string,
+  productId: string,
+): number {
+  return weeklyShipmentPackagingRuns(open, weekId, productId)
+    .reduce((total, run) => total + run.remaining, 0);
+}
+
+const weekdays = [
+  "ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת",
+];
+
+export function formatPlannedPackagingDay(date?: string): string {
+  if (!date) return "טרם נקבע יום אריזה";
+  const value = new Date(`${date}T12:00:00Z`);
+  if (Number.isNaN(value.getTime())) return "תאריך אריזה לא תקין";
+  return `יום ${weekdays[value.getUTCDay()]} ${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`;
+}
+
+/**
  * Keep the normal same-week shipment shortage block unless there is enough
  * uncompleted, undated packaging in the edited week to back the entire
  * outstanding shortage for that SKU. Never waive pinned-pallet or truck
@@ -41,10 +82,41 @@ export function confirmableUnpackedShipmentShortages(
   products: Product[],
   actuals: Actual[],
   editedWeekId: string,
+  simulation?: { settings: Settings; pallets: Pallet[]; today: string; shipments: ShipmentEvent[] },
 ): PlanningShortageIncrease[] {
   const candidates = increases.filter(({ issue }) =>
     issue.week === editedWeekId &&
     products.some((product) => product.id === issue.productId));
+
+  if (simulation) {
+    // Planning-only counterfactual: stage this week's uncompleted packaging
+    // at the start of its own week, not in physical inventory. This makes a
+    // later-Tuesday/Thursday packaging decision eligible for a conditional
+    // weekly shipment while maintaining the real chronological shortage.
+    const eligible = new Set(openRuns(plans, products, actuals)
+      .filter((run) => run.week === editedWeekId && run.remaining > 0 &&
+        (!run.date || (run.date >= editedWeekId &&
+          run.date <= addDays(editedWeekId, 6))))
+      .map((run) => run.productId));
+    if (!eligible.size) return [];
+
+    const virtualPlans = plans.map((week) => week.id === editedWeekId
+      ? { ...week, packaging: week.packaging.map((run) =>
+        !run.date || (run.date >= editedWeekId &&
+          run.date <= addDays(editedWeekId, 6))
+          ? { ...run, date: editedWeekId }
+          : run) }
+      : week);
+    const simulatedIssues = auditShipmentAvailability(
+      simulation.settings, simulation.pallets, virtualPlans, actuals,
+      simulation.today, simulation.shipments);
+    const stillShort = new Set(simulatedIssues.filter((issue) =>
+      issue.week === editedWeekId &&
+      (issue.severity === "blocking" || issue.severity === "partial"))
+      .map((issue) => issue.productId));
+    return candidates.filter(({ issue }) =>
+      eligible.has(issue.productId) && !stillShort.has(issue.productId));
+  }
   const missingBySku = new Map<string, number>();
   for (const { issue, totalUnits } of candidates) {
     missingBySku.set(issue.productId,
