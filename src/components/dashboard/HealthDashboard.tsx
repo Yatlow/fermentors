@@ -5,6 +5,7 @@ import { completedDailyRoundKpi, fermentationGraceEnd, graceDayStart, measuremen
 import { cellarBadgeFieldsForDay } from "../../SERVICES/dashboard/cellarMeasurementBadge";
 import { CELLAR_CELEBRATION_ACK_KEY, evaluateCellarCelebration, type SettledCellarScore } from "../../SERVICES/dashboard/cellarCelebrationPolicy";
 import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
+import { isCellarPressureActionNote } from "../../SERVICES/cellering/cellarActionState";
 import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
@@ -897,8 +898,15 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                         reportedActions.forEach(({ key, label, pattern }) => {
                             // One matching pressure report can fulfill a scheduled
                             // pressure decision; don't credit it as two actions.
-                            if (key === "pressure-change" &&
-                                (completedScheduledPressure || recommendations?.pressureAdjustmentHandledToday?.completed)) return;
+                            if (key === "pressure-change") {
+                                if (completedScheduledPressure || recommendations?.pressureAdjustmentHandledToday?.completed) return;
+                                // Packaging pressures belong to keg/bottle packaging,
+                                // not independent cellar pressure work.
+                                if (todayRows.some((row) => isCellarPressureActionNote(row.notes))) {
+                                    addCompleted(`reported-${key}-${tank.id}`, label);
+                                }
+                                return;
+                            }
                             if (pattern.test(todayNotes)) addCompleted(`reported-${key}-${tank.id}`, label);
                         });
                         if (todayNotes.includes("כשות")) addCompleted(`dryhop-${tank.id}`, "דרייהופ");

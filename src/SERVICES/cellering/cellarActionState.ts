@@ -27,6 +27,17 @@ export function hasCellarActionOnDate(
 }
 
 /**
+ * Packaging reports may append an operational 'הורדת לחץ' measurement when
+ * recording kegs/bottles. It must not count as an independent cellar pressure
+ * adjustment (or complete a scheduled cellar pressure recommendation).
+ */
+export function isCellarPressureActionNote(notes: unknown): boolean {
+    const note = String(notes ?? "");
+    if (/(?:^|[|,\n])\s*הורדת\s+[\d.,]+\s+(?:חביות|בקבוקים)(?:\s|$|[,|])/u.test(note)) return false;
+    return /(?:העלאת|הורדת)\s+לחץ/.test(note);
+}
+
+/**
  * Attribute a physical pressure change to a carbonation test only when a real
  * carbonation reading in this batch chronologically precedes the action.
  * No note rewrite, marker, out-of-spec requirement, or UI origin is needed.
@@ -59,7 +70,7 @@ export function completedCarbonationPressureAdjustmentOnDate(
         // Check the action BEFORE reading carbonation from this row: a test and
         // action in the same undifferentiated row do not prove which came first.
         if (day === date && previousCarbonation !== null &&
-            /(?:העלאת|הורדת)\s+לחץ/.test(note)) {
+            isCellarPressureActionNote(note)) {
             return previousCarbonation;
         }
 
