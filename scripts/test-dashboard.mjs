@@ -15,6 +15,7 @@ const tests = [
   "measurement-history-model",
   "carbonation-retest-policy",
   "plato-threshold-forecast",
+  "style-fermentation-forecast",
   "cooling-plato-stability",
   "cold-cellar-forecast",
   "cellaring-additional-forecast",

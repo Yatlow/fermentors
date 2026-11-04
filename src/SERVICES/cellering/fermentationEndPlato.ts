@@ -1,4 +1,5 @@
-import type { SpecChart } from "../getAndPost/getSpecsFromFb";
+// Shared structural shape, kept free of Firebase dependencies for pure forecasts.
+type SpecChart = Record<string, Record<string, number>>;
 
 /** Maximum final gravity (°P) for a completed fermentation, by style. */
 export const DEFAULT_FERMENTATION_END_PLATO: Record<string, number> = {

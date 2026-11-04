@@ -170,7 +170,7 @@ test("Plato/pH tab includes a grace tank with no first temperature measurement",
   const graceIds = measurementGraceTankIds([...veterans, young], {}, at);
   assert.equal(graceIds.has("tank16"), true);
   assert.equal(shouldShowPlatoPhTank(young, graceIds), true);
-  assert.equal(shouldShowPlatoPhTank(young, new Set()), false);
+  assert.equal(shouldShowPlatoPhTank(young, new Set()), true, "unknown temperature still needs Plato/pH after grace");
   assert.equal(shouldShowPlatoPhTank({ ...young, action: 3 }, graceIds), false);
   assert.equal(shouldShowPlatoPhTank({ ...young, stage: { name: "קר" } }, graceIds), false);
   assert.equal(shouldShowPlatoPhTank({ ...young, currentData: { temp: 19 } }, new Set()), true);
@@ -184,4 +184,22 @@ test("a completed optional grace round displays today's check instead of elapsed
   assert.equal(dailyMeasurementStatusLabel(false, false, clock), clock);
   assert.equal(dailyMeasurementStatusLabel(false, true, null), "◐ בוצע חלקית היום");
   assert.equal(dailyMeasurementStatusLabel(false, false, null), "○ טרם בוצע היום");
+});
+
+test("fermenting tank with blank/invalid temperature requires sugar and pH, but recorded cold does not", () => {
+  const missingTemp = { ...veterans[0], currentData: { temp: undefined } };
+  for (const temp of [undefined, null, "", "  ", "—", "not a number"]) {
+    const tank = { ...missingTemp, currentData: { temp } };
+    assert.equal(shouldShowPlatoPhTank(tank, new Set()), true, String(temp));
+  }
+  assert.equal(shouldShowPlatoPhTank({ ...missingTemp, currentData: { temp: 10 } }, new Set()), true);
+  assert.equal(shouldShowPlatoPhTank({ ...missingTemp, currentData: { temp: 9 } }, new Set()), false);
+  assert.equal(shouldShowPlatoPhTank({ ...missingTemp, stage: { name: "קר" } }, new Set()), false);
+  // An unknown-temperature veteran must complete the full round before a young
+  // tank can receive the conditional 04:00 grace extension.
+  const young = newTank(new Date(2026, 9, 15, 8));
+  const all = [missingTemp, ...veterans.slice(1), young];
+  const incomplete = { ...fullVeteranFields, [missingTemp.id]: missingPH };
+  assert.equal(measurementGraceTankIds(all, incomplete, new Date(2026, 9, 15, 22)).has("tank16"), false);
+  assert.equal(measurementGraceTankIds(all, fullVeteranFields, new Date(2026, 9, 15, 22)).has("tank16"), true);
 });

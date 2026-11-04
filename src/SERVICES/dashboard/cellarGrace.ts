@@ -1,3 +1,18 @@
+/** Fermenting tank with no valid current temperature is UNKNOWN, not cold.
+ * Unknown temperatures require Plato/pH once the usual grace expires.
+ * A valid <=9°C keeps the established cold-reading behavior.
+ */
+export function requiresFermentationPlatoPh(tank: {
+  stage?: { name?: string } | null;
+  currentData?: { temp?: string | number | null } | null;
+}): boolean {
+  if (tank.stage?.name !== "בתסיסה") return false;
+  const temp = tank.currentData?.temp;
+  if (temp === null || temp === undefined || String(temp).trim() === "") return true;
+  const numeric = Number(temp);
+  return !Number.isFinite(numeric) || numeric > 9;
+}
+
 /** The cellar grace clock is independent of the 00:00 daily measurement reset. */
 export const FERMENTATION_GRACE_MS = 12 * 60 * 60 * 1000;
 export const GRACE_RESET_HOUR = 4;
@@ -71,8 +86,7 @@ export function isInInitialMeasurementGrace(tank: GraceTank, at: Date = new Date
 
 function completedApplicableFields(tank: GraceRoundTank, fields: DailyRoundFields | undefined): boolean {
   if (!fields?.temp || !fields.pressure) return false;
-  const hot = tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
-  return !hot || (fields.plato && fields.pH);
+  return !requiresFermentationPlatoPh(tank) || (fields.plato && fields.pH);
 }
 
 /**
@@ -163,6 +177,6 @@ export function shouldShowPlatoPhTank(
   graceTankIds: ReadonlySet<string>,
 ): boolean {
   if (Number(tank.tankNumber) === 1) return false;
-  const hot = tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
-  return hot || (Number(tank.action) === 1 && tank.stage?.name === "בתסיסה" && graceTankIds.has(String(tank.id)));
+  return Number(tank.action) === 1 && (requiresFermentationPlatoPh(tank) ||
+    (tank.stage?.name === "בתסיסה" && graceTankIds.has(String(tank.id))));
 }

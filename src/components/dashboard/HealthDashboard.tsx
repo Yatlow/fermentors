@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { completedDailyRoundKpi, fermentationGraceEnd, graceDayStart, measurementGraceTankIds, timestampMillis } from "../../SERVICES/dashboard/cellarGrace";
+import { completedDailyRoundKpi, fermentationGraceEnd, graceDayStart, measurementGraceTankIds, timestampMillis, requiresFermentationPlatoPh } from "../../SERVICES/dashboard/cellarGrace";
 import { cellarBadgeFieldsForDay } from "../../SERVICES/dashboard/cellarMeasurementBadge";
 import { CELLAR_CELEBRATION_ACK_KEY, evaluateCellarCelebration, type SettledCellarScore } from "../../SERVICES/dashboard/cellarCelebrationPolicy";
 import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
@@ -185,7 +185,7 @@ function tankLabel(tank: Fermentor): string {
 }
 
 function isHotTank(tank: Fermentor): boolean {
-    return tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
+    return requiresFermentationPlatoPh(tank);
 }
 
 function activeRecommendations(

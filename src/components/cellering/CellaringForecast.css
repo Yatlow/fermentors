@@ -52,6 +52,8 @@
 }
 .cellar-forecast-conditional { background: #fff3de; color: #96610f; }
 .cellar-forecast-routine { background: #e9f5ee; color: #26754a; }
+.cellar-forecast-item .cellar-forecast-basis { display: block; color: #64748b; font-size: .76rem; line-height: 1.45; margin-top: 2px; }
+.cellar-forecast-scheduled-note { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .87rem; color: #344e67; }
 .cellar-forecast-empty { margin: 3px; color: #64748b; text-align: center; font-size: .89rem; }
 @media (max-width: 480px) {
   .cellar-forecast { margin-inline: 0; border-radius: 13px; }

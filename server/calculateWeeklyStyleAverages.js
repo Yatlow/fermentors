@@ -1,4 +1,7 @@
-const WEEKLY_STYLE_MODEL_LAST_RUN_KEY = "weekly_style_averages_last_run_v1";
+// v2 intentionally schedules one rebuild after deployment so historical
+// per-day Plato cohort sizes are available without waiting a full week.
+// The separate 24-hour attempt cooldown and execution lock remain in force.
+const WEEKLY_STYLE_MODEL_LAST_RUN_KEY = "weekly_style_averages_last_run_v2";
 const WEEKLY_STYLE_MODEL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function calculateWeeklyStyleAverages(force) {
@@ -129,13 +132,14 @@ function calculateWeeklyStyleAverages(force) {
 
       if (!accumulator[style][day]) {
 
-        accumulator[style][day] = {};
+        accumulator[style][day] = { _batchIds: {} };
 
         METRIC_KEYS.forEach(function (metric) {
 
           accumulator[style][day][metric] = {
             sum: 0,
-            count: 0
+            count: 0,
+            batchIds: {}
           };
 
         });
@@ -170,6 +174,9 @@ function calculateWeeklyStyleAverages(force) {
 
         accumulator[style][day][metric].count +=
           1;
+        // Unique brew identity, regardless of how many physical readings.
+        accumulator[style][day][metric].batchIds[brew.id] = true;
+        accumulator[style][day]._batchIds[brew.id] = true;
 
       });
 
@@ -233,6 +240,9 @@ function calculateWeeklyStyleAverages(force) {
 
           averages.sampleCount =
             daySamples;
+          averages.batchCount = Object.keys(dayMetrics._batchIds).length;
+          averages.platoBatchCount = Object.keys(dayMetrics.plato.batchIds).length;
+          averages.platoSampleCount = dayMetrics.plato.count;
 
           totalSamples +=
             daySamples;

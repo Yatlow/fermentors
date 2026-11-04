@@ -24,7 +24,7 @@ test("Pale and Hoppy are classified as dry-hop styles", () => {
       { id: "2026-10-08_0800", plato: 10 },
       { id: "2026-10-09_0800", plato: 9 },
     ], "2026-10-09", specs);
-    assert.equal(forecast[0]?.title, "בדיקת תנאים לדרייהופ");
+    assert.equal(forecast[0]?.title, "צפי לדרייהופ — בדיקת תנאים");
   }
 });
 
@@ -118,8 +118,8 @@ test("seasonal batch gets predicted dry-hop conditions from its recipe threshold
   const tank = { ...fermentor("בירת חורף"), dryHopRequired:true, dryHopTargetPlato:6 };
   const readings = [{id:"2026-10-08_0800",plato:9},{id:"2026-10-09_0800",plato:8}];
   const projected = projectPlatoThresholdRecheck(tank, readings, "2026-10-09", specs);
-  assert.equal(projected[0]?.title, "בדיקת תנאים לדרייהופ");
+  assert.equal(projected[0]?.title, "צפי לדרייהופ — בדיקת תנאים");
   assert.equal(projected[0]?.dueDate, "2026-10-12");
   const notRequired = projectPlatoThresholdRecheck({...tank,dryHopRequired:false},readings,"2026-10-09",specs);
-  assert.equal(notRequired[0]?.title,"בדיקת תנאים לסגירת נשם");
+  assert.equal(notRequired[0]?.title,"צפי לסגירת מיכל — בדיקת תנאים");
 });

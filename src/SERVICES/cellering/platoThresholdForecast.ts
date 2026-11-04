@@ -1,7 +1,11 @@
 import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshold";
+import { hasActualCooling } from "./neglectAfterCooling";
+import { isCompletedYeastDrop } from "./coolingYeastTiming";
+import { getFermentationEndPlatoLimit } from "./fermentationEndPlato";
+type SpecChart = Record<string, Record<string, number>>;
 export type PlatoForecastTank = BatchDryHopSettings & { id: string; tankNumber?: unknown; beerStyle?: unknown; stage?: { name?: string } | null };
 export type PlatoForecastReading = { id?: string | number | null; plato?: string | number | null; notes?: string | number | null };
-export type PlatoForecastSpecs = { tolorances?: Record<string, number> };
+export type PlatoForecastSpecs = { tolorances?: Record<string, number>; fermentationEndPlato?: Record<string, number> };
 
 /** A date to re-measure, not a prediction that an action is already justified. */
 export type PlatoThresholdHint = {
@@ -50,7 +54,7 @@ export function projectPlatoThresholdRecheck(
   return [{
     id: `${tank.id}:plato-recheck:${dueDate}`,
     tankNumber, dueDate,
-    title: hoppy ? "בדיקת תנאים לדרייהופ" : "בדיקת תנאים לסגירת נשם",
+    title: hoppy ? "צפי לדרייהופ — בדיקת תנאים" : "צפי לסגירת מיכל — בדיקת תנאים",
     basis: `הערכת מועד לפי ירידת פלאטו ${rate.toFixed(2)}°P ליום; מותנה במדידת פלאטו, טמפרטורה ולחץ באותו יום`,
   }];
 }
@@ -120,11 +124,13 @@ export function projectCoolingReadinessCheck(
   tank: PlatoForecastTank,
   readings: PlatoForecastReading[],
   today: string,
+  specs: PlatoForecastSpecs = {},
 ): PlatoThresholdHint[] {
   if (tank.stage?.name !== "בתסיסה") return [];
   const rows = [...readings].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
-  if (rows.some((row) => /קירור/.test(String(row.notes ?? "")))) return [];
-  if (!rows.some((row) => /שמרים|שמרי/.test(String(row.notes ?? "")))) return [];
+  if (rows.some((row) => hasActualCooling(String(row.notes ?? "")))) return [];
+  // A recommendation mentioning yeast is not evidence of completed removal.
+  if (!rows.some((row) => isCompletedYeastDrop(row.notes))) return [];
   const dates = new Map<string, number>();
   for (const row of rows) {
     const date = String(row.id ?? "").match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
@@ -140,7 +146,10 @@ export function projectCoolingReadinessCheck(
   if (gap < 1 || gap > 3 || day(today) - day(toDate) > 2) return [];
   const rate = (from - to) / gap;
   if (rate < 0.1 || rate > 4 || to <= 0) return [];
-  const threshold = 5;
+  const threshold = getFermentationEndPlatoLimit(
+    typeof tank.beerStyle === "string" || typeof tank.beerStyle === "number" ? tank.beerStyle : null,
+    specs as SpecChart,
+  ) ?? 5;
   const until = to <= threshold ? 0 : Math.ceil((to - threshold) / rate);
   if (until > 6) return [];
   const projectedDay = Math.max(day(today), day(toDate) + until);

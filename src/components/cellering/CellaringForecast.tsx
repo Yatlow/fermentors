@@ -5,12 +5,16 @@ import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import { projectColdCellarMilestones, projectYeastAfterDryHop, type ConditionalForecast } from "../../SERVICES/cellering/coldCellarForecast";
-import { projectPlatoThresholdRecheck, projectLagerDiacetylRest, projectCoolingReadinessCheck } from "../../SERVICES/cellering/platoThresholdForecast";
+import { projectLagerDiacetylRest } from "../../SERVICES/cellering/platoThresholdForecast";
+import { projectHybridFermentationMilestones } from "../../SERVICES/cellering/styleFermentationForecast";
+import { getStyleAverages } from "../../SERVICES/getAndPost/getStyleAverages";
 import {
     subscribeScheduledCellarRecommendations, scheduledActionLabel,
     type ScheduledCellarRecommendation,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import { projectKnownYeastCompletions } from "../../SERVICES/cellering/yeastCompletionForecast";
+import { projectCarbonationRetest, projectNonHoppyWarmYeast } from "../../SERVICES/cellering/actionForecast";
+import { anticipatedColdTanksForSunday, forecastRoutinesForDate, type ForecastRoutine } from "../../SERVICES/cellering/forecastRoutines";
 import { localDateKey } from "../../SERVICES/dashboard/healthModel";
 import "./CellaringForecast.css";
 
@@ -43,14 +47,22 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
         setLoading(true);
         void Promise.all(active.map(async (tank) => {
             try {
-                const readings = tank.batchNumber ? await getMeasurementsByBatch(tank.batchNumber) : [];
+                const [readings, styleAverage] = await Promise.all([
+                    tank.batchNumber ? getMeasurementsByBatch(tank.batchNumber) : Promise.resolve([]),
+                    tank.beerStyle && tank.stage?.name === "בתסיסה"
+                        ? getStyleAverages(tank.beerStyle).catch((error) => {
+                            console.warn("Style average unavailable; using batch-local forecast", tank.beerStyle, error);
+                            return null;
+                        }) : Promise.resolve(null),
+                ]);
                 return [
                     ...projectColdCellarMilestones(tank, readings, today),
                     ...projectYeastAfterDryHop(tank, readings, today),
-                    ...projectPlatoThresholdRecheck(tank, readings, today, specs),
+                    ...projectHybridFermentationMilestones(tank, readings, today, specs, styleAverage),
                     ...projectLagerDiacetylRest(tank, readings, today, specs),
                     ...projectKnownYeastCompletions(tank, readings, today, specs),
-                    ...projectCoolingReadinessCheck(tank, readings, today),
+                    ...projectCarbonationRetest(tank, readings, today, specs),
+                    ...projectNonHoppyWarmYeast(tank, readings, today, specs),
                 ];
             } catch (error) {
                 console.error("Failed to calculate cellar forecast for tank", tank.tankNumber, error);
@@ -122,12 +134,12 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
         const horizon = dayOfWeek(addDays(today, 7)) === 6 ? 8 : 7;
         return Array.from({ length: horizon }, (_, offset) => {
             const date = addDays(today, offset + 1);
-            if (dayOfWeek(date) === 6) return { date, scheduledRows: [] as ScheduledCellarRecommendation[], conditionalRows: [] as ConditionalForecast[], routines: [] as string[], total: 0 };
+            if (dayOfWeek(date) === 6) return { date, scheduledRows: [] as ScheduledCellarRecommendation[], conditionalRows: [] as ConditionalForecast[], routines: [] as ForecastRoutine[], total: 0 };
             const scheduledRows = scheduled.filter((item) => {
                 const due = nextWorkday(item.dueDate);
                 return due === date &&
                     active.some((tank) => String(tank.tankNumber) === item.tankNumber &&
-                        String(tank.batchNumber) === item.batchNumber);
+                        String(tank.batchNumber).replace(/^#/, "") === String(item.batchNumber).replace(/^#/, ""));
             });
             const conditionalRows = conditional.filter((item) =>
                 nextWorkday(item.dueDate) === date &&
@@ -138,13 +150,22 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
             const weekday = dayOfWeek(date);
             const nextWeek = addDays(date, 7 - weekday);
             const plannedNumbers = nextWeekTanks[nextWeek] ?? [];
-            const routines = plannedNumbers.length === 0 ? [] :
-                weekday === 3 ? [`בדיקת גיזוז לפני אריזת השבוע הבא · מיכלים ${plannedNumbers.filter((number) => coldTanks.some((tank) => String(tank.tankNumber) === number)).join(", ")}`] :
-                weekday === 4 ? [`הורדת שמרים לפני אריזת השבוע הבא · מיכלים ${plannedNumbers.join(", ")}`] : [];
-            // Wednesday needs cold tanks; Thursday follows the committed
-            // packaging decision even if a tank is not marked cold.
-            const validRoutines = routines.filter((item) => !item.endsWith("מיכלים "));
-            return { date, scheduledRows, conditionalRows, routines: validRoutines, total: scheduledRows.length + conditionalRows.length + validRoutines.length };
+            // Sunday includes currently cold tanks, plus a SEPARATE conditional
+            // projection for fermenting tanks with scheduled cooling or measured
+            // cooling-readiness expected before Sunday. Never treat readiness as
+            // evidence that cooling was performed.
+            const anticipatedCold = weekday === 0 ? anticipatedColdTanksForSunday({
+                today, sunday: date, tanks: active, scheduled, conditional,
+            }) : [];
+            const routines = forecastRoutinesForDate({
+                date, weekday,
+                coldTankNumbers: coldTanks.map((tank) => String(tank.tankNumber)),
+                anticipatedColdTankNumbers: anticipatedCold,
+                nextWeekPackagingTankNumbers: plannedNumbers,
+                scheduled: scheduledRows,
+                conditional: conditionalRows,
+            });
+            return { date, scheduledRows, conditionalRows, routines, total: scheduledRows.length + conditionalRows.length + routines.length };
         });
     }, [active, scheduled, conditional, nextWeekTanks]);
 
@@ -165,17 +186,24 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                     {day.scheduledRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
                         <span className="cellar-forecast-type">מתוזמן</span>
                         <div><strong>מיכל {item.tankNumber}</strong> · {scheduledActionLabel(item.actionType)}
+                        {item.note?.trim() ? <div className="cellar-forecast-scheduled-note">{item.note.trim()}</div> :
+                            item.actionType === "other" ? <div className="cellar-forecast-scheduled-note">לא צוין פירוט</div> : null}
                         {item.dueDate < day.date && new Date(item.dueDate + "T12:00:00Z").getUTCDay() !== 6 ? <small> · באיחור מאז {item.dueDate}</small> : null}</div>
                     </div>)}
                     {day.conditionalRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
-                        <span className="cellar-forecast-type cellar-forecast-conditional">{item.id.includes(":plato-recheck:") || (item.id.includes(":diacetyl-plato-recheck:") || item.id.includes(":cooling-readiness:")) ? "צפי" : "לפי כלל"}</span>
+                        <span className="cellar-forecast-type cellar-forecast-conditional">{item.id.includes(":plato-recheck:") || (item.id.includes(":diacetyl-plato-recheck:") || item.id.includes(":cooling-readiness:") || item.id.includes(":cooling-conditions:") || item.id.includes(":non-hoppy-warm-yeast:")) ? "צפי" : "לפי כלל"}</span>
                         <div><strong>מיכל {item.tankNumber}</strong> · {item.title.includes("תנאים ל") ?
                             item.title.replace("בדיקת תנאים ל", "צפוי להתקרב לסף ") :
-                            item.title}</div>
+                            item.title}
+                        <small className="cellar-forecast-basis">{item.basis}</small></div>
                     </div>)}
-                    {day.routines.map((item) => <div className="cellar-forecast-item" key={item}>
-                        <span className="cellar-forecast-type cellar-forecast-routine">לפי תכנון</span>
-                        <div>{item}</div>
+                    {day.routines.map((item) => <div className="cellar-forecast-item" key={item.id}>
+                        <span className={"cellar-forecast-type " + (item.source === "sunday-predicted-cold" ? "cellar-forecast-conditional" : "cellar-forecast-routine")}>
+                            {item.source === "sunday" ? "שגרת ראשון" : item.source === "sunday-predicted-cold" ? "מותנה בקירור" : "לפי תכנון"}
+                        </span>
+                        <div><strong>מיכל {item.tankNumber}</strong> · {item.title}{item.source === "packaging" ? " לפני אריזת השבוע הבא" : ""}
+                            {item.source === "sunday-predicted-cold" ? <small className="cellar-forecast-basis">שגרת יום ראשון, רק אם המיכל יקורר בפועל לפני יום ראשון</small> : null}
+                        </div>
                     </div>)}
                 </div>
             </section>)}
