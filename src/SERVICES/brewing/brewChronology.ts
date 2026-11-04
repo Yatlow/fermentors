@@ -10,7 +10,6 @@ export type CurrentBrewStage<T extends ClockStage> = {
   recordedAt: number;
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const ROLLOVER_GAP_MINUTES = 6 * 60;
 
 function clockMinutes(text: string): number | null {
