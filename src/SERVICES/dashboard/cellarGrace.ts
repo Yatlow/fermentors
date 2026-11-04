@@ -1,3 +1,5 @@
+import { requiresFermentationPlatoPh } from "./fermentationMeasurementRequirements";
+
 /** The cellar grace clock is independent of the 00:00 daily measurement reset. */
 export const FERMENTATION_GRACE_MS = 12 * 60 * 60 * 1000;
 export const GRACE_RESET_HOUR = 4;
@@ -71,8 +73,7 @@ export function isInInitialMeasurementGrace(tank: GraceTank, at: Date = new Date
 
 function completedApplicableFields(tank: GraceRoundTank, fields: DailyRoundFields | undefined): boolean {
   if (!fields?.temp || !fields.pressure) return false;
-  const hot = tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
-  return !hot || (fields.plato && fields.pH);
+  return !requiresFermentationPlatoPh(tank) || (fields.plato && fields.pH);
 }
 
 /**
@@ -163,6 +164,5 @@ export function shouldShowPlatoPhTank(
   graceTankIds: ReadonlySet<string>,
 ): boolean {
   if (Number(tank.tankNumber) === 1) return false;
-  const hot = tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
-  return hot || (Number(tank.action) === 1 && tank.stage?.name === "בתסיסה" && graceTankIds.has(String(tank.id)));
+  return requiresFermentationPlatoPh(tank) || (Number(tank.action) === 1 && tank.stage?.name === "בתסיסה" && graceTankIds.has(String(tank.id)));
 }
