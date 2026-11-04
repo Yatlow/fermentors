@@ -1,5 +1,6 @@
 import { measurementGraceTankIds } from "./cellarGrace";
 import { dailyMeasurementProgress, type HealthMeasurement } from "./healthModel";
+import { requiresFermentationPlatoPh } from "./fermentationMeasurementRequirements";
 
 export type CellarBadgeFields = { temp: boolean; pressure: boolean; plato: boolean; pH: boolean };
 
@@ -64,7 +65,7 @@ export function pendingCellarMeasurementTankNumbers(
       String(row.batchNumber).replace("#", "").trim() === batchNumber
     )) continue;
 
-    const isHot = tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
+    const isHot = requiresFermentationPlatoPh(tank);
     if (!fields.temp || !fields.pressure || (isHot && (!fields.plato || !fields.pH))) {
       pending.add(tankNumber);
     }
