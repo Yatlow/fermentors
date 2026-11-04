@@ -7,7 +7,7 @@ const source = readFileSync(new URL("../src/SERVICES/brewing/brewSheetTimeRecove
 const js = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
 }).outputText;
-const { planMissingMashTimeSheetWrites: plan } = await import(
+const { planMissingMashTimeSheetWrites: plan, normalizedBrewSheetTime } = await import(
   "data:text/javascript;base64," + Buffer.from(js).toString("base64")
 );
 
@@ -83,4 +83,16 @@ test("startup schedules guarded repair, and never updates timestamps by forced S
   assert.match(form, /missingMashWrites.map\(\(\{ range, value, expectedValue \}\) => \(\{ range, value, expectedValue \}\)\)/);
   assert.match(form, /pendingSheetWrites.current.add\(write\)/);
   assert.match(form, /setSyncError\(`שעות מאש חסרות ב-Sheet ולא הושלמו אוטומטית:/);
+});
+
+test("HH:MM Sheet comparison keeps minutes distinct while accepting unpadded hours", () => {
+  assert.equal(normalizedBrewSheetTime("9:54"), "09:54");
+  assert.equal(normalizedBrewSheetTime("09:54"), "09:54");
+  assert.equal(normalizedBrewSheetTime("10:21"), "10:21");
+  assert.equal(normalizedBrewSheetTime("10:28"), "10:28");
+  assert.notEqual(normalizedBrewSheetTime("10:21"), normalizedBrewSheetTime("10:28"));
+  assert.equal(normalizedBrewSheetTime("11:90"), null);
+  const sheetWriter = readFileSync(new URL("../src/SERVICES/brewing/brewSheet.ts", import.meta.url), "utf8");
+  assert.match(sheetWriter, /const time = normalizedBrewSheetTime\(text\);/);
+  assert.match(sheetWriter, /if \(time !== null\) return `#time:\$\{time\}`;/);
 });
