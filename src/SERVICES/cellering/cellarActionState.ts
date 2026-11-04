@@ -27,50 +27,46 @@ export function hasCellarActionOnDate(
 }
 
 /**
- * A plain pressure change is not evidence that an out-of-spec carbonation
- * test caused it. Only an explicitly attributed report, recorded after an
- * actual failed test in this batch, may earn carbonation-treatment credit.
+ * Attribute a physical pressure change to a carbonation test only when a real
+ * carbonation reading in this batch chronologically precedes the action.
+ * No note rewrite, marker, out-of-spec requirement, or UI origin is needed.
+ * The caller fetches measurements for ONE batch and only scores today's action.
  */
-export const FAILED_CARBONATION_PRESSURE_NOTE = " (בעקבות בדיקת גיזוז לא תקינה)";
-
 type CarbonationPressureMeasurement = CellarActionMeasurement & {
     carbonation?: string | number | null;
 };
 
-function chronologicalKey(id: CellarActionMeasurement["id"]): string {
+function chronologicalKey(id: CellarActionMeasurement["id"]): string | null {
     const match = String(id ?? "").trim().match(/^(\d{4}-\d{2}-\d{2})(?:_(\d{3,4}))?$/);
-    return match ? `${match[1]}_${(match[2] ?? "0000").padStart(4, "0")}` : "";
+    return match ? `${match[1]}_${(match[2] ?? "0000").padStart(4, "0")}` : null;
 }
 
 export function completedCarbonationPressureAdjustmentOnDate(
     measurements: CarbonationPressureMeasurement[],
     date: string,
-    isOutOfSpec: (carbonation: number) => boolean,
 ): number | null {
-    const ordered = [...measurements].sort((a, b) =>
-        chronologicalKey(a.id).localeCompare(chronologicalKey(b.id))
-    );
-    let latestFailedCarbonation: number | null = null;
+    const ordered = measurements
+        .map((measurement) => ({ measurement, order: chronologicalKey(measurement.id) }))
+        .filter((row): row is { measurement: CarbonationPressureMeasurement; order: string } => row.order !== null)
+        .sort((a, b) => a.order.localeCompare(b.order));
 
-    for (const measurement of ordered) {
-        const measurementDay = measurementDate(measurement.id);
-        if (!measurementDay || measurementDay > date) continue;
+    let previousCarbonation: number | null = null;
+    for (const { measurement, order } of ordered) {
+        const day = order.slice(0, 10);
+        if (day > date) break;
 
-        const rawCarb = measurement.carbonation;
-        if (rawCarb !== null && rawCarb !== undefined && String(rawCarb).trim() !== "") {
-            const carbonation = Number(String(rawCarb).replace(",", "."));
-            if (Number.isFinite(carbonation)) {
-                // A subsequent in-range test cancels the old failed-test context.
-                latestFailedCarbonation = isOutOfSpec(carbonation) ? carbonation : null;
-            }
+        const note = String(measurement.notes ?? "");
+        // Check the action BEFORE reading carbonation from this row: a test and
+        // action in the same undifferentiated row do not prove which came first.
+        if (day === date && previousCarbonation !== null &&
+            /(?:העלאת|הורדת)\s+לחץ/.test(note)) {
+            return previousCarbonation;
         }
 
-        if (measurementDay !== date || latestFailedCarbonation === null) continue;
-        const note = String(measurement.notes ?? "");
-        if (!note.includes(FAILED_CARBONATION_PRESSURE_NOTE.trim())) continue;
-        if (!/(?:העלאת|הורדת|להעלות|להוריד)\s+לחץ/.test(note)) continue;
-
-        return latestFailedCarbonation;
+        const raw = measurement.carbonation;
+        if (raw === null || raw === undefined || String(raw).trim() === "") continue;
+        const carbonation = Number(String(raw).replace(",", "."));
+        if (Number.isFinite(carbonation)) previousCarbonation = carbonation;
     }
     return null;
 }
