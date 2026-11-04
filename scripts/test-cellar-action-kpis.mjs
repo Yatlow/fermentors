@@ -472,3 +472,65 @@ test("manager snapshot and tank/dashboard completion gates use numeric pressure 
     assert.match(info, /scheduledPressureDecisionConflictText\(row, measurements\)/);
     assert.match(dashboard, /scheduledPressureDecisionConflictText\(row, measurements\)/);
 });
+
+
+test("cold-tank ordinary pressure report is never inferred to follow a carbonation test", async () => {
+    const actionState = readFileSync(new URL("../src/SERVICES/cellering/cellarActionState.ts", import.meta.url), "utf8");
+    const stateJs = ts.transpileModule(actionState, {
+        compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
+    }).outputText;
+    const { completedCarbonationPressureAdjustmentOnDate, FAILED_CARBONATION_PRESSURE_NOTE } = await import(
+        "data:text/javascript;base64," + Buffer.from(stateJs).toString("base64")
+    );
+    const isOutOfSpec = (value) => value < 2.35 || value > 2.55;
+    const date = "2026-11-04";
+    const testRow = { id: "2026-11-01_0900", carbonation: 2.26 };
+    const ordinary = { id: "2026-11-04_0830", notes: "העלאת לחץ ל: 1.6 bar | קירור מיכל ל0.3°" };
+    const marker = (id) => ({ id, notes: "העלאת לחץ ל: 1.6 bar" + FAILED_CARBONATION_PRESSURE_NOTE });
+
+    // The actual tank-7 screenshot has a pressure action, not a carbonation test.
+    assert.equal(completedCarbonationPressureAdjustmentOnDate([ordinary], date, isOutOfSpec), null);
+    // An earlier failed carbonation result does not turn a generic pressure action into treatment.
+    assert.equal(completedCarbonationPressureAdjustmentOnDate([testRow, ordinary], date, isOutOfSpec), null);
+    // A stray attribution with no actual test cannot count either.
+    assert.equal(completedCarbonationPressureAdjustmentOnDate([marker("2026-11-04_0830")], date, isOutOfSpec), null);
+    assert.equal(completedCarbonationPressureAdjustmentOnDate([
+        { id: "2026-11-04_0850", carbonation: 2.45 }, marker("2026-11-04_0900")
+    ], date, isOutOfSpec), null);
+    // A genuine correction can be in another row and followed by later measurements.
+    assert.equal(completedCarbonationPressureAdjustmentOnDate([
+        { id: "2026-11-04_0800", carbonation: "2,26" },
+        marker("2026-11-04_0900"),
+        { id: "2026-11-04_1300", temp: 2.2, notes: "בדיקה נוספת" }
+    ], date, isOutOfSpec), 2.26);
+    // Reports BEFORE the test never get retroactively linked to it.
+    assert.equal(completedCarbonationPressureAdjustmentOnDate([
+        marker("2026-11-04_0800"), { id: "2026-11-04_0900", carbonation: 2.26 }
+    ], date, isOutOfSpec), null);
+    // Once the batch reaches a valid result, prior failures no longer establish context.
+    assert.equal(completedCarbonationPressureAdjustmentOnDate([
+        testRow, { id: "2026-11-04_0800", carbonation: 2.45 }, marker("2026-11-04_0930")
+    ], date, isOutOfSpec), null);
+    // Historical three-digit clocks sort numerically, not as raw strings.
+    assert.equal(completedCarbonationPressureAdjustmentOnDate([
+        marker("2026-11-04_1000"), { id: "2026-11-04_917", carbonation: 2.26 }
+    ], date, isOutOfSpec), 2.26);
+    assert.equal(completedCarbonationPressureAdjustmentOnDate([
+        { id: "2026-11-04_0800", carbonation: 2.26 },
+        { id: "2026-11-04_0900", notes: "השארת לחץ ללא שינוי" + FAILED_CARBONATION_PRESSURE_NOTE }
+    ], date, isOutOfSpec), null);
+});
+
+test("dashboard displays a verified pressure treatment only once", () => {
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    const quickReport = readFileSync(new URL("../src/components/dashboard/QuickTankReportBox.tsx", import.meta.url), "utf8");
+    const info = readFileSync(new URL("../src/components/dashboard/FermentorInfoBox.tsx", import.meta.url), "utf8");
+    const engine = readFileSync(new URL("../src/SERVICES/cellering/calculateCelleringRecomendations.ts", import.meta.url), "utf8");
+    assert.match(engine, /completedCarbonationPressureAdjustmentOnDate\(/);
+    assert.match(engine, /fromFailedCarbonation: coldCarbNeedsPressureAdjustment/);
+    assert.match(dashboard, /completedScheduledPressure \|\| recommendations\?\.pressureAdjustmentHandledToday\?\.completed/);
+    assert.match(dashboard, /pressureTreatmentContext: alert\.fromFailedCarbonation/);
+    assert.match(quickReport, /initialPressureTreatmentContext === "failedCarbonation" \? FAILED_CARBONATION_PRESSURE_NOTE/);
+    assert.doesNotMatch(info, /handledPressureAfterCarb\s*\|\|/);
+    assert.match(info, /hasTodayCarbonation \|\| hasExplicitCarbTestNote/);
+});
