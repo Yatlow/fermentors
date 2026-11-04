@@ -16,6 +16,7 @@ import { projectKnownYeastCompletions } from "../../SERVICES/cellering/yeastComp
 import { projectCarbonationRetest, projectNonHoppyWarmYeast } from "../../SERVICES/cellering/actionForecast";
 import { anticipatedColdTanksForSunday, forecastRoutinesForDate, type ForecastRoutine } from "../../SERVICES/cellering/forecastRoutines";
 import { localDateKey } from "../../SERVICES/dashboard/healthModel";
+import { summarizeCellaringForecastDay, conciseForecastTitle } from "../../SERVICES/cellering/forecastPresentation";
 import "./CellaringForecast.css";
 
 export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]; specs: SpecChart | null }) {
@@ -24,6 +25,7 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
     const [refresh, setRefresh] = useState(0);
     const [loading, setLoading] = useState(false);
     const [expanded, setExpanded] = useState(false);
+    const [expandedDays, setExpandedDays] = useState<Set<string>>(() => new Set());
     const [nextWeekTanks, setNextWeekTanks] = useState<Record<string, string[]>>({});
 
     useEffect(() => {
@@ -170,6 +172,12 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
     }, [active, scheduled, conditional, nextWeekTanks]);
 
     const total = days.reduce((sum, day) => sum + day.total, 0);
+    const toggleDay = (date: string) => setExpandedDays((previous) => {
+        const next = new Set(previous);
+        if (next.has(date)) next.delete(date);
+        else next.add(date);
+        return next;
+    });
     const dateLabel = (date: string) => {
         const day = new Date(date + "T12:00:00Z");
         return new Intl.DateTimeFormat("he-IL", { weekday: "long", day: "numeric", month: "numeric", timeZone: "UTC" }).format(day);
@@ -177,36 +185,87 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
     return <section className="cellar-forecast" dir="rtl" aria-label="תחזית סלרינג לשבעה ימים">
         <button type="button" className="cellar-forecast-toggle" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
             <span className="cellar-forecast-toggle-title">תחזית סלרינג <small>7 ימים קדימה</small></span>
-            <span className="cellar-forecast-toggle-info">{expanded && loading ? "מחשב…" : expanded && total ? `${total} פעולות צפויות` : ""} <span aria-hidden="true">{expanded ? "▴" : "▾"}</span></span>
+            <span className="cellar-forecast-toggle-info">{expanded && loading ? "מחשב…" : expanded && total ? total + " פעולות צפויות" : ""} <span aria-hidden="true">{expanded ? "▴" : "▾"}</span></span>
         </button>
         {expanded && <div className="cellar-forecast-content">
-            {days.filter((day) => day.total > 0).map((day) => <section className="cellar-forecast-day" key={day.date}>
-                <header className="cellar-forecast-date"><strong>{dateLabel(day.date)}</strong><span>{day.total} {day.total === 1 ? "פעולה" : "פעולות"}</span></header>
-                <div className="cellar-forecast-items">
-                    {day.scheduledRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
-                        <span className="cellar-forecast-type">מתוזמן</span>
-                        <div><strong>מיכל {item.tankNumber}</strong> · {scheduledActionLabel(item.actionType)}
-                        {item.note?.trim() ? <div className="cellar-forecast-scheduled-note">{item.note.trim()}</div> :
-                            item.actionType === "other" ? <div className="cellar-forecast-scheduled-note">לא צוין פירוט</div> : null}
-                        {item.dueDate < day.date && new Date(item.dueDate + "T12:00:00Z").getUTCDay() !== 6 ? <small> · באיחור מאז {item.dueDate}</small> : null}</div>
-                    </div>)}
-                    {day.conditionalRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
-                        <span className="cellar-forecast-type cellar-forecast-conditional">{item.id.includes(":plato-recheck:") || (item.id.includes(":diacetyl-plato-recheck:") || item.id.includes(":cooling-readiness:") || item.id.includes(":cooling-conditions:") || item.id.includes(":non-hoppy-warm-yeast:")) ? "צפי" : "לפי כלל"}</span>
-                        <div><strong>מיכל {item.tankNumber}</strong> · {item.title.includes("תנאים ל") ?
-                            item.title.replace("בדיקת תנאים ל", "צפוי להתקרב לסף ") :
-                            item.title}
-                        <small className="cellar-forecast-basis">{item.basis}</small></div>
-                    </div>)}
-                    {day.routines.map((item) => <div className="cellar-forecast-item" key={item.id}>
-                        <span className={"cellar-forecast-type " + (item.source === "sunday-predicted-cold" ? "cellar-forecast-conditional" : "cellar-forecast-routine")}>
-                            {item.source === "sunday" ? "שגרת ראשון" : item.source === "sunday-predicted-cold" ? "מותנה בקירור" : "לפי תכנון"}
+            {days.filter((day) => day.total > 0).map((day) => {
+                const summary = summarizeCellaringForecastDay(day);
+                const isDayExpanded = expandedDays.has(day.date);
+                const detailsId = "cellar-forecast-details-" + day.date;
+                return <section className="cellar-forecast-day" key={day.date}>
+                    <button
+                        type="button"
+                        className="cellar-forecast-day-toggle"
+                        aria-expanded={isDayExpanded}
+                        aria-controls={detailsId}
+                        onClick={() => toggleDay(day.date)}
+                    >
+                        <span className="cellar-forecast-day-heading">
+                            <strong>{dateLabel(day.date)}</strong>
+                            <span className="cellar-forecast-day-count">{summary.total} {summary.total === 1 ? "אירוע" : "אירועים"}</span>
+                            <span className={"cellar-forecast-day-chevron" + (isDayExpanded ? " is-open" : "")} aria-hidden="true">⌄</span>
                         </span>
-                        <div><strong>מיכל {item.tankNumber}</strong> · {item.title}{item.source === "packaging" ? " לפני אריזת השבוע הבא" : ""}
-                            {item.source === "sunday-predicted-cold" ? <small className="cellar-forecast-basis">שגרת יום ראשון, רק אם המיכל יקורר בפועל לפני יום ראשון</small> : null}
-                        </div>
-                    </div>)}
-                </div>
-            </section>)}
+                        <span className="cellar-forecast-summary">
+                            {summary.groups.map((group) => <span className="cellar-forecast-summary-chip" key={group.kind}>
+                                <b>{group.count}</b> {group.label}
+                            </span>)}
+                        </span>
+                        {summary.conditionalCount > 0 && <span className="cellar-forecast-day-conditions">
+                            מתוכם {summary.conditionalCount} מותנים בתנאים או בצפי
+                        </span>}
+                    </button>
+                    {isDayExpanded && <div id={detailsId} className="cellar-forecast-items">
+                        {day.scheduledRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
+                            <span className="cellar-forecast-type">מתוזמן</span>
+                            <div className="cellar-forecast-item-copy">
+                                <div className="cellar-forecast-item-title">
+                                    <strong>מיכל {item.tankNumber}</strong>
+                                    <span> · {item.actionType === "other" ? "הוראה חופשית" : scheduledActionLabel(item.actionType)}</span>
+                                </div>
+                                {item.actionType === "other"
+                                    ? <div className="cellar-forecast-scheduled-note">{item.note?.trim() || "לא צוין פירוט"}</div>
+                                    : item.note?.trim() ? <details className="cellar-forecast-explanation">
+                                        <summary>הערת תכנון</summary>
+                                        <p>{item.note.trim()}</p>
+                                    </details> : null}
+                                {item.dueDate < day.date && new Date(item.dueDate + "T12:00:00Z").getUTCDay() !== 6
+                                    ? <small className="cellar-forecast-overdue">באיחור מאז {item.dueDate}</small> : null}
+                            </div>
+                        </div>)}
+                        {day.conditionalRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
+                            <span className="cellar-forecast-type cellar-forecast-conditional">
+                                {item.id.includes(":plato-recheck:") || item.id.includes(":diacetyl-plato-recheck:") ||
+                                item.id.includes(":cooling-readiness:") || item.id.includes(":cooling-conditions:") ||
+                                item.id.includes(":non-hoppy-warm-yeast:") ? "צפי" : "לפי כלל"}
+                            </span>
+                            <div className="cellar-forecast-item-copy">
+                                <div className="cellar-forecast-item-title">
+                                    <strong>מיכל {item.tankNumber}</strong><span> · {conciseForecastTitle(item.title)}</span>
+                                </div>
+                                {item.basis?.trim() && <details className="cellar-forecast-explanation">
+                                    <summary>למה?</summary>
+                                    <p>{item.basis}</p>
+                                </details>}
+                            </div>
+                        </div>)}
+                        {day.routines.map((item) => <div className="cellar-forecast-item" key={item.id}>
+                            <span className={"cellar-forecast-type " + (item.source === "sunday-predicted-cold" ? "cellar-forecast-conditional" : "cellar-forecast-routine")}>
+                                {item.source === "sunday" ? "שגרת ראשון" : item.source === "sunday-predicted-cold" ? "מותנה בקירור" : "לפי תכנון"}
+                            </span>
+                            <div className="cellar-forecast-item-copy">
+                                <div className="cellar-forecast-item-title">
+                                    <strong>מיכל {item.tankNumber}</strong><span> · {item.title}</span>
+                                </div>
+                                {item.source === "packaging" && <small className="cellar-forecast-context">לקראת אריזת השבוע הבא</small>}
+                                {item.source === "sunday-predicted-cold" && <details className="cellar-forecast-explanation">
+                                    <summary>תנאי לביצוע</summary>
+                                    <p>רק אם המיכל יקורר בפועל לפני יום ראשון</p>
+                                </details>}
+                            </div>
+                        </div>)}
+                    </div>}
+                </section>;
+            })}
             {!total && !loading && <p className="cellar-forecast-empty">לא נמצאו פעולות צפויות לשבוע הקרוב.</p>}
         </div>}
     </section>;
