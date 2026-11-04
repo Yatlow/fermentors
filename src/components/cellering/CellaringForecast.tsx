@@ -178,8 +178,8 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                     {day.scheduledRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
                         <span className="cellar-forecast-type">מתוזמן</span>
                         <div><strong>מיכל {item.tankNumber}</strong> · {scheduledActionLabel(item.actionType)}
-                        {item.note?.trim() ? <span className="cellar-forecast-scheduled-note"> — {item.note}</span> :
-                            item.actionType === "other" ? <span className="cellar-forecast-scheduled-note"> — לא צוין פירוט</span> : null}
+                        {item.note?.trim() ? <div className="cellar-forecast-scheduled-note">{item.note.trim()}</div> :
+                            item.actionType === "other" ? <div className="cellar-forecast-scheduled-note">לא צוין פירוט</div> : null}
                         {item.dueDate < day.date && new Date(item.dueDate + "T12:00:00Z").getUTCDay() !== 6 ? <small> · באיחור מאז {item.dueDate}</small> : null}</div>
                     </div>)}
                     {day.conditionalRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
