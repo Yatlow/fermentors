@@ -238,7 +238,8 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
       // single case, a shipment may be saved provisionally after confirmation;
       // the shortage remains in the audit until packaging is reported.
       const provisional = confirmableUnpackedShipmentShortages(
-        increases, nextPlans, settings.products, actuals, canonical.id, today, after);
+        increases, nextPlans, settings.products, actuals, canonical.id,
+        { settings, pallets, today, shipments: data.actualShipments });
       const { blocking, confirmable: futureShortages } =
         classifyPlanningShortageIncreases(
           increases.filter((increase) => !provisional.includes(increase)),
@@ -251,9 +252,9 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
         const description = provisional.map((increase) =>
           "• " + describePlanningShortageIncrease(increase, settings.products)).join("\n");
         const accepted = await confirmPlanning(
-          "⚠️ המשלוח מתבסס על אריזה לא מתוארכת מהשבוע הנוכחי, משבוע קודם או משבוע המשלוח, שטרם בוצעה:\n\n" +
+          "⚠️ המשלוח מתבסס על אריזה שטרם בוצעה בשבוע המשלוח:\n\n" +
           description +
-          "\n\nהמשלוח יישמר כתכנון מותנה בלבד. חובה לשבץ ולבצע את האריזה לפני היציאה; כל עוד אין מלאי פיזי זמין, אי אפשר להעמיס או לשלח את הפריטים הללו.\n\nלאשר את התכנון המותנה?"
+          "\n\nהמשלוח יישמר כתכנון מותנה בלבד. חלק מהאריזות עשויות להיות מתוכננות לאחר יום יציאת המשאית (למשל אריזה ביום שלישי/חמישי ומשלוח ביום שני). יש לתאם יציאה לאחר האריזה או להקדים את האריזה. כל עוד אין מלאי פיזי זמין, אי אפשר להעמיס או לשלח את הפריטים הללו.\n\nלאשר את התכנון המותנה?"
         );
         if (!accepted) throw new Error("השמירה בוטלה: תלות באריזה שלא הושלמה לא אושרה.");
       }
