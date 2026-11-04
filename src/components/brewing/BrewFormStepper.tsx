@@ -20,7 +20,6 @@ import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldPersistBrewUnmount, hasUnsavedBrewFields } from "../../SERVICES/brewing/brewSyncGuards";
 import { recordedBrewPosition, reviewedStepsFromRecordedWork } from "../../SERVICES/brewing/brewValidationProgress";
 import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
-import { planMissingMashTimeSheetWrites, type MashTimeRecoveryBlock } from "../../SERVICES/brewing/brewSheetTimeRecovery";
 import { persistBrewBeforeExit } from "../../SERVICES/brewing/brewExitPersistence";
 import {
   readBrewSheetRange,
@@ -3669,7 +3668,6 @@ export default function BrewFormStepper({
       );
       if (!formMountedRef.current) return false;
       const discoveredBlocks = discoverSheetBlocks(fullSheetRows, totalBlocks);
-      let validatedSemanticBlocks = false;
 
       // Semantic row addresses are not process values. Even if a brewer
       // edits a field (or Firestore receives a newer A/B block) while this
@@ -3706,7 +3704,6 @@ export default function BrewFormStepper({
           );
         }
         if (validated) {
-          validatedSemanticBlocks = true;
           setExecution((previous) => {
             const blocks = { ...previous.blocks };
             let changed = false;
@@ -3736,7 +3733,6 @@ export default function BrewFormStepper({
       );
 
       const startupConflicts: SyncMismatch[] = [];
-      const mashRecoveryBlocks: MashTimeRecoveryBlock[] = [];
       for (let index = 1; index <= totalBlocks; index += 1) {
         const discovered = discoveredBlocks[index - 1];
         if (!discovered) {
@@ -3777,7 +3773,6 @@ export default function BrewFormStepper({
         const startup = reconcileBrewStartupFields(existing, pulled);
         const mappingDiscoveryOnly = positionAfterPull && silent;
         if (mappingDiscoveryOnly) {
-          mashRecoveryBlocks.push({ blockIndex: index, appFields: existing, sheetFields: pulled });
           startupConflicts.push(
             ...startup.conflicts
               .filter(({ key }) => isSheetBackedExecutionKey(key) &&
@@ -3819,41 +3814,6 @@ export default function BrewFormStepper({
       setInitialSheetReconciled(true);
       // Persist reconciliation explicitly; do not rely on a later render/effect.
       await saveBrewingExecutionToFirestore(nextExecution);
-
-      // The initial Sheet pull is deliberately non-destructive: values the
-      // brewer entered and Firestore saved may still be missing in the Sheet.
-      // Repair ONLY missing mash times using validated semantic row addresses,
-      // and use expectedValue:"" so concurrent Sheet edits can never be erased.
-      if (silent && positionAfterPull && validatedSemanticBlocks && mashRecoveryBlocks.length > 0 &&
-          formMountedRef.current && latestLocalEditAt.current <= readStartedAt &&
-          pendingSheetWrites.current.size === 0) {
-        const missingMashWrites = planMissingMashTimeSheetWrites(mashRecoveryBlocks);
-        if (missingMashWrites.length > 0) {
-          const write = writeBrewSheetCells(
-            run.sheetId,
-            missingMashWrites.map(({ range, value, expectedValue }) => ({ range, value, expectedValue })),
-          );
-          pendingSheetWrites.current.add(write);
-          try {
-            await write;
-            setLastPushAt(new Date());
-            const repaired = new Set(
-              missingMashWrites.map(({ blockIndex, fieldKey }) => `${blockIndex}:${fieldKey}`),
-            );
-            setSyncMismatches((previous) => previous.filter(
-              (item) => !repaired.has(`${item.blockIndex}:${item.key}`),
-            ));
-          } catch (error) {
-            const detail = error instanceof Error ? error.message : String(error);
-            // The canonical Firestore/form values remain intact. Surface the
-            // incomplete Sheet repair rather than falsely marking it saved.
-            setSyncError(`שעות מאש חסרות ב-Sheet ולא הושלמו אוטומטית: ${detail}`);
-            console.warn("Mash Sheet time repair deferred", run.batchNumber, detail);
-          } finally {
-            pendingSheetWrites.current.delete(write);
-          }
-        }
-      }
       if (!silent) {
         setMessage("✓ הנתונים נמשכו עכשיו מה-Sheet אל האפליקציה.");
       }
