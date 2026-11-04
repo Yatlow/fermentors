@@ -86,6 +86,8 @@ test("the next undated block can start after midnight", () => {
 
 test("high-confidence 12-hour entry is corrected using neighboring process times", () => {
   assert.equal(confidentPmClockCorrection("10:11", "21:32", "22:21"), "22:11");
+  assert.equal(confidentPmClockCorrection("10:11", "21:32", "10:21"), "22:11",
+    "the next stage may also be mistyped with a 12-hour clock");
   assert.equal(confidentPmClockCorrection("10:11", "21:32"), "22:11");
   assert.equal(confidentPmClockCorrection("06:15", "17:45"), "18:15");
 });
