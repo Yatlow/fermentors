@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { completedDailyRoundKpi, fermentationGraceEnd, graceDayStart, measurementGraceTankIds, timestampMillis } from "../../SERVICES/dashboard/cellarGrace";
+import { completedDailyRoundKpi, fermentationGraceEnd, graceDayStart, measurementGraceTankIds, timestampMillis, requiresFermentationPlatoPh } from "../../SERVICES/dashboard/cellarGrace";
 import { cellarBadgeFieldsForDay } from "../../SERVICES/dashboard/cellarMeasurementBadge";
-import { requiresFermentationPlatoPh } from "../../SERVICES/dashboard/fermentationMeasurementRequirements";
 import { CELLAR_CELEBRATION_ACK_KEY, evaluateCellarCelebration, type SettledCellarScore } from "../../SERVICES/dashboard/cellarCelebrationPolicy";
 import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
 import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
