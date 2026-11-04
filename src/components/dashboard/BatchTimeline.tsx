@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Gauge } from "lucide-react";
 import {
     parseYeastDropAmount,
@@ -97,6 +97,25 @@ export default function BatchTimeline({ measurements, brewDate }: Props) {
     const endSentinelRef = useRef<HTMLSpanElement | null>(null);
     const [canScrollRight, setCanScrollRight] = useState(false);
     const [canScrollLeft, setCanScrollLeft] = useState(false);
+    const initiallyPositionedTimeline = useRef<string | null>(null);
+
+    function scrollToLatest(behavior: ScrollBehavior = "smooth") {
+        // scrollIntoView handles negative RTL scrollLeft on Safari/iOS.
+        endSentinelRef.current?.scrollIntoView({
+            behavior,
+            block: "nearest",
+            inline: "end",
+        });
+    }
+
+    useLayoutEffect(() => {
+        if (!events.length) return;
+        const timelineIdentity = `${brewDate || ""}:${events[0].id}`;
+        if (initiallyPositionedTimeline.current === timelineIdentity) return;
+        if (!endSentinelRef.current) return;
+        initiallyPositionedTimeline.current = timelineIdentity;
+        scrollToLatest("instant");
+    }, [brewDate, events.length, events[0]?.id]);
 
     useEffect(() => {
         const root = scrollRef.current;
@@ -149,7 +168,16 @@ export default function BatchTimeline({ measurements, brewDate }: Props) {
         <section className="batch-timeline" dir="rtl" aria-label="ציר זמן של האצווה">
             <div className="batch-timeline-heading">
                 <strong>ציר זמן</strong>
-                <span>{events.length} אירועים באצווה</span>
+                <div className="batch-timeline-heading-actions">
+                    <span>{events.length} אירועים באצווה</span>
+                    <button
+                        type="button"
+                        className="batch-timeline-latest"
+                        onClick={() => scrollToLatest()}
+                    >
+                        לאירוע האחרון
+                    </button>
+                </div>
             </div>
 
             <div className="batch-timeline-scroll-shell">
