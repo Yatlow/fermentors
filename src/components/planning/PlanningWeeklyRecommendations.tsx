@@ -238,8 +238,10 @@ export default function PlanningWeeklyRecommendations({
             .filter(
                 (run) =>
                     run.productId === p.id &&
-                    !!run.date &&
-                    run.date <= dispatchDate,
+                    // Undated packaging is a legitimate weekly planning draft.
+                    // It can back a *provisional* shipping decision, not a
+                    // physical pallet reservation or a dispatch-ready forecast.
+                    (!run.date || run.date <= dispatchDate),
             )
             .reduce((sum, run) => sum + run.remaining, 0);
     };
@@ -404,7 +406,7 @@ export default function PlanningWeeklyRecommendations({
         setShipDraft((prev) => {
             const proposed = Math.max(0, (prev[p.id] ?? 0) + delta * palletSize(p));
             if (delta > 0 && proposed > maxShipmentQty(p)) {
-                setShipmentError({ productId: p.id, text: `אין מלאי או תכנון שמתאימים לביצוע משלוח פריט זה השבוע.` });
+                setShipmentError({ productId: p.id, text: `אין מלאי זמין או אריזה מתוכננת שיכולים לכסות כמות זו.` });
                 return prev;
             }
             const next = { ...prev, [p.id]: proposed };
@@ -421,7 +423,7 @@ export default function PlanningWeeklyRecommendations({
         if (disabled || busy) return;
         const slots = shipmentSlots(shipDraft);
         if (!Number.isFinite(slots) || products.some((p) => (shipDraft[p.id] ?? 0) > maxShipmentQty(p))) {
-            return setMessage("המלאי השתנה או שאחד המשטחים גבוה מהגובה המותר. יש לעדכן את החלטת המשלוח.");
+            return setMessage("המלאי או תוכנית האריזה השתנו, או שאחד המשטחים גבוה מהמותר. יש לעדכן את החלטת המשלוח.");
         }
         if (slots > MAX_TRUCK_SLOTS && !approveOversizeTruck) {
             return setMessage(`משלוח של ${slots} מקומות דורש אישור חריגת קיבולת מפורש. יש לסמן את תיבת האישור להלן.`);
@@ -1010,7 +1012,7 @@ export default function PlanningWeeklyRecommendations({
                     {" · "}נותרו {Number.isFinite(usedShipSlots) ? Math.max(0, MAX_TRUCK_SLOTS - Number(usedShipSlots)) : 0}
                 </div>
                 {packagingDependentLines.length > 0 && <div className="bp-same-week-warning" role="alert">
-                    <b>⚠️ משלוח תלוי באריזה של אותו שבוע</b><span>יש לארוז לפני יום שני.</span>
+                    <b>⚠️ משלוח מתוכנן על בסיס אריזה שטרם בוצעה</b><span>חובה להשלים את האריזה לפני יציאת המשאית; החלטת המשלוח אינה אישור להעמיס סחורה שאינה קיימת.</span>
                     {packagingDependentLines.map(({ p, dependency }) =>
                         <small key={p.id}>{palletLabel(dependency, p)} {displayStyle(p.style)} עדיין תלויים באריזה השבוע.</small>)}
                 </div>}
@@ -1058,6 +1060,8 @@ export default function PlanningWeeklyRecommendations({
                         const decidedSlotsLabel = Number.isFinite(decidedSlots) ? `${decidedSlots} מקומות` : "חורג ממגבלת הגובה";
                         const partial = draftQty > 0 ? partialCrateHint(p) : null;
                         const unavailable = maxShipmentQty(p) <= 0 && decided <= 0;
+                        const undatedPackaging = currentOpenPackaging.some((run) =>
+                            run.productId === p.id && !run.date && run.remaining > 0);
                         return <div className={`bp-shipment-plan-row ${coverageClass(expectedCover, settings.targetWeeks)} ${unavailable ? "is-unavailable" : ""}`} key={p.id}>
                             <span className={`bp-week-sku ${beerStyleClass(p.style).className}`}><b>{displayStyle(p.style)}</b><small>{p.id.startsWith("noninventory-style:") ? "אריזה מיוחדת" : p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
                             <span>{coverLabel(expectedCover)}</span>
@@ -1065,7 +1069,8 @@ export default function PlanningWeeklyRecommendations({
                                 {rec ? formatPalletCount(rec.pallets) : "—"}
                                 {rec && <small>{rec.slots} מקומות</small>}
                                 {rec && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}
-                                {unavailable && <small className="bp-risk-text">אין מלאי או תכנון שמתאימים לביצוע משלוח פריט זה השבוע.</small>}
+                                {unavailable && <small className="bp-risk-text">אין מלאי זמין או אריזה מתוכננת לפריט זה בשבוע הנבחר.</small>}
+                                {undatedPackaging && <small className="bp-risk-text">⚠️ אריזה מתוכננת ללא תאריך: חובה לשבץ ולהשלים לפני המשלוח.</small>}
                             </span>
                             <span>{editing === "delivery" ?
                                 <div className="bp-stepper">
