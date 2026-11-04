@@ -34,6 +34,27 @@ export function cellarBadgeFieldsForDay(
 }
 
 /**
+ * The sugar/pH tab and its badge share the same hot-tank classification.
+ * An unknown temperature is NOT cold: fermentation still requires Plato/pH.
+ * Keep the existing grace exemption and ignore unavailable measurement history.
+ */
+export function pendingPlatoPhTankNumbers(
+  tanks: CellarBadgeTank[],
+  fieldsByTankId: Record<string, CellarBadgeFields>,
+  graceTankIds: ReadonlySet<string>,
+): string[] {
+  const pending = new Set<string>();
+  for (const tank of tanks) {
+    if (Number(tank.action) !== 1 || Number(tank.tankNumber) === 1 ||
+        graceTankIds.has(String(tank.id)) || !requiresFermentationPlatoPh(tank)) continue;
+    const fields = fieldsByTankId[tank.id];
+    if (!fields || (fields.plato && fields.pH)) continue;
+    pending.add(String(tank.tankNumber ?? tank.id));
+  }
+  return [...pending].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
+}
+
+/**
  * Mirrors the HealthDashboard measurementRound alert: one pending entry per
  * physical tank; respects fermentation grace, ignored rounds, and hot/cold
  * measurement fields. A tank whose measurement history has not loaded is NOT

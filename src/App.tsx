@@ -25,7 +25,7 @@ import DashboardHeader from "./components/dashboard/DashboardHeader";
 import Dashboard from "./components/dashboard/Dashboard";
 import DailyPressureAndTemp from "./components/cellering/DailyPressureAndTemp";
 import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "./SERVICES/getAndPost/gettAllDataByBatch";
-import { cellarBadgeFieldsForDay, pendingCellarMeasurementTankNumbers, type CellarBadgeFields } from "./SERVICES/dashboard/cellarMeasurementBadge";
+import { cellarBadgeFieldsForDay, pendingCellarMeasurementTankNumbers, pendingPlatoPhTankNumbers, type CellarBadgeFields } from "./SERVICES/dashboard/cellarMeasurementBadge";
 import { subscribeIgnoredCellarRecommendationsToday, type IgnoredCellarRecommendation } from "./SERVICES/cellering/ignoredCellarRecommendations";
 import { graceDayStart, measurementGraceTankIds } from "./SERVICES/dashboard/cellarGrace";
 import { localDateKey } from "./SERVICES/dashboard/healthModel";
@@ -338,13 +338,13 @@ function App() {
     // One deterministic classification powers reporting cards, badges and the KPI.
     const cellarGraceTankIds = measurementGraceTankIds(brews, cellarGraceProgress, graceNow, cellarDailyProgress);
 
-    const cellarPending = (mode: "לחץ" | "חם") => brews.filter(t => {
-        if (Number(t.tankNumber) === 1 || Number(t.action) !== 1 || cellarGraceTankIds.has(String(t.id))) return false;
-        if (mode === "חם" && !(Number(t.currentData?.temp) > 9 && t.stage?.name === "בתסיסה")) return false;
-        const p = cellarDailyProgress[t.id];
-        if (!p) return false;
-        return mode === "לחץ" ? !(p.temp && p.pressure) : !(p.plato && p.pH);
-    }).length;
+    const cellarPending = (mode: "לחץ" | "חם") => mode === "חם"
+        ? pendingPlatoPhTankNumbers(brews, cellarDailyProgress, cellarGraceTankIds).length
+        : brews.filter(t => {
+            if (Number(t.tankNumber) === 1 || Number(t.action) !== 1 || cellarGraceTankIds.has(String(t.id))) return false;
+            const p = cellarDailyProgress[t.id];
+            return Boolean(p && !(p.temp && p.pressure));
+        }).length;
     const uniquePendingMeasurementCount = needsStandaloneCellarBadge && cellarDailyProgressReady && ignoredCellarBadgeReady
         ? pendingCellarMeasurementTankNumbers(brews, cellarDailyProgress, ignoredCellarBadgeRows, graceNow, cellarGraceProgress).length
         : dashboardPendingMeasurementTanks.length;
