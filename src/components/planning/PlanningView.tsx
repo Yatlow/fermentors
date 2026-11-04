@@ -11,7 +11,8 @@ import { truckPlanningGroupKey } from "../../SERVICES/planning/truckPlanner";
 import { planningReadRequirements } from "../../SERVICES/planning/planningReadCoverage";
 import { pendingStockExecutionPlans } from "../../SERVICES/planning/planningStockExecution";
 import { auditShipmentAvailability, classifyPlanningShortageIncreases, describePlanningShortageIncrease, newlyWorsenedShipmentShortages } from "../../SERVICES/planning/shipmentAvailabilityAudit";
-import { confirmableUnpackedShipmentShortages } from "../../SERVICES/planning/shipmentProvisionalPlanning";
+import { confirmableUnpackedShipmentShortages, formatPlannedPackagingDay, weeklyShipmentPackagingRuns } from "../../SERVICES/planning/shipmentProvisionalPlanning";
+import { openRuns } from "../../SERVICES/planning/dailyPlanner";
 import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
@@ -251,10 +252,29 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
       if (provisional.length) {
         const description = provisional.map((increase) =>
           "• " + describePlanningShortageIncrease(increase, settings.products)).join("\n");
+        const pending = openRuns(nextPlans, settings.products, actuals);
+        const skus = new Set(provisional.map(({ issue }) => issue.productId));
+        const schedule = settings.products
+          .filter((product) => skus.has(product.id))
+          .flatMap((product) => weeklyShipmentPackagingRuns(pending, canonical.id, product.id)
+            .map((run) => {
+              const tankNumber = run.tankNumber ??
+                productionTanks.find((tank) => tank.id === run.tankId)?.tankNumber ?? "לא ידוע";
+              const departures = (canonical.deliveries ?? [])
+                .filter((delivery) => delivery.productId === product.id)
+                .map((delivery) => delivery.dispatchDate).sort();
+              const tooLate = !!run.date && departures.some((date) => date < run.date!);
+              return "• " + product.style +
+                " · מיכל " + String(tankNumber) +
+                " · " + run.remaining + (product.type === "crates" ? " ארגזים" : " חביות") +
+                " · " + formatPlannedPackagingDay(run.date) +
+                (tooLate ? " ⚠️ לאחר מועד יציאת המשאית (" + departures[0] + ")" : "");
+            })).join("\n");
         const accepted = await confirmPlanning(
           "⚠️ המשלוח מתבסס על אריזה שטרם בוצעה בשבוע המשלוח:\n\n" +
           description +
-          "\n\nהמשלוח יישמר כתכנון מותנה בלבד. חלק מהאריזות עשויות להיות מתוכננות לאחר יום יציאת המשאית (למשל אריזה ביום שלישי/חמישי ומשלוח ביום שני). יש לתאם יציאה לאחר האריזה או להקדים את האריזה. כל עוד אין מלאי פיזי זמין, אי אפשר להעמיס או לשלח את הפריטים הללו.\n\nלאשר את התכנון המותנה?"
+          (schedule ? "\n\nימי האריזות שבהן המשלוח תלוי:\n" + schedule : "") +
+          "\n\nהמשלוח יישמר כתכנון מותנה בלבד. אם יום האריזה מאוחר מיום יציאת המשאית, יש לדחות את היציאה או להקדים אריזה. אין להעמיס או לשלח מלאי שטרם נארז.\n\nלאשר את התכנון המותנה?"
         );
         if (!accepted) throw new Error("השמירה בוטלה: תלות באריזה שלא הושלמה לא אושרה.");
       }
