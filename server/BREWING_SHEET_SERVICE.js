@@ -258,7 +258,7 @@ function brewingSheetWriteCells_(data) {
     // Do not trust stale A/B/C row offsets: only an actual labelled water row
     // may receive a water temperature or amount, even on a renamed tab.
     if (item && item.expectedRowLabel) {
-      var expectedWaterLabel = String(item.expectedRowLabel).replace(/\\s+/g, "").toUpperCase();
+      var expectedWaterLabel = String(item.expectedRowLabel).replace(/\s+/g, "").toUpperCase();
       if (expectedWaterLabel !== "HLT" && expectedWaterLabel !== "MASHIN") {
         throw new Error("Unsupported water-row label guard");
       }
@@ -267,7 +267,7 @@ function brewingSheetWriteCells_(data) {
         throw new Error("Water write must target a single cell in column B or C");
       }
       var currentWaterLabel = String(sheet.getRange(range.getRow(), 1).getDisplayValue() || "")
-        .replace(/\\s+/g, "").toUpperCase();
+        .replace(/\s+/g, "").toUpperCase();
       if (currentWaterLabel !== expectedWaterLabel) {
         throw new Error("Water row mapping changed at " + range.getA1Notation() +
           ": expected " + item.expectedRowLabel + ", got " + currentWaterLabel);
