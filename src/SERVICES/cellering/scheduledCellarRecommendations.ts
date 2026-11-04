@@ -162,6 +162,9 @@ function evidenceMoment(measurement: ScheduledCellarEvidenceMeasurement): number
 
 function pressureReports(notes: unknown): number[] {
   const text = String(notes ?? "");
+  // Packaging reports append a "הורדת לחץ" field as part of logging kegs
+  // or bottles; that is not evidence of performing a cellar pressure decision.
+  if (/(?:^|[|,\n])\s*הורדת\s+[\d.,]+\s+(?:חביות|בקבוקים)(?:\s|$|[,|])/u.test(text)) return [];
   const result: number[] = [];
   for (const match of text.matchAll(PRESSURE_REPORT)) {
     const pressure = Number(match[1].replace(",", "."));
