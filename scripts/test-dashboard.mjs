@@ -26,6 +26,8 @@ const tests = [
   "brew-sync-guards",
   "brew-persistence-races",
   "cellaring-action-state-regression",
+  "planning-live-brew-calendar",
+  "weekly-carb-routine",
 ];
 
 try {
