@@ -1,15 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { projectHybridFermentationMilestones } from "../src/SERVICES/cellering/styleFermentationForecast";
+import { projectHybridFermentationMilestones, type ForecastStyleAverages } from "../src/SERVICES/cellering/styleFermentationForecast";
 import { requiresFermentationPlatoPh } from "../src/SERVICES/dashboard/cellarGrace";
-import type { StyleAverages } from "../src/SERVICES/getAndPost/getStyleAverages";
 
 const styleDays: Record<string, number> = {
   "0": 13.5, "1": 10, "2": 8, "3": 6.5, "4": 5.2,
   "5": 4.6, "6": 4.2, "7": 3.8, "8": 3.5, "9": 3.4,
   "10": 3.33, "11": 3.3, "12": 3.27,
 };
-const curve = (style: string, count = 5): StyleAverages => ({
+const curve = (style: string, count = 5): ForecastStyleAverages => ({
   style,
   batchCount: 30,
   sampleCount: 100,
