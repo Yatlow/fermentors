@@ -5,7 +5,9 @@ import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import { projectColdCellarMilestones, projectYeastAfterDryHop, type ConditionalForecast } from "../../SERVICES/cellering/coldCellarForecast";
-import { projectPlatoThresholdRecheck, projectLagerDiacetylRest, projectCoolingReadinessCheck } from "../../SERVICES/cellering/platoThresholdForecast";
+import { projectLagerDiacetylRest } from "../../SERVICES/cellering/platoThresholdForecast";
+import { projectHybridFermentationMilestones } from "../../SERVICES/cellering/styleFermentationForecast";
+import { getStyleAverages } from "../../SERVICES/getAndPost/getStyleAverages";
 import {
     subscribeScheduledCellarRecommendations, scheduledActionLabel,
     type ScheduledCellarRecommendation,
@@ -45,16 +47,22 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
         setLoading(true);
         void Promise.all(active.map(async (tank) => {
             try {
-                const readings = tank.batchNumber ? await getMeasurementsByBatch(tank.batchNumber) : [];
+                const [readings, styleAverage] = await Promise.all([
+                    tank.batchNumber ? getMeasurementsByBatch(tank.batchNumber) : Promise.resolve([]),
+                    tank.beerStyle && tank.stage?.name === "בתסיסה"
+                        ? getStyleAverages(tank.beerStyle).catch((error) => {
+                            console.warn("Style average unavailable; using batch-local forecast", tank.beerStyle, error);
+                            return null;
+                        }) : Promise.resolve(null),
+                ]);
                 return [
                     ...projectColdCellarMilestones(tank, readings, today),
                     ...projectYeastAfterDryHop(tank, readings, today),
-                    ...projectPlatoThresholdRecheck(tank, readings, today, specs),
+                    ...projectHybridFermentationMilestones(tank, readings, today, specs, styleAverage),
                     ...projectLagerDiacetylRest(tank, readings, today, specs),
                     ...projectKnownYeastCompletions(tank, readings, today, specs),
                     ...projectCarbonationRetest(tank, readings, today, specs),
                     ...projectNonHoppyWarmYeast(tank, readings, today, specs),
-                    ...projectCoolingReadinessCheck(tank, readings, today),
                 ];
             } catch (error) {
                 console.error("Failed to calculate cellar forecast for tank", tank.tankNumber, error);
