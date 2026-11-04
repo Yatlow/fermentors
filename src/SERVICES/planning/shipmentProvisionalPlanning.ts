@@ -28,6 +28,24 @@ export function sameWeekUnscheduledPackagingUnits(
 }
 
 /**
+ * Shipment selection is a WEEKLY planning choice. Any outstanding packaging
+ * in that same week may back a conditional manifest, including a Tuesday or
+ * Thursday date after a Monday default truck date. This is not physical stock.
+ */
+export function weeklyShipmentPackagingUnits(
+  open: readonly { week: string; productId: string; date?: string; remaining: number }[],
+  weekId: string,
+  productId: string,
+): number {
+  const lastDay = addDays(weekId, 6);
+  return open
+    .filter((run) => run.week === weekId && run.productId === productId &&
+      run.remaining > 0 && (!run.date ||
+        (run.date >= weekId && run.date <= lastDay)))
+    .reduce((total, run) => total + run.remaining, 0);
+}
+
+/**
  * Keep the normal same-week shipment shortage block unless there is enough
  * uncompleted, undated packaging in the edited week to back the entire
  * outstanding shortage for that SKU. Never waive pinned-pallet or truck
