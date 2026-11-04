@@ -3852,6 +3852,7 @@ export default function BrewFormStepper({
     setRepairingSheetWater(true);
     setSyncError("");
     const targetCells = [...missingSheetWater];
+    const verifiedRefs = new Set<string>();
     const operation = (async () => {
       let repaired = 0;
       for (const cell of targetCells) {
@@ -3861,12 +3862,23 @@ export default function BrewFormStepper({
         if (current !== cell.expected) {
           throw new Error(`נתון ${cell.label} בבישול ${String.fromCharCode(64 + cell.blockIndex)} השתנה. יש לרענן את הבדיקה לפני תיקון.`);
         }
-        const before = await readBrewSheetRange(run.sheetId, cell.range);
-        const actual = String(before[0]?.[0] ?? "").trim();
+        // Confirm that the dynamic semantic row still belongs to HLT or
+        // MASH IN. A concurrent sheet layout edit must never redirect a
+        // repair into some unrelated measurement.
+        const rowNumber = Number(cell.range.match(/(\d+)$/)?.[1]);
+        const currentRow = await readBrewSheetRange(run.sheetId,
+          `'גיליון1'!A${rowNumber}:C${rowNumber}`);
+        const label = String(currentRow[0]?.[0] ?? "").trim().replace(/\s+/g, "").toUpperCase();
+        const expectedLabel = cell.field.startsWith("hlt") ? "HLT" : "MASHIN";
+        if (label !== expectedLabel) {
+          throw new Error(`מבנה הגיליון השתנה ליד ${cell.range}. הכתיבה נחסמה — יש לבצע קריאה מחודשת.`);
+        }
+        const actual = String(currentRow[0]?.[cell.range.includes("!B") ? 1 : 2] ?? "").trim();
         if (actual) {
           if (sameBrewWaterSheetValue(actual, cell.expected)) {
             // Already repaired by another user/device; never write again.
             repaired += 1;
+            verifiedRefs.add(`${cell.blockIndex}:${cell.field}:${cell.expected}`);
             continue;
           }
           throw new Error(`התא ${cell.range} השתנה ב-Sheet ל־"${actual}". לא בוצעה דריסה של שינוי ידני.`);
@@ -3884,11 +3896,12 @@ export default function BrewFormStepper({
           throw new Error(`הכתיבה ל־${cell.range} התקבלה אך אימות הקריאה נכשל. נדרש סנכרון חוזר.`);
         }
         repaired += 1;
+        verifiedRefs.add(`${cell.blockIndex}:${cell.field}:${cell.expected}`);
       }
-      // Audit again from the live Sheet and current Firestore state. Do not
-      // clear warnings merely because the write API returned HTTP success.
-      await syncFromSheet(true, { silent: true });
-      setMessage(`אומתו ${repaired} תאי מים בגיליון. הפערים נבדקו מחדש.`);
+      // All resolved candidates were independently read back. The full Sheet
+      // pull cannot run here because this operation itself is in the pending
+      // write set; report only the individual cells we have actually verified.
+      setMessage(`אומתו ${repaired} תאי מים בגיליון. אפשר לקרוא שוב מה-Sheet לבדיקת שדות נוספים.`);
       setLastPushAt(new Date());
     })();
     pendingSheetWrites.current.add(operation);
@@ -3898,6 +3911,10 @@ export default function BrewFormStepper({
       const detail = error instanceof Error ? error.message : String(error);
       setSyncError(`רקונסיליאציית נתוני מים לא הושלמה: ${detail}`);
     } finally {
+      // Retain unresolved warnings even after partial success or a conflict.
+      // Also preserve any later edit with a new expected app value.
+      setMissingSheetWater((previous) => previous.filter((cell) =>
+        !verifiedRefs.has(`${cell.blockIndex}:${cell.field}:${cell.expected}`)));
       pendingSheetWrites.current.delete(operation);
       setRepairingSheetWater(false);
     }
