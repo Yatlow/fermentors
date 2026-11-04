@@ -255,6 +255,25 @@ function brewingSheetWriteCells_(data) {
     let range = sheet.getRange(a1);
     range = brewingSheetResolveFermentationMetadataRange_(sheet, range, item.semanticField);
 
+    // Do not trust stale A/B/C row offsets: only an actual labelled water row
+    // may receive a water temperature or amount, even on a renamed tab.
+    if (item && item.expectedRowLabel) {
+      var expectedWaterLabel = String(item.expectedRowLabel).replace(/\\s+/g, "").toUpperCase();
+      if (expectedWaterLabel !== "HLT" && expectedWaterLabel !== "MASHIN") {
+        throw new Error("Unsupported water-row label guard");
+      }
+      if (range.getNumRows() !== 1 || range.getNumColumns() !== 1 ||
+          range.getColumn() < 2 || range.getColumn() > 3) {
+        throw new Error("Water write must target a single cell in column B or C");
+      }
+      var currentWaterLabel = String(sheet.getRange(range.getRow(), 1).getDisplayValue() || "")
+        .replace(/\\s+/g, "").toUpperCase();
+      if (currentWaterLabel !== expectedWaterLabel) {
+        throw new Error("Water row mapping changed at " + range.getA1Notation() +
+          ": expected " + item.expectedRowLabel + ", got " + currentWaterLabel);
+      }
+    }
+
     // Last line of defence: never accept a raw material lot or arbitrary text
     // as the fermentation brew date. Manual edits directly in Sheets are
     // unaffected; this guard protects writes originating from the app.
