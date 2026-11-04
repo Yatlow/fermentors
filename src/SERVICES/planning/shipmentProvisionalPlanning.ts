@@ -32,17 +32,39 @@ export function sameWeekUnscheduledPackagingUnits(
  * in that same week may back a conditional manifest, including a Tuesday or
  * Thursday date after a Monday default truck date. This is not physical stock.
  */
-export function weeklyShipmentPackagingUnits(
-  open: readonly { week: string; productId: string; date?: string; remaining: number }[],
+export function weeklyShipmentPackagingRuns<
+  T extends { week: string; productId: string; date?: string; remaining: number },
+>(
+  open: readonly T[],
   weekId: string,
   productId: string,
-): number {
+): T[] {
   const lastDay = addDays(weekId, 6);
   return open
     .filter((run) => run.week === weekId && run.productId === productId &&
       run.remaining > 0 && (!run.date ||
         (run.date >= weekId && run.date <= lastDay)))
+    .sort((a, b) => (a.date ?? "9999").localeCompare(b.date ?? "9999"));
+}
+
+export function weeklyShipmentPackagingUnits(
+  open: readonly { week: string; productId: string; date?: string; remaining: number }[],
+  weekId: string,
+  productId: string,
+): number {
+  return weeklyShipmentPackagingRuns(open, weekId, productId)
     .reduce((total, run) => total + run.remaining, 0);
+}
+
+const weekdays = [
+  "ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת",
+];
+
+export function formatPlannedPackagingDay(date?: string): string {
+  if (!date) return "טרם נקבע יום אריזה";
+  const value = new Date(`${date}T12:00:00Z`);
+  if (Number.isNaN(value.getTime())) return "תאריך אריזה לא תקין";
+  return `יום ${weekdays[value.getUTCDay()]} ${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`;
 }
 
 /**
