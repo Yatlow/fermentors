@@ -11,6 +11,8 @@ export type MashTimeRecoveryBlock = {
 };
 
 export type MissingMashTimeWrite = {
+  blockIndex: number;
+  fieldKey: string;
   range: string;
   value: string;
   expectedValue: "";
@@ -34,7 +36,7 @@ export function planMissingMashTimeSheetWrites(
 ): MissingMashTimeWrite[] {
   const writes: MissingMashTimeWrite[] = [];
   const usedRanges = new Set<string>();
-  for (const { appFields, sheetFields } of blocks) {
+  for (const { blockIndex, appFields, sheetFields } of blocks) {
     const fermentationRow = Number(sheetFields["__sheetRow.fermentation"]);
     for (const stage of MASH_STAGE_KEYS) {
       const row = Number(sheetFields[`__sheetRow.stage.${stage}`]);
@@ -51,7 +53,7 @@ export function planMissingMashTimeSheetWrites(
         // If a broken map targets two stages at the same cell, don't guess.
         if (usedRanges.has(range)) continue;
         usedRanges.add(range);
-        writes.push({ range, value: appTime, expectedValue: "" });
+        writes.push({ blockIndex, fieldKey: key, range, value: appTime, expectedValue: "" });
       }
     }
   }
