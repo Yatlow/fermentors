@@ -19,6 +19,7 @@ import {
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldPersistBrewUnmount, hasUnsavedBrewFields } from "../../SERVICES/brewing/brewSyncGuards";
 import { recordedBrewPosition, reviewedStepsFromRecordedWork } from "../../SERVICES/brewing/brewValidationProgress";
+import { confidentPmClockCorrection, currentRecordedBrewStage } from "../../SERVICES/brewing/brewChronology";
 import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
 import { resolveBrewPrepSheetTargets, type BrewPrepSheetTargets } from "../../SERVICES/brewing/brewPrepSheetMapping";
 import { serverReadBrewSheetRange } from "../../SERVICES/brewing/brewingSheetServer";
@@ -2178,19 +2179,15 @@ export default function BrewFormStepper({
   // field the operator touched is not necessarily the last stage still recorded.
   // In particular deleting a test time must be able to move progress BACK.
   function publishRecordedProgress(nextExecution: BrewExecution) {
-    let latest: { stage: StageDef; blockIndex: number; start: string; end: string } | null = null;
-    for (const stage of [...TIMELINE_STAGES].reverse()) {
-      for (let blockIndex = totalBlocks; blockIndex >= 1; blockIndex -= 1) {
-        const row = nextExecution.blocks[String(blockIndex)]?.fields || {};
-        const start = String(row[`${stage.key}.start`] || "").trim();
-        const end = String(row[`${stage.key}.end`] || "").trim();
-        if (start || end) {
-          latest = { stage, blockIndex, start, end };
-          break;
-        }
-      }
-      if (latest) break;
-    }
+    // Latest chronological recorded operation across *all* A/B/C brews.
+    // A later recipe stage in A must not mask a newer stage in B, and
+    // precalculated future boil/transfer times must not count as reached.
+    const latest = currentRecordedBrewStage(
+      nextExecution.blocks,
+      TIMELINE_STAGES,
+      totalBlocks,
+      run.brewDate || "",
+    );
     void saveBrewingProgressToFirestore(run.tankId, {
       blockCount: totalBlocks,
       blockIndex: latest?.blockIndex ?? 1,
@@ -3056,6 +3053,48 @@ export default function BrewFormStepper({
     result.push({ key: "outToFermentor.end", label: "סיום הוצאה לתסיסה" });
 
     return result;
+  }
+
+  /** Only manual clock input is eligible for AM/PM correction. 'עכשיו'
+   * and already saved historical times are never silently rewritten. */
+  function correctTypedClock(key: string, raw: string): string {
+    const value = normalizeUserTime(raw);
+    if (!value) return raw;
+    const order = timelineOrder();
+    const index = order.findIndex((item) => item.key === key);
+    if (index < 0) return raw;
+
+    const latestFields = latestExecutionRef.current.blocks[String(currentBlock)]?.fields || fields;
+    let previous: string | null = null;
+    for (let i = index - 1; i >= 0; i--) {
+      const time = String(latestFields[order[i].key] || "").trim();
+      if (time) { previous = time; break; }
+    }
+    // The first step of brew B/C may follow the end of A/B.
+    if (!previous && currentBlock > 1) {
+      const earlier = latestExecutionRef.current.blocks[String(currentBlock - 1)]?.fields || {};
+      for (let i = order.length - 1; i >= 0; i--) {
+        const time = String(earlier[order[i].key] || "").trim();
+        if (time) { previous = time; break; }
+      }
+    }
+
+    let next: string | null = null;
+    for (let i = index + 1; i < order.length; i++) {
+      const time = String(latestFields[order[i].key] || "").trim();
+      if (time) { next = time; break; }
+    }
+
+    const corrected = confidentPmClockCorrection(value, previous, next);
+    if (!corrected) return raw;
+
+    setLocal(key, corrected);
+    setValidationNotice({
+      kind: "warning",
+      key,
+      text: `השעה הותאמה לפורמט 24 שעות: ${value} ← ${corrected}. ניתן לערוך אותה ידנית.`,
+    });
+    return corrected;
   }
 
   function validateTimelineTime(
@@ -4180,7 +4219,7 @@ export default function BrewFormStepper({
     field: "start" | "end",
     raw: string,
   ) {
-    const normalized = normalizeUserTime(raw);
+    const normalized = normalizeUserTime(correctTypedClock(`${stage.key}.${field}`, raw));
     if (normalized === null) {
       restoreCommittedField(`${stage.key}.${field}`);
       setValidationNotice({
@@ -5080,7 +5119,7 @@ export default function BrewFormStepper({
                             )
                           }
                           onBlur={(e) => {
-                            const value = normalizeUserTime(e.target.value);
+                            const value = normalizeUserTime(correctTypedClock(`rinse${index}.time`, e.target.value));
                             if (value === null) {
                               restoreCommittedField(`rinse${index}.time`);
                               setValidationNotice({
@@ -5306,7 +5345,7 @@ export default function BrewFormStepper({
                     required
                   value={localValue("boil.start")}
                     onChange={(e) => setLocal("boil.start", e.target.value)}
-                    onBlur={(e) => void commitBoilStart(e.target.value)}
+                    onBlur={(e) => void commitBoilStart(correctTypedClock("boil.start", e.target.value))}
                   />
                   <button
                     type="button"
@@ -5381,7 +5420,7 @@ export default function BrewFormStepper({
                         value={localValue(key)}
                         onChange={(e) => setLocal(key, e.target.value)}
                         onBlur={(e) =>
-                          void commitBoilEvent(key, rowOffset, e.target.value)
+                          void commitBoilEvent(key, rowOffset, correctTypedClock(key, e.target.value))
                         }
                       />
                     </label>
@@ -5477,7 +5516,7 @@ export default function BrewFormStepper({
                     required
                     value={localValue("endBoilTime")}
                     onChange={(e) => setLocal("endBoilTime", e.target.value)}
-                    onBlur={(e) => void commitEndBoil(e.target.value)}
+                    onBlur={(e) => void commitEndBoil(correctTypedClock("endBoilTime", e.target.value))}
                   />
                 </label>
               </div>
@@ -5543,7 +5582,7 @@ export default function BrewFormStepper({
                       onChange={(e) =>
                         setLocal("yeastPitchTime", formatTimeWhileTyping(e.target.value))
                       }
-                      onBlur={(e) => void commitYeastPitch(e.target.value)}
+                      onBlur={(e) => void commitYeastPitch(correctTypedClock("yeastPitchTime", e.target.value))}
                     />
                     <button
                       type="button"
