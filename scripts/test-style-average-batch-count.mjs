@@ -43,5 +43,5 @@ test("style-average job retains global batchCount and writes unique per-day Plat
   assert.equal(model.days["1"].platoBatchCount, 2, "Plato only: different batches, not repeated readings");
   assert.equal(model.days["1"].platoSampleCount, 3, "observations remain distinct from contributing batches");
   assert.equal(model.days["1"].plato, 8.27);
-  assert.equal(model.days["1"].sampleCount, 5);
+  assert.equal(model.days["1"].sampleCount, 6);
 });
