@@ -11,7 +11,7 @@ const source = text.slice(first, last);
 const js = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const normalize = new Function(js + "; return normalizeSheetValue;")();
+const normalize = new Function("exports", js + "; return normalizeSheetValue;")({});
 
 test("Time verification distinguishes 10:21 from 10:28", () => {
   assert.equal(normalize("9:54"), normalize("09:54"));
