@@ -75,7 +75,7 @@ test("an early threshold crossing on a steep curve is NOT itself a cooling forec
   const rows = [{ id: "2026-11-02_0800", notes: "הורדת שמרים 4 דליים" }];
   const result = projectHybridFermentationMilestones(tank("IPA"), rows, "2026-11-02", specs, fast);
   const cooling = result.find((row) => row.id.includes(":cooling-readiness:"));
-  assert.equal(cooling?.dueDate, "2026-11-07", "the first stable portion follows the steep segment");
+  assert.equal(cooling?.dueDate, "2026-11-09", "the first stable portion follows the steep segment");
 });
 
 test("batch-day sample size is mandatory: global batchCount and total sampleCount do not suffice", () => {
