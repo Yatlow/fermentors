@@ -1,6 +1,6 @@
 /** Read-only projection of styleAverages, with no Firebase dependency. */
 export type ForecastStyleDay = { plato: number | null; platoBatchCount?: number };
-export type ForecastStyleAverages = { style: string; days: Record<string, ForecastStyleDay> };
+export type ForecastStyleAverages = { style: string; days: Record<string, ForecastStyleDay>; batchCount?: number; sampleCount?: number; updatedAt?: string };
 import { batchDryHopThreshold } from "./dryHopThreshold";
 import { getFermentationEndPlatoLimit } from "./fermentationEndPlato";
 import { isCompletedYeastDrop } from "./coolingYeastTiming";
