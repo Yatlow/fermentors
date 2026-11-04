@@ -1,6 +1,5 @@
-import { measurementGraceTankIds } from "./cellarGrace";
+import { measurementGraceTankIds, requiresFermentationPlatoPh } from "./cellarGrace";
 import { dailyMeasurementProgress, type HealthMeasurement } from "./healthModel";
-import { requiresFermentationPlatoPh } from "./fermentationMeasurementRequirements";
 
 export type CellarBadgeFields = { temp: boolean; pressure: boolean; plato: boolean; pH: boolean };
 
