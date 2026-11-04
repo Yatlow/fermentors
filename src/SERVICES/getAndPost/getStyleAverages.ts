@@ -10,6 +10,9 @@ export type StyleAverageDay = {
     carbonation: number | null;
     sampleCount: number;
     batchCount: number;
+    /** Number of unique batches that supplied Plato for this fermentation day. */
+    platoBatchCount?: number;
+    platoSampleCount?: number;
 };
 
 export type StyleAverages = {
@@ -22,6 +25,7 @@ export type StyleAverages = {
 
 const STYLE_AVERAGE_TTL_MS = 5 * 60 * 1000;
 const averageCache = new Map<string, { value: StyleAverages | null; loadedAt: number }>();
+const averagePending = new Map<string, Promise<StyleAverages | null>>();
 let stylesCache: { value: string[]; loadedAt: number } | null = null;
 let stylesPending: Promise<string[]> | null = null;
 
@@ -35,22 +39,28 @@ export async function getStyleAverages(
         return cached.value;
     }
 
-    const ref = doc(db, "styleAverages", style);
-    const snapshot = await getDoc(ref);
-    recordReadAudit("Style average detail", 1);
-
-    if (!snapshot.exists()) {
-        console.warn("No style averages found for:", style);
-        averageCache.set(style, { value: null, loadedAt: Date.now() });
-        return null;
+    const inflight = averagePending.get(style);
+    if (inflight) return inflight;
+    const request = (async () => {
+        const snapshot = await getDoc(doc(db, "styleAverages", style));
+        recordReadAudit("Style average detail", 1);
+        if (!snapshot.exists()) {
+            averageCache.set(style, { value: null, loadedAt: Date.now() });
+            return null;
+        }
+        const value = {
+            ...snapshot.data(),
+            days: snapshot.data().days ?? {},
+        } as StyleAverages;
+        averageCache.set(style, { value, loadedAt: Date.now() });
+        return value;
+    })();
+    averagePending.set(style, request);
+    try {
+        return await request;
+    } finally {
+        averagePending.delete(style);
     }
-
-    const value = {
-        ...snapshot.data(),
-        days: snapshot.data().days ?? {},
-    } as StyleAverages;
-    averageCache.set(style, { value, loadedAt: Date.now() });
-    return value;
 }
 
 export async function getAllStyleAverageStyles(): Promise<string[]> {
