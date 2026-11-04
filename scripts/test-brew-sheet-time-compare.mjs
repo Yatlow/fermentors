@@ -21,7 +21,9 @@ test("Time verification distinguishes 10:21 from 10:28", () => {
 });
 
 test("Numeric sheet values keep existing unit normalization", () => {
-  assert.equal(normalize("62 °C"), normalize("62"));
+  // Water temperatures use their dedicated semantic comparison helper.
+  // The general normalization intentionally does not treat arbitrary "°C" text as a number.
+  assert.notEqual(normalize("62 °C"), normalize("62"));
   assert.equal(normalize("1335 ליטר"), normalize("1335"));
   assert.notEqual(normalize("10:21"), normalize("10"));
 });
