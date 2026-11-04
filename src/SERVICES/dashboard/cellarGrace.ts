@@ -164,5 +164,6 @@ export function shouldShowPlatoPhTank(
   graceTankIds: ReadonlySet<string>,
 ): boolean {
   if (Number(tank.tankNumber) === 1) return false;
-  return requiresFermentationPlatoPh(tank) || (Number(tank.action) === 1 && tank.stage?.name === "בתסיסה" && graceTankIds.has(String(tank.id)));
+  return Number(tank.action) === 1 && (requiresFermentationPlatoPh(tank) ||
+    (tank.stage?.name === "בתסיסה" && graceTankIds.has(String(tank.id))));
 }
