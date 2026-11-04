@@ -87,6 +87,7 @@ type Recommendation = {
     targetPressure?: number;
     pressureChoice?: "changeOrHold";
     pressureSuggestion?: "lower" | "raise";
+    fromFailedCarbonation?: boolean;
     req?: boolean | "" | 0 | null;
     display?: boolean;
     reason?: string;
