@@ -1,6 +1,7 @@
 type BrewTankDescriptor = { tankType: "single" | "double" | "triple" };
 import type { BrewRecipe } from "./brewRecipe";
 import { sameBrewWaterSheetValue } from "./brewWaterReconciliation";
+import { normalizedBrewSheetTime } from "./brewSheetTimeRecovery";
 import type { IngredientDefinition } from "./ingredientLibrary";
 import {
   serverReadBrewSheetRange,
@@ -219,6 +220,10 @@ const sheetBaselines = new Map<string, Map<string, string>>();
 function normalizeSheetValue(value: SheetCellValue | undefined): string {
   const text = String(value == null ? "" : value).trim();
   if (!text) return "";
+  // Previously "10:21" and "10:28" both normalized to "#num:10".
+  // Clock values must compare all HH:MM digits, including 9:54 vs 09:54.
+  const time = normalizedBrewSheetTime(text);
+  if (time !== null) return `#time:${time}`;
   // Sheets may render a numeric value with a custom unit/format (for example
   // 14 -> "14.0%aa" or 1335 -> "ליטר 1335"). Treat those as the same value
   // for optimistic-write reconciliation, while leaving ordinary text exact.
