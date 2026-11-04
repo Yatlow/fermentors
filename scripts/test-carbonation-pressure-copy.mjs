@@ -25,13 +25,18 @@ test("out-of-spec pressure recommendation shows explicit bad-test title", () => 
   assert.match(dashboard, /carbonationTestOutOfSpec: recommendation\.carbonationTestOutOfSpec/);
 });
 
-test("hold action stays usable with concise neutral mobile-safe presentation", () => {
-  assert.match(dashboard, /className="health-quick-report-button health-pressure-hold-button"/);
-  assert.match(dashboard, /aria-label="דווח השארת לחץ ללא שינוי"/);
-  assert.match(dashboard, /<Equal size=\{17\} aria-hidden="true" \/>ללא שינוי/);
+test("pressure hold retains its exact original appearance, label and action", () => {
+  assert.match(dashboard, /<Gauge size=\{16\} aria-hidden="true" \/>השארת לחץ ללא שינוי/);
   assert.match(dashboard, /noteType: "השארת לחץ"/);
-  assert.match(styles, /health-pressure-hold-button/);
-  assert.match(styles, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(dashboard, /className="health-quick-report-button"/);
+  assert.doesNotMatch(dashboard, /health-pressure-hold-button|health-pressure-change-button|<Equal size=/);
+  assert.doesNotMatch(styles, /health-pressure-hold-button|health-pressure-change-button/);
+  // The ONLY adjustment is placement below text on phones and wrapping
+  // within the existing card; do not alter the button's color/padding/shape.
   assert.match(styles, /\.health-alert:has\(\.health-pressure-choices\)/);
   assert.match(styles, /grid-template-areas:/);
+  assert.match(styles, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /min-width: 0;/);
+  assert.match(styles, /white-space: normal;/);
+  assert.doesNotMatch(styles, /health-pressure-choices \.health-quick-report-button\s*\{[^}]*?(?:background|border-color|font-size|border-radius|padding):/s);
 });
