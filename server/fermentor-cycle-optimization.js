@@ -222,6 +222,18 @@ function runFermentorCycle() {
     const actionStats = fcTimed_("actions total", function () {
       return runActionFlow_(fermentors);
     });
+    // No new timer: a cheap ScriptProperties gate checks the current brew
+    // form against the real Sheet once per hour for actually started ACTION-0
+    // batches. This must never block the ordinary five-minute cellar cycle.
+    let brewSheetReconcileStats = { due: false };
+    try {
+      brewSheetReconcileStats = fcTimed_("hourly brew Sheet reconciliation", function () {
+        return brewSheetHourlyMaintenance_(fermentors, new Date());
+      });
+    } catch (brewReconcileError) {
+      Logger.log("HOURLY BREW SHEET RECONCILIATION FAILED (will retry): " +
+        brewReconcileError.message);
+    }
     // Low-cost time gate on every cycle; Firestore is touched only Saturday
     // evening and only until that target week successfully reconciles.
     try {
@@ -254,7 +266,7 @@ function runFermentorCycle() {
     return { durationSeconds: duration, fermentorsCount: fermentors.length,
       sheetReads: FC_CYCLE_CONTEXT_.sheetReads,
       firestoreIo: FC_CYCLE_CONTEXT_.io,
-      sync: syncStats, action: actionStats };
+      sync: syncStats, action: actionStats, brewSheetReconcile: brewSheetReconcileStats };
   } finally {
     FC_CYCLE_CONTEXT_ = null;
     fcReleaseCycleLease_(leaseToken);
