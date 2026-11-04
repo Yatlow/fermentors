@@ -4481,9 +4481,10 @@ export default function BrewFormStepper({
         {Array.from({ length: totalBlocks }, (_, index) => index + 1).map(
           (index) => {
             const missing = blockMissingCount(index);
-            const complete = missing === 0;
+            const missingSheet = missingSheetWater.filter((cell) => cell.blockIndex === index).length;
+            const complete = missing === 0 && missingSheet === 0;
             const reviewedMissing =
-              !complete && blockHasReviewedMissing(index);
+              missingSheet > 0 || (!complete && blockHasReviewedMissing(index));
             return (
               <button
                 type="button"
@@ -4497,6 +4498,8 @@ export default function BrewFormStepper({
                 title={
                   complete
                     ? `בישול ${(["A", "B", "C"] as const)[index - 1]} הושלם`
+                    : missingSheet > 0
+                      ? `בישול ${(["A", "B", "C"] as const)[index - 1]}: ${missingSheet} תאי מים חסרים ב-Sheet`
                     : reviewedMissing
                       ? `חסרים ${missing} נתונים בבישול ${(["A", "B", "C"] as const)[index - 1]}`
                       : `בישול ${(["A", "B", "C"] as const)[index - 1]} טרם נבדק`
@@ -4509,7 +4512,7 @@ export default function BrewFormStepper({
               >
                 <span>בישול {(["A", "B", "C"] as const)[index - 1]}</span>
                 <em>
-                  {complete ? "✓" : reviewedMissing ? `⚠ ${missing}` : ""}
+                  {complete ? "✓" : missingSheet > 0 ? `⚠ ${missingSheet} ב-Sheet` : reviewedMissing ? `⚠ ${missing}` : ""}
                 </em>
               </button>
             );
@@ -4519,10 +4522,12 @@ export default function BrewFormStepper({
 
       <nav className="brew-step-progress" aria-label="שלבי טופס הבישול">
         {visibleSteps.map((step, index) => {
-          const complete = isStepComplete(step.id);
+          const missingSheet = step.id === "water"
+            ? missingSheetWater.filter((cell) => cell.blockIndex === currentBlock).length : 0;
+          const complete = isStepComplete(step.id) && missingSheet === 0;
           const missing = stepMissingCount(step.id);
           const reviewed = isStepReviewedForBlock(currentBlock, step.id);
-          const reviewedMissing = reviewed && !complete;
+          const reviewedMissing = missingSheet > 0 || (reviewed && !complete);
 
           return (
             <button
@@ -4537,6 +4542,8 @@ export default function BrewFormStepper({
               title={
                 complete
                   ? `${step.label}: הושלם`
+                  : missingSheet > 0
+                    ? `${step.label}: ${missingSheet} ערכים חסרים בגיליון`
                   : reviewedMissing
                     ? `${step.label}: חסרים ${missing} נתונים`
                     : `${step.label}: טרם נבדק`
