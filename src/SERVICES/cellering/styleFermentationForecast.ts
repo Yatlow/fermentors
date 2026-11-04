@@ -171,7 +171,7 @@ function projectedCoolingReadiness(
     specs: ForecastSpecs,
     curve: StyleProjection,
 ): PlatoThresholdHint[] {
-    if (tank.stage?.name !== "בתסיסה" || recordedCooling(readings) || !hasRecordedDrop(readings)) return [];
+    if (tank.stage?.name !== "בתסיסה" || recordedCooling(readings)) return [];
     const limit = getFermentationEndPlatoLimit(
         typeof tank.beerStyle === "string" || typeof tank.beerStyle === "number" ? tank.beerStyle : null,
         specs as SpecChart,
@@ -180,12 +180,12 @@ function projectedCoolingReadiness(
     const lastDropDate = readings.filter((row) => isCompletedYeastDrop(row.notes))
         .map((row) => String(row.id ?? "").slice(0, 10)).filter((date) => utcDay(date) !== null && date <= today)
         .sort().at(-1);
-    if (!lastDropDate) return [];
+    const hasYeastDrop = hasRecordedDrop(readings);
 
     const brewedOn = brewDate(tank.brewDate)!;
     for (let age = curve.currentAge + 1; age <= curve.currentAge + MAX_HORIZON_DAYS; age++) {
         const date = dateForAge(brewedOn, age);
-        if (date <= lastDropDate) continue;
+        if (lastDropDate && date <= lastDropDate) continue;
         const current = curve.platoAtAge(age);
         const following = curve.platoAtAge(age + 1);
         // Require an actual flat segment in the historical curve: a final-Plato
@@ -193,13 +193,15 @@ function projectedCoolingReadiness(
         if (current === null || following === null || current > limit ||
             Math.abs(current - following) > 0.35) continue;
         return [{
-            id: tank.id + ":cooling-readiness:" + date,
+            id: tank.id + (hasYeastDrop ? ":cooling-readiness:" : ":cooling-conditions:") + date,
             tankNumber: String(tank.tankNumber ?? tank.id),
             dueDate: date,
-            title: "צפי לבדיקת מוכנות לקירור",
+            title: hasYeastDrop ? "צפי לבדיקת מוכנות לקירור" : "צפי לסיום תסיסה לקראת קירור — בדיקת תנאים",
             basis: curve.evidence + "; סף סיום תסיסה " + limit +
                 "°P, שינוי ממוצע יומי " + Number(Math.abs(current - following).toFixed(2)) +
-                "°P. חובה לאמת יציבות בפועל והורדת שמרים לפני קירור",
+                "°P. " + (hasYeastDrop
+                    ? "חובה לאמת יציבות בפועל לפני קירור"
+                    : "מותנה בהורדת שמרים חמה ובאימות יציבות פלאטו בפועל; אין להתחיל קירור על סמך הצפי"),
         }];
     }
     return [];
