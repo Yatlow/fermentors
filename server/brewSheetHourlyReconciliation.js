@@ -221,6 +221,25 @@ function brewSheetReconcilePlan_(values, execution, batch) {
       }
     });
 
+    // Mash/boil H3PO4 additions share a label but have different meaning.
+    // Only map when there are exactly two labelled acid rows in this block;
+    // ordering then matches the parser used by the interactive brew form.
+    const acidRows = [];
+    for (let row = header + 1; row < end; row++) {
+      if (/H3PO4/i.test(brewSheetReconcileText_((rows[row] || [])[2]))) {
+        acidRows.push(row);
+      }
+    }
+    if (acidRows.length === 2) {
+      [["mashAcid85", acidRows[0]], ["boilAcid85", acidRows[1]]]
+        .forEach(function (entry) {
+          const volume = brewSheetReconcileNumber_(fields[entry[0]], 0, 10000);
+          if (volume !== null) {
+            add(entry[0], fields, entry[1], 0, 2, /H3PO4/i, volume, end);
+          }
+        });
+    }
+
     const boilRow = uniqueRow(3, /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i);
     const boilPh = brewSheetReconcileNumber_(fields.boilPh, 0, 14);
     if (boilPh !== null) add("boilPh", fields, boilRow, 5, 3,
