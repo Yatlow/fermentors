@@ -122,24 +122,24 @@ test("a started action-0 brew fills missing HLT temperature + both MASH IN water
   const result = h.context.brewSheetHourlyMaintenance_([h.entry], now);
   assert.equal(result.due, true);
   assert.equal(result.processed, 1);
-  assert.equal(result.repaired, 3);
-  assert.equal(result.verified, 3);
+  assert.equal(result.repaired, 4); // three water gaps + the already-recorded mash-in start
+  assert.equal(result.verified, 4);
   assert.equal(h.rows[hlt][2], "62");
   assert.equal(h.rows[mash][1], "850");
   assert.equal(h.rows[mash][2], "67.1");
-  assert.equal(h.calls.writes.length, 3);
+  assert.equal(h.calls.writes.length, 4);
   assert.equal(h.calls.flushes, 1);
-  assert.ok(h.calls.writes.every(write => write.col === 2 || write.col === 3));
+  assert.ok(h.calls.writes.every(write => [2, 3, 5].includes(write.col)));
   assert.match(h.calls.log.join("\n"), /BREW HOURLY RECONCILE/);
 });
 
 test("reconciliation is hourly, idempotent and does not produce duplicate Sheet writes", () => {
   const h = environment();
   const first = h.context.brewSheetHourlyMaintenance_([h.entry], now);
-  assert.equal(first.repaired, 4);
+  assert.equal(first.repaired, 5);
   assert.equal(h.context.brewSheetHourlyMaintenance_([h.entry], new Date(now.getTime() + 5 * 60000)).due, false);
   assert.equal(h.context.brewSheetHourlyMaintenance_([h.entry], new Date(now.getTime() + 3600000)).repaired, 0);
-  assert.equal(h.calls.writes.length, 4);
+  assert.equal(h.calls.writes.length, 5);
   assert.equal(h.calls.reads, 2);
 });
 
@@ -187,7 +187,7 @@ test("never overwrite a manual value, a formula or a misplaced semantic label", 
   h.rows[hlt][2] = "63"; // manual correction, never clobber
   h.rows[mash][1] = "999"; // manual correction, never clobber
   const result = h.context.brewSheetHourlyMaintenance_([h.entry], now);
-  assert.equal(result.repaired, 2);
+  assert.equal(result.repaired, 3); // stage timestamp + two still-missing cells
   assert.equal(h.rows[hlt][2], "63");
   assert.equal(h.rows[mash][1], "999");
 
@@ -195,12 +195,12 @@ test("never overwrite a manual value, a formula or a misplaced semantic label", 
     formulas: { [String(hlt + 1) + ":3"]: '=IF(TRUE,"","")' },
   });
   const output = withFormula.context.brewSheetHourlyMaintenance_([withFormula.entry], now);
-  assert.equal(output.repaired, 3);
+  assert.equal(output.repaired, 4);
   assert.equal(withFormula.rows[hlt][2], "");
 
   const wrongLabel = environment();
   wrongLabel.rows[hlt][0] = "יוצא";
-  assert.equal(wrongLabel.context.brewSheetHourlyMaintenance_([wrongLabel.entry], now).repaired, 2);
+  assert.equal(wrongLabel.context.brewSheetHourlyMaintenance_([wrongLabel.entry], now).repaired, 3);
   assert.equal(wrongLabel.rows[hlt][2], "");
 });
 
@@ -261,7 +261,7 @@ test("the newest intentional manual Sheet clear is never repopulated from an old
   h.entry.data.brewSheetEditRange = "C17";
   h.entry.data.brewSheetEditValue = "";
   const result = h.context.brewSheetHourlyMaintenance_([h.entry], now);
-  assert.equal(result.repaired, 3);
+  assert.equal(result.repaired, 4); // other three water cells + stage start
   assert.equal(h.rows[first][2], "", "the manually cleared HLT temperature must stay blank");
   assert.equal(h.rows[first][1], "1550");
 });
