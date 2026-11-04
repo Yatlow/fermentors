@@ -209,6 +209,7 @@ type SheetWrite = {
   range: string;
   value: SheetCellValue;
   expectedValue?: SheetCellValue;
+  expectedRowLabel?: "HLT" | "MASH IN";
   semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime";
 };
 
