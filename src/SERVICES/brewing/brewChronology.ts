@@ -119,6 +119,12 @@ export function confidentPmClockCorrection(
   if (originalGap < 12 * 60 || correctedGap > 90) return null;
 
   const following = clockMinutes(String(next || ""));
-  if (following !== null && (following - corrected + 1440) % 1440 > 12 * 60) return null;
+  if (following !== null && (following - corrected + 1440) % 1440 > 12 * 60) {
+    // The following operation may itself still be typed in 12-hour format
+    // (e.g. 10:11 followed by 10:21, both intended as 22:xx).
+    const followingPm = following < 12 * 60 ? following + 12 * 60 : null;
+    if (followingPm === null || followingPm < corrected ||
+        followingPm - corrected > 90) return null;
+  }
   return `${String(Math.floor(corrected / 60)).padStart(2, "0")}:${String(corrected % 60).padStart(2, "0")}`;
 }
