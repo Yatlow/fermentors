@@ -48,6 +48,22 @@ test("an open B brew remains active before its future boil starts", () => {
   assert.equal(latest?.stage.key, "endTransfer");
 });
 
+test("B's rinse is more recent than A's finished transfer", () => {
+  const withRinse = [
+    { key: "mashIn", label: "הכנסת לתת" },
+    { key: "rinse4", label: "שטיפה 4" },
+    { key: "outToFermentor", label: "הוצאה לתסיסה" },
+  ];
+  const latest = currentRecordedBrewStage({
+    1: { fields: { brewDate: "2026-11-04",
+      "outToFermentor.start": "16:33", "outToFermentor.end": "17:01" } },
+    2: { fields: { brewDate: "2026-11-04",
+      "mashIn.start": "17:16", "rinse4.start": "21:32" } },
+  }, withRinse, 2, "2026-11-04", new Date(2026, 10, 4, 21, 40));
+  assert.equal(latest?.blockIndex, 2);
+  assert.equal(latest?.stage.key, "rinse4");
+});
+
 test("a real overnight time crossover stays on the next calendar day", () => {
   const overnightStages = [
     { key: "mashIn", label: "מאש" },
@@ -88,6 +104,10 @@ test("form writes the corrected time via the same Sheet + Firestore path", () =>
   assert.match(form, /onBlur=\{\(e\) => void commitBoilStart\(correctTypedClock\(/);
   assert.match(form, /normalizeUserTime\(correctTypedClock\(`rinse\$\{index\}\.time`/);
   assert.match(form, /setLocal\(key, corrected\)/);
+  const rinse = form.slice(form.indexOf("async function commitRinse("), form.indexOf("async function commitBoilStart("));
+  const boil = form.slice(form.indexOf("async function commitBoilStart("), form.indexOf("async function commitBoilEvent("));
+  assert.match(rinse, /publishRecordedProgress\(nextExecution\)/);
+  assert.match(boil, /publishRecordedProgress\(nextExecution\)/);
 });
 
 test("fermentation table defaults newest-first; timeline opens latest without repeated snaps", () => {
