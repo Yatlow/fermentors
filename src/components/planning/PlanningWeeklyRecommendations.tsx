@@ -30,6 +30,7 @@ import { projectedPallets, truckPlanningGroupKey } from "../../SERVICES/planning
 import { nominalPlanningUnits } from "../../SERVICES/planning/shipmentRecommendation";
 import { groupPlannedShipments, matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { replaceShipmentTrip } from "../../SERVICES/planning/shipmentEdit";
+import { weeklyShipmentPackagingUnits } from "../../SERVICES/planning/shipmentProvisionalPlanning";
 import { buildWeeklyPlanningModel, forecastPackagingUnits, plannedPackagingCover } from "../../SERVICES/planning/weeklyPlanningModel";
 import {
     brewLitersForSize,
@@ -232,10 +233,8 @@ export default function PlanningWeeklyRecommendations({
             .sort()[0] ?? addDays(week, 1);
     };
 
-    const sameWeekPackagingQty = (p: Product) => currentOpenPackaging
-        .filter((run) => run.productId === p.id &&
-            (!run.date || (run.date >= week && run.date <= model.weekEnd)))
-        .reduce((sum, run) => sum + run.remaining, 0);
+    const sameWeekPackagingQty = (p: Product) =>
+        weeklyShipmentPackagingUnits(currentOpenPackaging, week, p.id);
 
     // Shipment planning is a weekly quantity decision. A Tuesday/Thursday
     // packaging plan can provisionally back that week's shipment even if the
