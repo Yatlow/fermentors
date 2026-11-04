@@ -36,6 +36,7 @@ try {
     "shipment-dispatch-variance",
     "shipment-reservation-week",
     "planning-shipment-availability",
+    "planning-live-brew-calendar",
     "planning-provisional-shipments",
   ];
   const compile = spawnSync(

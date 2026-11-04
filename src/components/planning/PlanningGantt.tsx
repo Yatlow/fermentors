@@ -533,7 +533,7 @@ export default function PlanningGantt(props: Props) {
     ).map((item) => ({
       key: `brew-live:${item.id}:${item.batchNumber}:${item.date}`,
       title: `${displayStyle(item.style)} · ${tankLabel(item.tankNumber)}`,
-      meta: `${item.liters ? fmt(item.liters) + " ל׳ · " : ""}${shortDate(item.date)} · מתוכנן לפי המיכל`,
+      meta: `${item.liters ? fmt(item.liters) + " ל׳ · " : ""}${shortDate(item.date)} · ${item.dateUnverified ? "מתבצע לפי התקדמות הבישול · תאריך טרם סונכרן" : "מתוכנן לפי המיכל"}`,
       styleClass: beerStyleClass(item.style).className,
     }));
 
