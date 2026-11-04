@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   cellarBadgeFieldsForDay,
   pendingCellarMeasurementTankNumbers,
+  pendingPlatoPhTankNumbers,
   type CellarBadgeTank,
 } from "../src/SERVICES/dashboard/cellarMeasurementBadge";
 
@@ -95,4 +96,56 @@ test("yesterday's measurement does not clear today's navigation badge", () => {
     { id: "2026-10-18_1800", temp: 18.0, pressure: 0, plato: 5, pH: 4.25 },
   ], TODAY);
   assert.deepEqual(pendingCellarMeasurementTankNumbers([tank("tank-7", 7, 18)], { "tank-7": rows }, [], TODAY), ["7"]);
+});
+
+test("hot tab and badge both count a fermenting tank with unknown temperature", () => {
+  const tanks = [
+    tank("tank-2", 2, 17),
+    tank("tank-7", 7, 19),
+    tank("tank-12", 12, 15),
+    tank("tank-18", 18, 0, {
+      stage: { name: "בתסיסה" },
+      currentData: { temp: undefined },
+    }),
+  ];
+  const pendingToday = Object.fromEntries(tanks.map((item) => [
+    item.id, cellarBadgeFieldsForDay([], TODAY),
+  ]));
+  assert.deepEqual(pendingPlatoPhTankNumbers(tanks, pendingToday, new Set()), ["2", "7", "12", "18"],
+    "the badge must show 4, including tank 18 with no recorded temperature");
+  assert.deepEqual(pendingCellarMeasurementTankNumbers(tanks, pendingToday, [], TODAY),
+    ["2", "7", "12", "18"], "the global badge must agree with the sugar/pH tab");
+});
+
+test("sugar/pH badge respects 12h grace and clears only after both fields are measured", () => {
+  const noTemp = tank("tank-18", 18, 0, {
+    stage: { name: "בתסיסה" }, currentData: { temp: undefined },
+  });
+  const empty = { "tank-18": cellarBadgeFieldsForDay([], TODAY) };
+  assert.deepEqual(pendingPlatoPhTankNumbers([noTemp], empty, new Set()), ["18"]);
+  assert.deepEqual(pendingPlatoPhTankNumbers([noTemp], empty, new Set(["tank-18"])), [],
+    "the original grace exemption is unchanged");
+  const onlyPlato = { "tank-18": cellarBadgeFieldsForDay([
+    { id: "2026-10-19_0830", plato: 7.5 },
+  ], TODAY) };
+  assert.deepEqual(pendingPlatoPhTankNumbers([noTemp], onlyPlato, new Set()), ["18"]);
+  const complete = { "tank-18": cellarBadgeFieldsForDay([
+    { id: "2026-10-19_0830", plato: 7.5, pH: 4.6 },
+  ], TODAY) };
+  assert.deepEqual(pendingPlatoPhTankNumbers([noTemp], complete, new Set()), []);
+  assert.deepEqual(pendingPlatoPhTankNumbers([noTemp], {}, new Set()), [],
+    "a measurement history that failed to load must not invent an alert");
+});
+
+test("sugar/pH badge excludes inactive, CLT and measured-cold fermentors", () => {
+  const tanks = [
+    tank("clt", 1, 16),
+    tank("inactive", 5, 16, { action: 3 }),
+    tank("cold", 13, 5),
+    tank("fermenting-cool", 16, 7, { stage: { name: "בתסיסה" } }),
+  ];
+  const empty = Object.fromEntries(tanks.map((item) => [
+    item.id, cellarBadgeFieldsForDay([], TODAY),
+  ]));
+  assert.deepEqual(pendingPlatoPhTankNumbers(tanks, empty, new Set()), []);
 });
