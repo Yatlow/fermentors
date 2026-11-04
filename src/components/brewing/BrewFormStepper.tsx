@@ -2158,13 +2158,38 @@ export default function BrewFormStepper({
     );
   }
 
+  type PlannedStageSheetWrite = {
+    stage: StageDef;
+    column: "E" | "F" | "G";
+    value: string | number | boolean | null;
+  };
+
+  function writePlannedStageSheetCells(
+    key: string,
+    planned: PlannedStageSheetWrite[],
+  ) {
+    try {
+      const writes = planned.map(({ stage, column, value }) => ({
+        range: stageCell(stage.rowOffset, column),
+        value,
+      }));
+      writeSheet(key, writes);
+    } catch (error) {
+      // A bad or incomplete semantic row map must not block saving operator
+      // input or auto-calculated times to the form/Firestore.
+      const detail = error instanceof Error ? error.message : String(error);
+      setSyncError(`הזמנים נשמרו בטופס, אך לא נכתבו ל-Sheet: ${detail}`);
+      setMessage(`לא ניתן לסנכרן את זמני ${key} ל-Sheet.`);
+    }
+  }
+
   // Remove only values proven equal to the calculated cascade. Keep later
   // independently entered timestamps (which may belong to a real operation).
   function clearCalculatedSuccessors(
     stage: StageDef,
     origin: string,
     nextExecution: BrewExecution,
-    writes: Array<{ range: string; value: string | number | boolean | null }>,
+    writes: PlannedStageSheetWrite[],
   ): BrewExecution {
     let nextStage = nextTimelineStage(stage);
     let expected = origin;
@@ -2172,13 +2197,13 @@ export default function BrewFormStepper({
       const nextFields = nextExecution.blocks[String(currentBlock)]?.fields || {};
       if (String(nextFields[`${nextStage.key}.start`] || "") !== expected) break;
       nextExecution = setBrewingExecutionField(nextExecution, currentBlock, `${nextStage.key}.start`, "");
-      writes.push({ range: stageCell(nextStage.rowOffset, "E"), value: "" });
+      writes.push({ stage: nextStage, column: "E", value: "" });
       const duration = knownDuration(nextStage);
       if (duration === null) break;
       const expectedEnd = addMinutesToTime(expected, duration);
       if (String(nextFields[`${nextStage.key}.end`] || "") !== expectedEnd) break;
       nextExecution = setBrewingExecutionField(nextExecution, currentBlock, `${nextStage.key}.end`, "");
-      writes.push({ range: stageCell(nextStage.rowOffset, "F"), value: "" });
+      writes.push({ stage: nextStage, column: "F", value: "" });
       expected = expectedEnd;
       nextStage = nextTimelineStage(nextStage);
     }
@@ -2202,10 +2227,7 @@ export default function BrewFormStepper({
       value,
     );
 
-    const writes: Array<{
-      range: string;
-      value: string | number | boolean | null;
-    }> = [{ range: stageCell(stage.rowOffset, "E"), value }];
+    const writes: PlannedStageSheetWrite[] = [{ stage, column: "E", value }];
 
     if (stage.key === "transferLt" && !String(fields["transferLt.temp"] || "").trim()) {
       nextExecution = setBrewingExecutionField(
@@ -2214,10 +2236,7 @@ export default function BrewFormStepper({
         "transferLt.temp",
         "77.5",
       );
-      writes.push({
-        range: stageCell(stage.rowOffset, "G"),
-        value: "77.5°C",
-      });
+      writes.push({ stage, column: "G", value: "77.5°C" });
     }
 
     const duration = knownDuration(stage);
@@ -2227,7 +2246,7 @@ export default function BrewFormStepper({
       if (calculatedEnd &&
           String(fields[`${stage.key}.end`] || "").trim() === calculatedEnd) {
         nextExecution = setBrewingExecutionField(nextExecution, currentBlock, `${stage.key}.end`, "");
-        writes.push({ range: stageCell(stage.rowOffset, "F"), value: "" });
+        writes.push({ stage, column: "F", value: "" });
         nextExecution = clearCalculatedSuccessors(stage, calculatedEnd, nextExecution, writes);
       }
     }
@@ -2241,10 +2260,7 @@ export default function BrewFormStepper({
         `${stage.key}.end`,
         calculatedEnd,
       );
-      writes.push({
-        range: stageCell(stage.rowOffset, "F"),
-        value: calculatedEnd,
-      });
+      writes.push({ stage, column: "F", value: calculatedEnd });
 
       if (nextStage) {
         nextExecution = setBrewingExecutionField(
@@ -2253,16 +2269,27 @@ export default function BrewFormStepper({
           `${nextStage.key}.start`,
           calculatedEnd,
         );
-        writes.push({
-          range: stageCell(nextStage.rowOffset, "E"),
-          value: calculatedEnd,
+        writes.push({ stage: nextStage, column: "E", value: calculatedEnd });
+      }
+    }
+
+    if (/^rest[1-3]$/.test(stage.key)) {
+      if (value && duration === null) {
+        setValidationNotice({
+          kind: "warning",
+          key: `${stage.key}.start`,
+          text: `לא הוגדר משך למנוחה "${stage.label}" במתכון. שעת הסיום לא חושבה אוטומטית; יש להגדיר משך במתכון.`,
         });
+      } else {
+        setValidationNotice((previous) =>
+          previous?.key === `${stage.key}.start` ? null : previous,
+        );
       }
     }
 
     setExecution(nextExecution);
     publishRecordedProgress(nextExecution);
-    await writeSheet(`${stage.key}.start`, writes);
+    writePlannedStageSheetCells(`${stage.key}.start`, writes);
   }
 
   async function commitStage(
@@ -2285,14 +2312,8 @@ export default function BrewFormStepper({
         `${stage.key}.end`,
         value,
       );
-      const writes: Array<{
-        range: string;
-        value: string | number | boolean | null;
-      }> = [
-        {
-          range: stageCell(stage.rowOffset, "F"),
-          value,
-        },
+      const writes: PlannedStageSheetWrite[] = [
+        { stage, column: "F", value },
       ];
 
       if (!value) {
@@ -2309,10 +2330,7 @@ export default function BrewFormStepper({
           `${nextStage.key}.start`,
           nextStart,
         );
-        writes.push({
-          range: stageCell(nextStage.rowOffset, "E"),
-          value: nextStart,
-        });
+        writes.push({ stage: nextStage, column: "E", value: nextStart });
 
         const duration = knownDuration(nextStage);
         if (!nextStart || duration === null) break;
@@ -2324,10 +2342,7 @@ export default function BrewFormStepper({
           `${nextStage.key}.end`,
           calculatedEnd,
         );
-        writes.push({
-          range: stageCell(nextStage.rowOffset, "F"),
-          value: calculatedEnd,
-        });
+        writes.push({ stage: nextStage, column: "F", value: calculatedEnd });
 
         nextStart = calculatedEnd;
         nextStage = nextTimelineStage(nextStage);
@@ -2335,7 +2350,7 @@ export default function BrewFormStepper({
 
       setExecution(nextExecution);
       publishRecordedProgress(nextExecution);
-      await writeSheet(`${stage.key}.end`, writes);
+      writePlannedStageSheetCells(`${stage.key}.end`, writes);
       return;
     }
 
