@@ -1612,6 +1612,8 @@ export default function BrewFormStepper({
     // Mark typing as a local edit even before the value is validated on blur.
     // Otherwise an in-flight startup Sheet read can replace nearby edits.
     latestLocalEditAt.current = Date.now();
+    const dateKey = `${blockIndex}:brewDate`;
+    prepCommitVersionRef.current[dateKey] = (prepCommitVersionRef.current[dateKey] ?? 0) + 1;
     const formatted = formatIsraeliDateTyping(rawValue);
     setBrewDateDrafts((previous) => ({ ...previous, [blockIndex]: formatted }));
     setValidationNotice((previous) =>
@@ -4129,6 +4131,11 @@ export default function BrewFormStepper({
 
     const blockKey = String(currentBlock);
     latestLocalEditAt.current = Date.now();
+    if (key === "hltWaterAmount" || key === "hltWaterTemp" ||
+        key === "lauterWaterAmount" || key === "lauterWaterTemp") {
+      const pendingKey = `${currentBlock}:${key}`;
+      prepCommitVersionRef.current[pendingKey] = (prepCommitVersionRef.current[pendingKey] ?? 0) + 1;
+    }
     // Editing text must not overwrite the last committed localStorage value:
     // validation can still restore that value on blur.
     setExecution((previous) => ({
