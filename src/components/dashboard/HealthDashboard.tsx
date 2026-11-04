@@ -74,6 +74,7 @@ type HealthAlert = {
     targetPressure?: number;
     pressureChoice?: "changeOrHold";
     pressureSuggestion?: "lower" | "raise";
+    fromFailedCarbonation?: boolean;
     importance?: number;
     dismissible?: boolean;
     userDecision?: boolean;
@@ -814,6 +815,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                 targetPressure: recommendation.targetPressure,
                                 pressureChoice: recommendation.pressureChoice,
                                 pressureSuggestion: recommendation.pressureSuggestion,
+                                fromFailedCarbonation: recommendation.fromFailedCarbonation,
                                 importance,
                                 dismissible: !recommendation.reviewOnly,
                                 reviewOnly: recommendation.reviewOnly,
@@ -897,7 +899,8 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                         reportedActions.forEach(({ key, label, pattern }) => {
                             // One matching pressure report can fulfill a scheduled
                             // pressure decision; don't credit it as two actions.
-                            if (key === "pressure-change" && completedScheduledPressure) return;
+                            if (key === "pressure-change" &&
+                                (completedScheduledPressure || recommendations?.pressureAdjustmentHandledToday?.completed)) return;
                             if (pattern.test(todayNotes)) addCompleted(`reported-${key}-${tank.id}`, label);
                         });
                         if (todayNotes.includes("כשות")) addCompleted(`dryhop-${tank.id}`, "דרייהופ");
@@ -1523,6 +1526,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                                         initialPressureDirection: alert.pressureSuggestion === "lower"
                                                             ? "הורדת"
                                                             : alert.pressureSuggestion === "raise" ? "העלאת" : undefined,
+                                                        pressureTreatmentContext: alert.fromFailedCarbonation ? "failedCarbonation" : undefined,
                                                         anchorRect: event.currentTarget.getBoundingClientRect().toJSON(),
                                                     },
                                                 }))}>
@@ -1548,6 +1552,8 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                         initialPressureDirection: noteType === "לחץ" && alert.pressureSuggestion
                                             ? (alert.pressureSuggestion === "lower" ? "הורדת" : "העלאת")
                                             : undefined,
+                                        pressureTreatmentContext: noteType === "לחץ" && alert.fromFailedCarbonation
+                                            ? "failedCarbonation" : undefined,
                                         // An exact selected scheduled pressure decision only. Other pressure advice
                                         // and ordinary reports keep their standard empty/editable fields.
                                         pressureDecision: noteType === "לחץ" &&
