@@ -60,6 +60,10 @@ function environment(options = {}) {
       assert.ok(col >= 1 && col <= 8);
       return {
         getDisplayValue() { return String(rows[row - 1][col - 1] ?? ""); },
+        getValue() {
+          const value = rows[row - 1][col - 1];
+          return /^-?\d+(?:\.\d+)?$/.test(String(value)) ? Number(value) : value;
+        },
         getFormula() { return (options.formulas ?? {})[row + ":" + col] ?? ""; },
         setValue(value) {
           rows[row - 1][col - 1] = String(value);
@@ -244,6 +248,28 @@ test("stage times and measured Plato only go into semantically labeled rows", ()
   assert.equal(h.rows[header + 17][4], "13:43");
   assert.equal(h.rows[header + 17][6], "68.5°C");
   assert.equal(h.rows[header + 18][1], "15.6");
+});
+
+test("two distinct acid additions reconcile safely; a lone ambiguous acid row is skipped", () => {
+  const h = environment({ execution: startedExecution({
+    1: { fields: { "mashIn.start": "13:21", mashAcid85: "99", boilAcid85: "116" } },
+  }) });
+  const header = 4 - 1;
+  h.rows[header + 20][2] = "1)H3PO4";
+  h.rows[header + 21][2] = "2)H3PO4";
+  const result = h.context.brewSheetHourlyMaintenance_([h.entry], now);
+  assert.equal(result.repaired, 3);
+  assert.equal(h.rows[header + 20][0], "99");
+  assert.equal(h.rows[header + 21][0], "116");
+  assert.equal(h.rows[header + 15][4], "13:21");
+
+  const ambiguous = environment({ execution: startedExecution({
+    1: { fields: { "mashIn.start": "13:21", mashAcid85: "99", boilAcid85: "116" } },
+  }) });
+  ambiguous.rows[header + 20][2] = "H3PO4";
+  const guarded = ambiguous.context.brewSheetHourlyMaintenance_([ambiguous.entry], now);
+  assert.equal(guarded.repaired, 1);
+  assert.equal(ambiguous.rows[header + 20][0], "");
 });
 
 test("no extra trigger is installed: the existing optimized cycle owns the hourly gate", () => {
