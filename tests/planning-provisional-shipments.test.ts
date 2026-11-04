@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defaultSettings, emptyWeek, type Product, type WeekPlan } from "../src/SERVICES/planning/planningEngine";
 import { auditShipmentAvailability, classifyPlanningShortageIncreases, newlyWorsenedShipmentShortages } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
-import { confirmableUnpackedShipmentShortages, sameWeekUnscheduledPackagingUnits, unscheduledPackagingBeforeShipment, previousUncoveredShipmentUnits } from "../src/SERVICES/planning/shipmentProvisionalPlanning";
+import { confirmableUnpackedShipmentShortages, sameWeekUnscheduledPackagingUnits, weeklyShipmentPackagingUnits } from "../src/SERVICES/planning/shipmentProvisionalPlanning";
+import { openRuns } from "../src/SERVICES/planning/dailyPlanner";
 
 const today = "2026-11-04";
 const weekId = "2026-11-08";
@@ -90,104 +91,102 @@ test("completed packaging reports reduce the provisional entitlement", () => {
   assert.equal(confirmableUnpackedShipmentShortages(shortages(plans), plans, products, reported, weekId).length, 0);
 });
 
-const earlierWeek = "2026-11-01";
-const earlierPack = (sku: Product, quantity: number, date?: string): WeekPlan => ({
-  ...emptyWeek(earlierWeek),
-  packaging: [{
-    id: "previous-pack", productId: sku.id, tankId: "tank-3",
-    tankNumber: "3", batchNumber: "1609", quantity,
-    ...(date ? { date } : {}),
-  }],
-});
-const nextWeekShip = (sku: Product, quantity: number): WeekPlan => ({
+const sameWeekStoutAndWheat = (): WeekPlan => ({
   ...emptyWeek(weekId),
-  deliveries: [{
-    id: "next-shipment", truckId: "truck-next", productId: sku.id,
-    dispatchDate: "2026-11-09", arrivalDate: "2026-11-09", quantity,
-  }],
+  packaging: [
+    { id: "stout-tank-3", productId: stout.id, tankId: "3", tankNumber: "3",
+      batchNumber: "1609", date: "2026-11-10", quantity: 131 },
+    { id: "wheat-tank-8", productId: wheat.id, tankId: "8", tankNumber: "8",
+      batchNumber: "1610", date: "2026-11-12", quantity: 105 },
+  ],
+  deliveries: [
+    { id: "stout-on-monday", truckId: "truck-week46", productId: stout.id,
+      dispatchDate: "2026-11-09", arrivalDate: "2026-11-09", quantity: 84 },
+    { id: "wheat-on-monday", truckId: "truck-week46", productId: wheat.id,
+      dispatchDate: "2026-11-09", arrivalDate: "2026-11-09", quantity: 60 },
+  ],
 });
-function classifyAcrossWeeks(plans: WeekPlan[]) {
-  const after = auditShipmentAvailability(settings, [], plans, [], today);
-  const changes = newlyWorsenedShipmentShortages([], after);
-  return {
-    after,
-    confirmed: confirmableUnpackedShipmentShortages(
-      changes, plans, products, [], weekId, today, after),
-    changes,
-  };
+
+const conditional = (plans: WeekPlan[], actuals: Parameters<typeof openRuns>[2] = []) => {
+  const originalIssues = auditShipmentAvailability(settings, [], plans, actuals, today);
+  const increases = newlyWorsenedShipmentShortages([], originalIssues);
+  const approved = confirmableUnpackedShipmentShortages(
+    increases, plans, products, actuals, weekId,
+    { settings, pallets: [], today, shipments: [] },
+  );
+  return { originalIssues, increases, approved };
+};
+
+test("weekly editor offers stout on Tuesday and wheat on Thursday for the same week, despite Monday truck date", () => {
+  const plans = [sameWeekStoutAndWheat()];
+  const open = openRuns(plans, products, []);
+  assert.equal(weeklyShipmentPackagingUnits(open, weekId, stout.id), 131);
+  assert.equal(weeklyShipmentPackagingUnits(open, weekId, wheat.id), 105);
+  const { originalIssues, approved } = conditional(plans);
+  assert.deepEqual(new Set(approved.map((row) => row.issue.productId)),
+    new Set([stout.id, wheat.id]));
+  assert.equal(originalIssues.filter((row) => row.severity === "blocking").length, 2,
+    "the actual date-based audit MUST still report both Monday trucks as physically short");
+  assert.ok(originalIssues.every((row) => row.date === "2026-11-09"));
+});
+
+test("late in-week packing never becomes physical stock merely by approving the weekly plan", () => {
+  const plan = sameWeekStoutAndWheat();
+  const before = auditShipmentAvailability(settings, [], [plan], [], today);
+  conditional([plan]);
+  const after = auditShipmentAvailability(settings, [], [plan], [], today);
+  assert.deepEqual(after, before);
+  assert.equal(plan.packaging[0].date, "2026-11-10");
+  assert.equal(plan.packaging[1].date, "2026-11-12");
+  assert.equal(plan.deliveries![0].dispatchDate, "2026-11-09");
+});
+
+test("dated packing after the target week and packing in a later week cannot justify a shipment", () => {
+  const afterWeek = weeklyDecision(stout, 131, 84, "2026-11-15");
+  assert.equal(weeklyShipmentPackagingUnits(openRuns([afterWeek], products, []), weekId, stout.id), 0);
+  assert.equal(conditional([afterWeek]).approved.length, 0);
+  const later = { ...emptyWeek("2026-11-15"),
+    packaging: [{ id: "later", productId: stout.id, quantity: 131, date: "2026-11-16" }] };
+  assert.equal(conditional([nextWeekShipForTest(), later]).approved.length, 0);
+});
+
+function nextWeekShipForTest(): WeekPlan {
+  const plan = sameWeekStoutAndWheat();
+  plan.packaging = [];
+  plan.deliveries = [plan.deliveries![0]];
+  return plan;
 }
 
-test("regression 2026-11-08: prior-week Stout crates and Wheat kegs support next-week provisional shipment", () => {
-  const previousStout = earlierPack(stout, 131);
-  const previousWheat = earlierPack(wheat, 105);
-  previousStout.packaging[0].tankId = "tank-3";
-  previousWheat.packaging[0].tankId = "tank-8";
-  const shipping = nextWeekShip(stout, 84);
-  shipping.deliveries!.push(...nextWeekShip(wheat, 60).deliveries!);
-  const plans = [previousStout, previousWheat, shipping];
-  assert.equal(unscheduledPackagingBeforeShipment(plans, products, [], today, weekId, stout.id), 131);
-  assert.equal(unscheduledPackagingBeforeShipment(plans, products, [], today, weekId, wheat.id), 105);
-  const { after, confirmed, changes } = classifyAcrossWeeks(plans);
-  assert.equal(changes.length, 2);
-  assert.equal(confirmed.length, 2, "both SKUs can be planned after confirmation");
-  assert.equal(after.filter((issue) => issue.severity === "blocking").length, 2,
-    "the Gantt still reports missing PHYSICAL pallets until actual packaging");
+test("same-week future packaging cannot cover more physical units than planned", () => {
+  const insufficient = weeklyDecision(stout, 30, 84, "2026-11-10");
+  assert.equal(weeklyShipmentPackagingUnits(openRuns([insufficient], products, []), weekId, stout.id), 30);
+  assert.equal(conditional([insufficient]).approved.length, 0,
+    "one partial pallet may occupy a slot but cannot be treated as 84 actual crates");
 });
 
-test("previous-week packaging must not be credited twice for separate shipments", () => {
-  const prior = earlierPack(stout, 131);
-  prior.deliveries = [{
-    id: "first", productId: stout.id, truckId: "first",
-    dispatchDate: "2026-11-05", arrivalDate: "2026-11-05", quantity: 84,
-  }];
-  const next = nextWeekShip(stout, 84);
-  const plans = [prior, next];
-  const { confirmed, after } = classifyAcrossWeeks(plans);
-  assert.equal(previousUncoveredShipmentUnits(after, stout.id, today, weekId), 84);
-  assert.equal(confirmed.length, 0,
-    "131 outstanding crates cannot cover two separate deliveries of 84");
+test("two distinct shipment trips cannot both spend the same planned Tuesday packaging", () => {
+  const plan = weeklyDecision(stout, 131, 84, "2026-11-10");
+  plan.deliveries!.push({
+    id: "duplicate", truckId: "truck-b", productId: stout.id, quantity: 84,
+    dispatchDate: "2026-11-11", arrivalDate: "2026-11-11",
+  });
+  assert.equal(conditional([plan]).approved.length, 0);
 });
 
-test("only undated current or intervening week packaging is eligible", () => {
-  const stale = { ...earlierPack(stout, 131), id: "2026-10-25" };
-  const future = { ...earlierPack(stout, 131), id: "2026-11-15" };
-  const datedAfter = earlierPack(stout, 131, "2026-11-10");
-  const shipping = nextWeekShip(stout, 84);
-  for (const pack of [stale, future, datedAfter]) {
-    const plans = [pack, shipping];
-    assert.equal(unscheduledPackagingBeforeShipment(plans, products, [], today, weekId, stout.id), 0);
-    assert.equal(classifyAcrossWeeks(plans).confirmed.length, 0);
-  }
+test("already performed packaging is reconciled, not credited again as a provisional plan", () => {
+  const plan = weeklyDecision(wheat, 60, 60, "2026-11-12");
+  plan.packaging[0].tankId = "8";
+  plan.packaging[0].tankNumber = "8";
+  plan.packaging[0].batchNumber = "1610";
+  const actuals = [{ id: "performed", date: "2026-11-04", tankNumber: "8",
+    batchNumber: "1610", beerStyle: "חיטה", packagingType: "kegs", quantity: 60 }];
+  assert.equal(weeklyShipmentPackagingUnits(openRuns([plan], products, actuals), weekId, wheat.id), 0);
+  assert.equal(conditional([plan], actuals).approved.length, 0);
 });
 
-test("less than the shipped units of previous-week packaging still blocks", () => {
-  const plans = [earlierPack(wheat, 30), nextWeekShip(wheat, 60)];
-  assert.equal(classifyAcrossWeeks(plans).confirmed.length, 0);
-});
-
-test("reported earlier-week packaging reduces the provisional outstanding quantity", () => {
-  const plans = [earlierPack(wheat, 80), nextWeekShip(wheat, 60)];
-  const reports = [{
-    id: "physical-kegs", date: "2026-11-04", tankNumber: "3",
-    batchNumber: "1609", beerStyle: "חיטה", packagingType: "kegs", quantity: 40,
-  }];
-  assert.equal(unscheduledPackagingBeforeShipment(plans, products, reports, today, weekId, wheat.id), 40);
-  const after = auditShipmentAvailability(settings, [], plans, reports, today);
-  const increases = newlyWorsenedShipmentShortages([], after);
-  assert.equal(confirmableUnpackedShipmentShortages(
-    increases, plans, products, reports, weekId, today, after).length, 0);
-});
-
-test("chronological guard prevents later-week packaging from covering an earlier-week shortage", () => {
-  const earlierShipping = { ...emptyWeek(earlierWeek), deliveries: [{
-    id: "first", productId: wheat.id, quantity: 20,
-    dispatchDate: "2026-11-05", arrivalDate: "2026-11-05",
-  }] };
-  const later = { ...nextWeekShip(wheat, 20), packaging: [{
-    id: "pack-later", productId: wheat.id, quantity: 60,
-  }] };
-  const plans = [earlierShipping, later];
-  const { confirmed } = classifyAcrossWeeks(plans);
-  assert.equal(confirmed.length, 0,
-    "later week packaging cannot fix a previously uncovered dispatch");
+test("known missing or wrong SKU packing remains a hard block even in the edited week", () => {
+  const plan = weeklyDecision(stout, 0, 84, "2026-11-10");
+  plan.packaging.push({ id: "other-sku", productId: wheat.id,
+    date: "2026-11-12", quantity: 105 });
+  assert.equal(conditional([plan]).approved.length, 0);
 });
