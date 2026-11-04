@@ -1565,7 +1565,7 @@ export default function BrewFormStepper({
 
   function writeSheet(
     key: string,
-    writes: Array<{ range: string; value: string | number | boolean | null; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
+    writes: Array<{ range: string; value: string | number | boolean | null; expectedRowLabel?: "HLT" | "MASH IN"; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
   ) {
     if (!run.sheetId || writes.length === 0) return;
 
@@ -1596,7 +1596,7 @@ export default function BrewFormStepper({
   async function commit(
     key: string,
     value: string,
-    writes: Array<{ range: string; value: string | number | boolean | null; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
+    writes: Array<{ range: string; value: string | number | boolean | null; expectedRowLabel?: "HLT" | "MASH IN"; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
   ) {
     let baseExecution = execution;
     const dateWrites: Array<{ range: string; value: string | number | boolean | null }> = [];
@@ -2922,9 +2922,11 @@ export default function BrewFormStepper({
       const writes: Array<{
         range: string;
         value: string | number | boolean | null;
+        expectedRowLabel?: "HLT" | "MASH IN";
       }> = [
         {
           range: `'גיליון1'!${target.column}${mappedWaterRow(target.source)}`,
+          expectedRowLabel: target.source === "hlt" ? "HLT" : "MASH IN",
           value:
             field.endsWith("Temp") && value
               ? num(value) ?? value
@@ -3889,6 +3891,7 @@ export default function BrewFormStepper({
           range: cell.range,
           value: Number.isFinite(Number(cell.expected)) ? Number(cell.expected) : cell.expected,
           expectedValue: "",
+          expectedRowLabel: cell.field.startsWith("hlt") ? "HLT" : "MASH IN",
         }]);
         const verified = await readBrewSheetRange(run.sheetId, cell.range);
         const sheetValue = verified[0]?.[0] ?? "";
