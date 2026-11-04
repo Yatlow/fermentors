@@ -383,7 +383,7 @@ export default function PlanningFiveWeekOverview({
       .filter((item) => item.date === date)) {
       events.push({
         key: `live-brew:${brew.id}:${brew.batchNumber}:${date}`,
-        label: `בישול ${displayStyle(brew.style)} · מיכל ${brew.tankNumber} (לפי המיכל)`,
+        label: `בישול ${displayStyle(brew.style)} · מיכל ${brew.tankNumber} (${brew.dateUnverified ? "מתבצע · תאריך טרם סונכרן" : "לפי המיכל"})`,
         type: "brew", styleClass: beerStyleClass(brew.style).className,
       });
     }
