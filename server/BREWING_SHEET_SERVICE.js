@@ -254,6 +254,25 @@ function brewingSheetWriteCells_(data) {
     if (!sheet) throw new Error("Brew Sheet has no sheets");
     let range = sheet.getRange(a1);
     range = brewingSheetResolveFermentationMetadataRange_(sheet, range, item.semanticField);
+    // Water fields are bound to the live HLT/MASH IN labels. An offset that
+    // points at another row must fail closed rather than corrupt the Sheet.
+    if (item && item.expectedRowLabel) {
+      var expectedWaterLabel = String(item.expectedRowLabel).replace(/\s+/g, "").toUpperCase();
+      if (expectedWaterLabel !== "HLT" && expectedWaterLabel !== "MASHIN") {
+        throw new Error("Unsupported water-row label guard");
+      }
+      if (range.getNumRows() !== 1 || range.getNumColumns() !== 1 ||
+          range.getColumn() < 2 || range.getColumn() > 3) {
+        throw new Error("Water write must target a single cell in column B or C");
+      }
+      var currentWaterLabel = String(sheet.getRange(range.getRow(), 1).getDisplayValue() || "")
+        .replace(/\s+/g, "").toUpperCase();
+      if (currentWaterLabel !== expectedWaterLabel) {
+        throw new Error("Water row mapping changed at " + range.getA1Notation() +
+          ": expected " + item.expectedRowLabel + ", got " + currentWaterLabel);
+      }
+    }
+
 
     // Last line of defence: never accept a raw material lot or arbitrary text
     // as the fermentation brew date. Manual edits directly in Sheets are

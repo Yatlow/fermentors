@@ -1557,7 +1557,7 @@ export default function BrewFormStepper({
 
   function writeSheet(
     key: string,
-    writes: Array<{ range: string; value: string | number | boolean | null; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
+    writes: Array<{ range: string; value: string | number | boolean | null; expectedRowLabel?: "HLT" | "MASH IN"; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
   ) {
     if (!run.sheetId || writes.length === 0) return;
 
@@ -1588,7 +1588,7 @@ export default function BrewFormStepper({
   async function commit(
     key: string,
     value: string,
-    writes: Array<{ range: string; value: string | number | boolean | null; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
+    writes: Array<{ range: string; value: string | number | boolean | null; expectedRowLabel?: "HLT" | "MASH IN"; semanticField?: "fermentation.brewDate" | "fermentation.startingPlato" | "fermentation.yeastPitchTime" }>,
   ) {
     let baseExecution = execution;
     const dateWrites: Array<{ range: string; value: string | number | boolean | null }> = [];
@@ -2910,23 +2910,31 @@ export default function BrewFormStepper({
       }
     }
 
-    const writes: Array<{
-      range: string;
-      value: string | number | boolean | null;
-    }> = [
-      {
-        range: `'גיליון1'!${target.column}${mappedWaterRow(target.source)}`,
-        value:
-          field.endsWith("Temp") && value
-            ? num(value) ?? value
-            : value,
-      },
-    ];
-
-    // Never clear an unrelated historical offset as a cleanup side effect.
-    // On an expanded wheat template that offset can now hold real brew data.
-
-    await commit(field, value, writes);
+    try {
+      const writes: Array<{
+        range: string;
+        value: string | number | boolean | null;
+        expectedRowLabel?: "HLT" | "MASH IN";
+      }> = [
+        {
+          range: `'גיליון1'!${target.column}${mappedWaterRow(target.source)}`,
+          expectedRowLabel: target.source === "hlt" ? "HLT" : "MASH IN",
+          value:
+            field.endsWith("Temp") && value
+              ? num(value) ?? value
+              : value,
+        },
+      ];
+      // Never clear unrelated historical offsets, especially three-rest brews.
+      await commit(field, value, writes);
+    } catch (error) {
+      // Missing semantic row metadata used to escape as an unhandled onBlur
+      // rejection, while the React/Firestore form still showed a green check.
+      const detail = error instanceof Error ? error.message : String(error);
+      setSyncError(`שדה מים ${field} לא נכתב ל-Sheet: ${detail}`);
+      setMessage(`הכתיבה לגיליון נכשלה. מנגנון התחזוקה ינסה להשלים נתונים חסרים באופן אוטומטי: ${detail}`);
+      console.error("Brew water Sheet commit failed before enqueue", field, error);
+    }
   }
 
   async function commitPh(key: string, value: string, range: string) {
