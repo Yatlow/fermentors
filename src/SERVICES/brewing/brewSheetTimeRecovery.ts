@@ -38,10 +38,10 @@ export function planMissingMashTimeSheetWrites(
   const usedRanges = new Set<string>();
   for (const { blockIndex, appFields, sheetFields } of blocks) {
     const fermentationRow = Number(sheetFields["__sheetRow.fermentation"]);
+    if (!Number.isSafeInteger(fermentationRow) || fermentationRow < 1) continue;
     for (const stage of MASH_STAGE_KEYS) {
       const row = Number(sheetFields[`__sheetRow.stage.${stage}`]);
-      if (!Number.isSafeInteger(row) || row < 1 ||
-          (Number.isSafeInteger(fermentationRow) && fermentationRow > 0 && row >= fermentationRow)) {
+      if (!Number.isSafeInteger(row) || row < 1 || row >= fermentationRow) {
         continue;
       }
       for (const field of ["start", "end"] as const) {
