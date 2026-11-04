@@ -206,7 +206,7 @@ export function carbonationRetestDueReason(
   if (policy.waitReason === "ordinary_pressure") {
     const when = hebrewAgeText(policy.daysSinceReference);
     return (
-      `${when} בוצע שינוי לחץ בעקבות בדיקת גיזוז לא תקינה ` +
+      `${when} בוצע שינוי לחץ לאחר בדיקת גיזוז לא תקינה ` +
       `(${policy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`
     );
   }
