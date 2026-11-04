@@ -20,6 +20,7 @@ import {
     type PlannedBrewHint,
 } from "../../SERVICES/brewing/planningBrewHints";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
+import { restoreMissingMashRestDurations } from "../../SERVICES/brewing/mashRestDurationFallback";
 import { loadRecipes, replaceRecipes } from "../../SERVICES/brewing/recipeEditorStore";
 import { loadIngredients, saveIngredients } from "../../SERVICES/brewing/ingredientEditorStore";
 import { sameStyle } from "../../SERVICES/planning/planningEngine";
@@ -361,7 +362,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 snapshot.hops.length > 0 ||
                 !!snapshot.yeast.ingredientId);
 
-        if (snapshotHasMaterials) return snapshot;
+        if (snapshotHasMaterials) return restoreMissingMashRestDurations(snapshot, matching);
         if (matching) return matching;
         return selectedRun.source === "production"
             ? null
