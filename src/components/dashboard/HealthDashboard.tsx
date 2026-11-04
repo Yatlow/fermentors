@@ -900,8 +900,8 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             // pressure decision; don't credit it as two actions.
                             if (key === "pressure-change") {
                                 if (completedScheduledPressure || recommendations?.pressureAdjustmentHandledToday?.completed) return;
-                                // A pressure recorded as part of a keg/bottle packaging
-                                // report is not a separate cellar pressure operation.
+                                // Packaging pressures belong to keg/bottle packaging,
+                                // not independent cellar pressure work.
                                 if (todayRows.some((row) => isCellarPressureActionNote(row.notes))) {
                                     addCompleted(`reported-${key}-${tank.id}`, label);
                                 }
@@ -922,7 +922,9 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             );
                             addCompleted(
                                 `pressure-adjust-${tank.id}`,
-                                "שינוי לחץ לאחר בדיקת גיזוז",
+                                recommendations.pressureAdjustmentHandledToday.outOfSpec
+                                    ? "שינוי לחץ לאחר בדיקת גיזוז לא תקינה"
+                                    : "שינוי לחץ לאחר בדיקת גיזוז",
                                 importance,
                                 recommendations.pressureAdjustmentHandledToday.reason
                             );
@@ -1402,7 +1404,11 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             <div className="health-completed-actions-list">
                                 {analysis.completedActions.map((action) => (
                                     <div className="health-completed-action" key={action.id}>
-                                        <span>✓ מיכל {action.tankNumber} · {action.title}</span>
+                                        <span>
+                                            ✓ מיכל {action.tankNumber} · {action.title === "שינוי לחץ לאחר בדיקת גיזוז לא תקינה"
+                                                ? <>שינוי לחץ לאחר בדיקת גיזוז <strong>לא תקינה</strong></>
+                                                : action.title}
+                                        </span>
                                         <b>+{action.points}</b>
                                         {action.detail && <small>{action.detail}</small>}
                                     </div>
