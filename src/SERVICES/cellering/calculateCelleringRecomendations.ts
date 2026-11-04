@@ -798,11 +798,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
 
     const carbRes = lastMeasurement.carbonation;
-    const pressureHandledToday = hasCellarActionOnDate(
-        sortedMeasurements,
-        todayDate,
-        ["הורדת לחץ", "העלאת לחץ", "להוריד לחץ", "להעלות לחץ", "גיזוז מלמטה", "השארת לחץ ללא שינוי"],
-    );
     // Unlike a generic pressure report, a carbonation-pressure treatment
     // requires an explicit attribution and an earlier failed carbonation test.
     const completedCarbonationPressure = completedCarbonationPressureAdjustmentOnDate(
@@ -810,6 +805,12 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         todayDate,
         (carbonation) => isCarbonationOutOfRange(carbonation, style, givenSpecs).outOfSpec,
     );
+    const pressureHandledToday = completedCarbonationPressure !== null ||
+        hasCellarActionOnDate(
+            sortedMeasurements,
+            todayDate,
+            ["גיזוז מלמטה", "השארת לחץ ללא שינוי"],
+        );
     const prvHandledToday = hasCellarActionOnDate(
         sortedMeasurements,
         todayDate,
