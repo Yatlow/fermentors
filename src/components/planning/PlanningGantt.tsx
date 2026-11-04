@@ -23,6 +23,7 @@ import { actualDate, actualUnits, matchesActual, shortDate, type ShipmentEvent }
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { GANTT_FUTURE_WEEKS, simulationWeeksForPage } from "../../SERVICES/planning/planningHorizon";
 import { simulatedGanttBrews } from "../../SERVICES/planning/ganttBrewProjection";
+import { sourceBrewCalendarEntries } from "../../SERVICES/planning/liveBrewCalendar";
 import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { pendingPackagingDecisions } from "../../SERVICES/planning/packagingActuals";
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
@@ -524,6 +525,17 @@ export default function PlanningGantt(props: Props) {
       meta: `${fmt(item.liters)} ל׳ · ${shortDate(item.date)} · מתוכנן`,
       styleClass: beerStyleClass(item.style).className,
     }));
+    // A brew planned for today can appear in fermentor.brewDate before a
+    // corresponding planningWeeks decision is saved. Display this operational
+    // assignment without claiming it was completed or modifying inventory.
+    const sourcePlannedBrews: SummaryItem[] = sourceBrewCalendarEntries(
+      sources, decisions, weekId, today,
+    ).map((item) => ({
+      key: `brew-live:${item.id}:${item.batchNumber}:${item.date}`,
+      title: `${displayStyle(item.style)} · ${tankLabel(item.tankNumber)}`,
+      meta: `${item.liters ? fmt(item.liters) + " ל׳ · " : ""}${shortDate(item.date)} · מתוכנן לפי המיכל`,
+      styleClass: beerStyleClass(item.style).className,
+    }));
 
     const recommendationBrews: SummaryItem[] = decisions.length || weekId < currentWeek
       ? []
@@ -535,7 +547,7 @@ export default function PlanningGantt(props: Props) {
           recommended: true,
         }));
 
-    return [...actualBrews, ...plannedBrews, ...recommendationBrews];
+    return [...actualBrews, ...plannedBrews, ...sourcePlannedBrews, ...recommendationBrews];
   }
 
   function stockItems(weekId: string): SummaryItem[] {
@@ -607,12 +619,13 @@ export default function PlanningGantt(props: Props) {
       if (!brewDate || weekStart(brewDate) !== weekId || brewDate >= today) return sum;
       return sum + Math.max(0, Number(source.beerVolume) || 0);
     }, 0);
-    const plannedBrewing = (plan?.brews ?? [])
-      .filter((brew) => brew.date >= today)
-      .reduce((sum, brew) => sum + Math.max(0, Number(brew.liters) || 0), 0);
+    const decisions = (plan?.brews ?? []).filter((brew) => brew.date >= today);
+    const plannedBrewing = decisions.reduce((sum, brew) => sum + Math.max(0, Number(brew.liters) || 0), 0);
+    const sourcePlannedBrewing = sourceBrewCalendarEntries(sources, decisions, weekId, today)
+      .reduce((sum, brew) => sum + brew.liters, 0);
     return {
       packaging: actualPackaging + plannedPackaging,
-      brewing: actualBrewing + plannedBrewing,
+      brewing: actualBrewing + plannedBrewing + sourcePlannedBrewing,
     };
   }
 

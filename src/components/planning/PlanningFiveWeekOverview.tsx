@@ -14,6 +14,7 @@ import {
 } from "../../SERVICES/planning/planningEngine";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
+import { sourceBrewCalendarEntries, type CalendarBrewSource } from "../../SERVICES/planning/liveBrewCalendar";
 import { brewSizeLabel } from "../../SERVICES/planning/productionCycle";
 
 const ROWS = [
@@ -63,7 +64,7 @@ type EditableSelection =
 type DayEvent = {
   key: string;
   label: string;
-  type: "packaging" | "holiday";
+  type: "packaging" | "holiday" | "brew";
   styleClass?: string;
   note?: string;
   selection?: EditableSelection;
@@ -118,6 +119,7 @@ export default function PlanningFiveWeekOverview({
   settings,
   plans,
   tanks,
+  sources = [],
   holidays,
   today,
   disabled,
@@ -128,6 +130,7 @@ export default function PlanningFiveWeekOverview({
   settings: Settings;
   plans: WeekPlan[];
   tanks: Tank[];
+  sources?: CalendarBrewSource[];
   holidays: Holiday[];
   today: string;
   disabled: boolean;
@@ -274,7 +277,8 @@ export default function PlanningFiveWeekOverview({
     const brewing = plan.brews.reduce((sum, brew) => {
       const liters = Number(brew.liters);
       return sum + (Number.isFinite(liters) && liters > 0 ? liters : 0);
-    }, 0);
+    }, 0) + sourceBrewCalendarEntries(sources, plan.brews, weekId, today)
+      .reduce((sum, brew) => sum + brew.liters, 0);
 
     return { packaging, brewing };
   }
@@ -335,13 +339,19 @@ export default function PlanningFiveWeekOverview({
     const plan = planFor(weekId);
     if (!plan) return [];
     const grouped = new Map<string, { count: number; liters: number; pending: number }>();
-    for (const brew of plan.brews) {
+    for (const brew of [
+      ...plan.brews.map((item) => ({ ...item, sourceOnly: false })),
+      ...sourceBrewCalendarEntries(sources, plan.brews, weekId, today).map((item) => ({
+        id: item.id, style: item.style, liters: item.liters, date: item.date, tankId: "",
+        sourceOnly: true,
+      })),
+    ]) {
       const style = displayStyle(brew.style);
       const item = grouped.get(style) ?? { count: 0, liters: 0, pending: 0 };
-      item.count += brewCount(plan, brew);
+      item.count += brew.sourceOnly ? 1 : brewCount(plan, brew);
       const liters = Number(brew.liters);
       if (Number.isFinite(liters) && liters > 0) item.liters += liters;
-      if (!brew.tankId) item.pending += 1;
+      if (!brew.tankId && !brew.sourceOnly) item.pending += 1;
       grouped.set(style, item);
     }
     return Array.from(grouped.entries()).map(([style, item]) => ({
@@ -368,6 +378,15 @@ export default function PlanningFiveWeekOverview({
       .filter((item) => item.date === date)
       .map((item) => ({ key: `holiday:${item.date}:${item.title}`, label: item.title, type: "holiday" as const }));
 
+    const activePlan = planFor(weekStart(date));
+    for (const brew of sourceBrewCalendarEntries(sources, activePlan?.brews ?? [], weekStart(date), today)
+      .filter((item) => item.date === date)) {
+      events.push({
+        key: `live-brew:${brew.id}:${brew.batchNumber}:${date}`,
+        label: `בישול ${displayStyle(brew.style)} · מיכל ${brew.tankNumber} (לפי המיכל)`,
+        type: "brew", styleClass: beerStyleClass(brew.style).className,
+      });
+    }
     for (const source of plans) {
       const plan = asExtended(source);
       plan.packaging.forEach((run, runIndex) => {

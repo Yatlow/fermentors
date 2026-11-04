@@ -32,6 +32,8 @@ import {
     type ScoredRecommendation,
 } from "../../SERVICES/dashboard/healthModel";
 import { getPlannedPackagingForTank } from "../../SERVICES/planning/plannedPackagingForTanks";
+import { getPlannedPackagingContainerNumbers } from "../reports/PackagingReportsView";
+import { shouldShowWednesdayPackagingCarb } from "../../SERVICES/dashboard/weeklyCarbRoutine";
 import {
     dueScheduledForTank,
     hasUpcomingBottomCarbonationDecision,
@@ -234,11 +236,7 @@ function recommendationSeverity(importance: number): Severity {
     return "info";
 }
 
-function isCalendarCarbRecommendation(recommendation: Recommendation | null | undefined): boolean {
-    if (!recommendation?.req || !recommendation?.display) return false;
-    const reason = String(recommendation.reason ?? "");
-    return /יום ראשון|לפי נתוני היומן|אתמול לא בוצעה/.test(reason);
-}
+
 
 const severityOrder: Record<Severity, number> = {
     critical: 3,
@@ -361,6 +359,14 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
             // daily progress and the KPI use today's measurements.
             const asOf = new Date();
             const graceReferenceDay = graceDayStart(asOf);
+            // Read next week's physical packaging decisions ONCE, separately
+            // from the natural repeat-carbonation recommendation. A repeat
+            // recommendation must not erase the Wednesday routine.
+            const plannedNextWeekCarbTanks = asOf.getDay() === 3
+                ? await getPlannedPackagingContainerNumbers().catch((error) => {
+                    console.warn("Could not load next-week packaging routine", error);
+                    return [] as number[];
+                }) : [];
             const histories = fullTanks.map(tank => tank.batchNumber
                 ? getMeasurementsByBatch(tank.batchNumber)
                 : Promise.resolve([] as Measurement[]));
@@ -659,7 +665,12 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             !hasTodayCooling &&
                             !packagingToday;
                         const wednesdayCarbAction =
-                            day === 3 && isCalendarCarbRecommendation(recommendations?.requiresCarbTest);
+                            shouldShowWednesdayPackagingCarb({
+                                day,
+                                stageName: tank.stage.name,
+                                tankNumber: tank.tankNumber,
+                                plannedNextWeekTankNumbers: plannedNextWeekCarbTanks,
+                            });
                         const thursdayYeastAction =
                             day === 4 &&
                             recommendations?.requiiersWedYeastDropOnThus?.req === true &&
@@ -721,10 +732,12 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                 detail: sundayColdAction
                                     ? "פעולת יום ראשון לכל מיכל קר"
                                     : "מתוכנן לרדת בשבוע הבא",
-                                // Wednesday/scheduled/natural carb work is already
-                                // represented in scoreRecommendations. Only add a
-                                // separate score unit for the standalone Sunday routine.
-                                scoreEligible: sundayColdAction && !naturalCarb && !scheduledCarbAction,
+                                // One physical test only. A separate score unit is
+                                // needed if the weekly routine has no equivalent
+                                // natural/scheduled recommendation (e.g. a
+                                // deferred repeat after a recent pressure change).
+                                scoreEligible: (sundayColdAction || wednesdayCarbAction) &&
+                                    !naturalCarb && !scheduledCarbAction,
                             });
                         }
                         if (weeklyYeastAction && !hasTodayYeast && !yeastIgnored) {
