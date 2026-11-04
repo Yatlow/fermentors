@@ -3669,6 +3669,7 @@ export default function BrewFormStepper({
       );
       if (!formMountedRef.current) return false;
       const discoveredBlocks = discoverSheetBlocks(fullSheetRows, totalBlocks);
+      let validatedSemanticBlocks = false;
 
       // Semantic row addresses are not process values. Even if a brewer
       // edits a field (or Firestore receives a newer A/B block) while this
@@ -3705,6 +3706,7 @@ export default function BrewFormStepper({
           );
         }
         if (validated) {
+          validatedSemanticBlocks = true;
           setExecution((previous) => {
             const blocks = { ...previous.blocks };
             let changed = false;
@@ -3822,7 +3824,7 @@ export default function BrewFormStepper({
       // brewer entered and Firestore saved may still be missing in the Sheet.
       // Repair ONLY missing mash times using validated semantic row addresses,
       // and use expectedValue:"" so concurrent Sheet edits can never be erased.
-      if (silent && positionAfterPull && mashRecoveryBlocks.length > 0 &&
+      if (silent && positionAfterPull && validatedSemanticBlocks && mashRecoveryBlocks.length > 0 &&
           formMountedRef.current && latestLocalEditAt.current <= readStartedAt &&
           pendingSheetWrites.current.size === 0) {
         const missingMashWrites = planMissingMashTimeSheetWrites(mashRecoveryBlocks);
