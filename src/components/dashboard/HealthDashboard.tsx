@@ -6,7 +6,7 @@ import { cellarBadgeFieldsForDay } from "../../SERVICES/dashboard/cellarMeasurem
 import { CELLAR_CELEBRATION_ACK_KEY, evaluateCellarCelebration, type SettledCellarScore } from "../../SERVICES/dashboard/cellarCelebrationPolicy";
 import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
 import { isCellarPressureActionNote } from "../../SERVICES/cellering/cellarActionState";
-import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
+import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus, Equal } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
     calcCelleringRecomendations,
@@ -75,6 +75,7 @@ type HealthAlert = {
     targetPressure?: number;
     pressureChoice?: "changeOrHold";
     pressureSuggestion?: "lower" | "raise";
+    carbonationTestOutOfSpec?: boolean;
     importance?: number;
     dismissible?: boolean;
     userDecision?: boolean;
@@ -87,6 +88,7 @@ type Recommendation = {
     targetPressure?: number;
     pressureChoice?: "changeOrHold";
     pressureSuggestion?: "lower" | "raise";
+    carbonationTestOutOfSpec?: boolean;
     req?: boolean | "" | 0 | null;
     display?: boolean;
     reason?: string;
@@ -805,7 +807,10 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                     ? `מיכל ${number}: סייג לפני קירור`
                                     : recommendation.userDecision
                                         ? `מיכל ${number}: החלטת סלרינג`
-                                        : `מיכל ${number}: המלצת סלרינג`,
+                                        : recommendation.recommendationKey === "pressureAdjustment" &&
+                                          recommendation.carbonationTestOutOfSpec
+                                            ? `מיכל ${number}: בדיקת גיזוז לא תקינה`
+                                            : `מיכל ${number}: המלצת סלרינג`,
                                 detail: recommendation.reason || "נדרשת פעולת סלרינג.",
                                 tankNumber: number,
                                 batchNumber: String(tank.batchNumber),
@@ -815,6 +820,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                 targetPressure: recommendation.targetPressure,
                                 pressureChoice: recommendation.pressureChoice,
                                 pressureSuggestion: recommendation.pressureSuggestion,
+                                carbonationTestOutOfSpec: recommendation.carbonationTestOutOfSpec,
                                 importance,
                                 dismissible: !recommendation.reviewOnly,
                                 reviewOnly: recommendation.reviewOnly,
@@ -1530,7 +1536,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                     const ui = actionUI[noteType];
                                     if (alert.pressureChoice && available) {
                                         return <div className="health-pressure-choices" role="group" aria-label="בחירת פעולה לאחר בדיקת גיזוז">
-                                            <button type="button" className="health-quick-report-button" onClick={(event) =>
+                                            <button type="button" className="health-quick-report-button health-pressure-change-button" onClick={(event) =>
                                                 window.dispatchEvent(new CustomEvent("cellar-open-quick-report", {
                                                     detail: {
                                                         tankNumber: String(alert.tankNumber),
@@ -1545,7 +1551,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                                     ? "דווח הורדת לחץ"
                                                     : alert.pressureSuggestion === "raise" ? "דווח העלאת לחץ" : "דווח שינוי לחץ"}
                                             </button>
-                                            <button type="button" className="health-quick-report-button" onClick={(event) =>
+                                            <button type="button" className="health-quick-report-button health-pressure-hold-button" title="דווח השארת לחץ ללא שינוי" aria-label="דווח השארת לחץ ללא שינוי" onClick={(event) =>
                                                 window.dispatchEvent(new CustomEvent("cellar-open-quick-report", {
                                                     detail: {
                                                         tankNumber: String(alert.tankNumber),
@@ -1553,7 +1559,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                                         anchorRect: event.currentTarget.getBoundingClientRect().toJSON(),
                                                     },
                                                 }))}>
-                                                <Gauge size={16} aria-hidden="true" />השארת לחץ ללא שינוי
+                                                <Equal size={17} aria-hidden="true" />ללא שינוי
                                             </button>
                                         </div>;
                                     }
