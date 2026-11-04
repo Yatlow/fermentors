@@ -36,3 +36,41 @@ test("only the matching week and valid brew date are projected; repeated snapsho
   assert.equal(sourceBrewCalendarEntries([live, { ...live }], [], week, date).length, 1);
   assert.deepEqual(sourceBrewCalendarEntries([{ ...live, brewDate: "31/02/2026" }], [], week, date), []);
 });
+
+test("tank 9 in progress remains on today's Gantt when brewDate is still missing", () => {
+  const inProgress = { ...live, batchNumber: "#1615", brewDate: "",
+    tankStatus: true, brewProgress: { stageName: "הכנת מים", stageCode: 10, stageStartTimeText: "10:24" } };
+  const entries = sourceBrewCalendarEntries([inProgress], [], week, date);
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0], {
+    id: "tank-9", tankNumber: "9", style: "IPA", date,
+    batchNumber: "1615", liters: 2800, dateUnverified: true,
+  });
+  assert.equal(sourceBrewCalendarEntries([inProgress], [{ id: "saved", date, tankId: "tank-9",
+    style: "IPA", liters: 2800 }], week, date).length, 0,
+    "do not duplicate a correctly linked weekly brewing plan");
+});
+test("do not invent a new brew from blank date without live stage evidence", () => {
+  const stale = { ...live, brewDate: "", tankStatus: true };
+  assert.deepEqual(sourceBrewCalendarEntries([stale], [], week, date), []);
+  assert.deepEqual(sourceBrewCalendarEntries([{ ...stale, brewProgress: {
+    stageName: "הוצאה לתסיסה", stageCode: 120,
+  }}], [], week, date), []);
+  assert.deepEqual(sourceBrewCalendarEntries([{ ...live, action: 1, brewDate: "",
+    brewProgress: { stageName: "קר", stageCode: 20, stageStartTimeText: "08:00" }
+  }], [], week, date), []);
+  assert.deepEqual(sourceBrewCalendarEntries([{ ...live, action: 3, brewDate: "",
+    brewProgress: { stageName: "הכנת מים", stageCode: 10, stageStartTimeText: "08:00" }
+  }], [], week, date), []);
+});
+test("malformed or historically dated brew is not incorrectly moved to today", () => {
+  const active = { ...live, brewProgress: {
+    stageName: "הכנת מים", stageCode: 10, stageStartTimeText: "10:24",
+  } };
+  for (const brewDate of ["31/02/2026", "03/11/2026"]) {
+    assert.deepEqual(sourceBrewCalendarEntries([{ ...active, brewDate }], [], week, date), []);
+  }
+  const synced = sourceBrewCalendarEntries([{ ...active, brewDate: "04/11/2026" }], [], week, date);
+  assert.equal(synced.length, 1);
+  assert.equal(synced[0].dateUnverified, undefined, "remove the provisional warning once the date is synced");
+});
