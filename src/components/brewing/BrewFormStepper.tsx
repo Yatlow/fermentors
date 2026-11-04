@@ -2046,7 +2046,9 @@ export default function BrewFormStepper({
     // edit-interrupted startup pull. Resolve ONLY immutable row identities
     // directly from the live Sheet, even if the brewer has another input
     // focused; never use a fallback offset or replace typed values.
-    const response = await serverReadBrewSheetRange(run.sheetId, "'גיליון1'!A1:H220");
+    const sheetId = run.sheetId;
+    if (!sheetId) throw new Error("חסר גיליון בישול לסנכרון.");
+    const response = await serverReadBrewSheetRange(sheetId, "'גיליון1'!A1:H220");
     const targets = resolveBrewPrepSheetTargets(
       response.values ?? [], run.batchNumber, blockIndex, required,
     );
