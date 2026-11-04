@@ -45,7 +45,9 @@ const commit = form.slice(form.indexOf("async function commitBrewDate("), form.i
 assert.match(commit, /if \(value === null\)/);
 assert.match(commit, /if \(minimumDate && value < minimumDate\.date\)/);
 assert.match(commit, /setExecution\(\(previous\) => \{/);
-assert.match(commit, /setBrewingExecutionField\(previous, currentBlock, "brewDate", value\)/);
+assert.match(commit, /setBrewingExecutionField\(previous, dateBlock, "brewDate", value\)/);
+assert.ok(commit.indexOf("setExecution((previous)") < commit.indexOf("await ensureLiveBrewPrepRows(dateBlock, \"date\")"),
+  "persist accepted brew date before loading semantic Sheet targets");
 assert.doesNotMatch(commit, /setBrewingExecutionField\(execution, currentBlock, "brewDate"/);
 assert.match(commit, /setBrewDateDrafts\(\(previous\) => \{/, "clear draft only after a valid commit");
 const select = form.slice(form.indexOf("async function selectBlock("), form.indexOf("function openHydrometer("));
