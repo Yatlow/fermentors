@@ -22,7 +22,8 @@ const MASH_STAGE_KEYS = [
   "mashIn", "rest1", "heat1", "rest2", "heat2", "rest3", "heat3",
 ] as const;
 
-function normalizedTime(value: unknown): string | null {
+/** Canonicalize HH:MM without confusing distinct times with numeric cell units. */
+export function normalizedBrewSheetTime(value: unknown): string | null {
   const match = String(value ?? "").trim().match(/^(\d{1,2}):(\d{2})$/);
   if (!match) return null;
   const hours = Number(match[1]);
@@ -46,7 +47,7 @@ export function planMissingMashTimeSheetWrites(
       }
       for (const field of ["start", "end"] as const) {
         const key = `${stage}.${field}`;
-        const appTime = normalizedTime(appFields[key]);
+        const appTime = normalizedBrewSheetTime(appFields[key]);
         // The Sheet's current value wins unless it is genuinely missing.
         if (!appTime || String(sheetFields[key] ?? "").trim()) continue;
         const range = `'גיליון1'!${field === "start" ? "E" : "F"}${row}`;
