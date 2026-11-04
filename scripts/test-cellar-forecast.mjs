@@ -173,7 +173,7 @@ test("existing yeast completion and Plato projections remain available", () => {
 test("forecast component wires all five requested capabilities", () => {
     const source = readFileSync(resolve("src/components/cellering/CellaringForecast.tsx"), "utf8");
     for (const name of ["projectCarbonationRetest", "projectNonHoppyWarmYeast",
-        "projectKnownYeastCompletions", "projectPlatoThresholdRecheck", "forecastRoutinesForDate"]) {
+        "projectKnownYeastCompletions", "projectHybridFermentationMilestones", "forecastRoutinesForDate"]) {
         assert.match(source, new RegExp(name + "\\("));
     }
 });
