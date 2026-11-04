@@ -1341,14 +1341,17 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         pressureSuggestion: firstInRangeAdvice?.direction ??
             (subsequentPressureAdvice?.kind === "lower" ? "lower" as const :
              subsequentPressureAdvice?.kind === "raise" ? "raise" as const : undefined),
+        // UI status is about TODAY'S actual test, not the private historical
+        // milestone used only to select the appropriate pressure advice.
+        carbonationTestOutOfSpec: coldCarbNeedsPressureAdjustment,
         reason: subsequentPressureAdvice
-            ? `לאחר שכבר הושג גיזוז תקין, הגיזוז כעת ${subsequentPressureAdvice.carbonation} (יעד ${carbonationTarget}). ${advicePressureContext}. מומלץ ${subsequentPressureAdvice.kind === "lower" ? "להוריד" : "להעלות"} לחץ.`
+            ? `בדיקת הגיזוז האחרונה לא תקינה (${subsequentPressureAdvice.carbonation}, יעד ${carbonationTarget}). ${advicePressureContext}. מומלץ ${subsequentPressureAdvice.kind === "lower" ? "להוריד" : "להעלות"} לחץ.`
             : coldCarbNeedsPressureAdjustment
-                ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${advicePressureContext}. ${beforeFirstInRangeCarbonation
-                    ? "טרם הושג גיזוז תקין באצווה. ניתן לדווח על שינוי לחץ או לבחור להשאיר את הלחץ ללא שינוי בהתאם לשיקול דעת המבשלן."
+                ? `בדיקת הגיזוז היום לא תקינה (${lastMeasurement?.carbonation}, יעד ${carbonationTarget}). ${advicePressureContext}. ${beforeFirstInRangeCarbonation
+                    ? "ניתן לדווח על שינוי לחץ או לבחור להשאיר את הלחץ ללא שינוי, בהתאם לשיקול דעת המבשל."
                     : "מומלץ לבצע שינוי לחץ בהתאם להמלצה הקיימת או לוודא שבוצע."}`
                 : firstInRangeAdvice
-                    ? `הגיזוז הגיע לראשונה לטווח התקין (${firstInRangeAdvice.carbonation}, גיזוז רצוי- ${carbonationTarget}). ${advicePressureContext}. ניתן לשקול ${firstInRangeAdvice.direction === "lower" ? "הורדת" : "העלאת"} לחץ או לבחור להשאיר את הלחץ ללא שינוי.`
+                    ? `בדיקת הגיזוז האחרונה תקינה (${firstInRangeAdvice.carbonation}, יעד ${carbonationTarget}). ${advicePressureContext}. ניתן לשקול ${firstInRangeAdvice.direction === "lower" ? "הורדת" : "העלאת"} לחץ או לבחור להשאיר את הלחץ ללא שינוי.`
                     : `מומלץ לכוון פורק ל ${effectivePressureTarget}, הלחץ כרגע ${Number(effectivePressureTarget) > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: coldCarbNeedsPressureAdjustment
             ? latestCarbSpec.importance

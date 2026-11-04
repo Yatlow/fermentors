@@ -75,6 +75,7 @@ type HealthAlert = {
     targetPressure?: number;
     pressureChoice?: "changeOrHold";
     pressureSuggestion?: "lower" | "raise";
+    carbonationTestOutOfSpec?: boolean;
     importance?: number;
     dismissible?: boolean;
     userDecision?: boolean;
@@ -87,6 +88,7 @@ type Recommendation = {
     targetPressure?: number;
     pressureChoice?: "changeOrHold";
     pressureSuggestion?: "lower" | "raise";
+    carbonationTestOutOfSpec?: boolean;
     req?: boolean | "" | 0 | null;
     display?: boolean;
     reason?: string;
@@ -805,7 +807,10 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                     ? `מיכל ${number}: סייג לפני קירור`
                                     : recommendation.userDecision
                                         ? `מיכל ${number}: החלטת סלרינג`
-                                        : `מיכל ${number}: המלצת סלרינג`,
+                                        : recommendation.recommendationKey === "pressureAdjustment" &&
+                                          recommendation.carbonationTestOutOfSpec
+                                            ? `מיכל ${number}: בדיקת גיזוז לא תקינה`
+                                            : `מיכל ${number}: המלצת סלרינג`,
                                 detail: recommendation.reason || "נדרשת פעולת סלרינג.",
                                 tankNumber: number,
                                 batchNumber: String(tank.batchNumber),
@@ -815,6 +820,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                 targetPressure: recommendation.targetPressure,
                                 pressureChoice: recommendation.pressureChoice,
                                 pressureSuggestion: recommendation.pressureSuggestion,
+                                carbonationTestOutOfSpec: recommendation.carbonationTestOutOfSpec,
                                 importance,
                                 dismissible: !recommendation.reviewOnly,
                                 reviewOnly: recommendation.reviewOnly,

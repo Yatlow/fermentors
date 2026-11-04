@@ -596,3 +596,55 @@
   border: 1px solid rgba(217, 119, 6, 0.38);
 }
 .health-required-measurements > strong { color: #a16207; }
+
+/* Only layout changes: keep the existing blue button styling, text and icons.
+   On small screens place both actions beneath the recommendation text. */
+@media (max-width: 700px) {
+    .health-dashboard .health-alert:has(.health-pressure-choices) {
+        display: grid;
+        grid-template-columns: 22px minmax(0, 1fr) 31px;
+        grid-template-areas:
+            "icon content ignore"
+            ". choices choices";
+        column-gap: 9px;
+        row-gap: 10px;
+        align-items: start;
+    }
+
+    .health-dashboard .health-alert:has(.health-pressure-choices) > .health-alert-icon {
+        grid-area: icon;
+    }
+
+    .health-dashboard .health-alert:has(.health-pressure-choices) > .health-alert-copy {
+        grid-area: content;
+        min-width: 0;
+    }
+
+    .health-dashboard .health-alert:has(.health-pressure-choices) > .health-ignore-button {
+        grid-area: ignore;
+        margin-inline-start: 0;
+    }
+
+    .health-dashboard .health-pressure-choices {
+        grid-area: choices;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        gap: 8px;
+    }
+
+    .health-dashboard .health-pressure-choices .health-quick-report-button {
+        width: 100%;
+        min-width: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+}
+
+@media (max-width: 340px) {
+    .health-dashboard .health-pressure-choices {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
