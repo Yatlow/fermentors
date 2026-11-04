@@ -74,7 +74,6 @@ type HealthAlert = {
     targetPressure?: number;
     pressureChoice?: "changeOrHold";
     pressureSuggestion?: "lower" | "raise";
-    fromFailedCarbonation?: boolean;
     importance?: number;
     dismissible?: boolean;
     userDecision?: boolean;
@@ -87,7 +86,6 @@ type Recommendation = {
     targetPressure?: number;
     pressureChoice?: "changeOrHold";
     pressureSuggestion?: "lower" | "raise";
-    fromFailedCarbonation?: boolean;
     req?: boolean | "" | 0 | null;
     display?: boolean;
     reason?: string;
@@ -816,7 +814,6 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                 targetPressure: recommendation.targetPressure,
                                 pressureChoice: recommendation.pressureChoice,
                                 pressureSuggestion: recommendation.pressureSuggestion,
-                                fromFailedCarbonation: recommendation.fromFailedCarbonation,
                                 importance,
                                 dismissible: !recommendation.reviewOnly,
                                 reviewOnly: recommendation.reviewOnly,
@@ -1527,7 +1524,6 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                                         initialPressureDirection: alert.pressureSuggestion === "lower"
                                                             ? "הורדת"
                                                             : alert.pressureSuggestion === "raise" ? "העלאת" : undefined,
-                                                        pressureTreatmentContext: alert.fromFailedCarbonation ? "failedCarbonation" : undefined,
                                                         anchorRect: event.currentTarget.getBoundingClientRect().toJSON(),
                                                     },
                                                 }))}>
@@ -1553,8 +1549,6 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                         initialPressureDirection: noteType === "לחץ" && alert.pressureSuggestion
                                             ? (alert.pressureSuggestion === "lower" ? "הורדת" : "העלאת")
                                             : undefined,
-                                        pressureTreatmentContext: noteType === "לחץ" && alert.fromFailedCarbonation
-                                            ? "failedCarbonation" : undefined,
                                         // An exact selected scheduled pressure decision only. Other pressure advice
                                         // and ordinary reports keep their standard empty/editable fields.
                                         pressureDecision: noteType === "לחץ" &&
