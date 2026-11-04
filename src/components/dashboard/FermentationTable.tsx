@@ -96,7 +96,9 @@ function touchDistance(event: TouchEvent<HTMLDivElement>): number {
 }
 
 export default function FermentationTable({ measurements, brewDate }: Props) {
+    const [newestFirst, setNewestFirst] = useState(true);
     const rows = [...measurements].sort((a, b) =>
+        (newestFirst ? -1 : 1) *
         String(a.id ?? "").localeCompare(String(b.id ?? ""))
     );
 
@@ -188,6 +190,15 @@ export default function FermentationTable({ measurements, brewDate }: Props) {
                 </div>
 
                 <div className="fermentation-table-heading-actions">
+                    <button
+                        type="button"
+                        className="fermentation-sort-button"
+                        aria-label={newestFirst ? "מוצג מהחדש לישן, החלף לישן תחילה" : "מוצג מהישן לחדש, החלף לחדש תחילה"}
+                        aria-pressed={newestFirst}
+                        onClick={() => setNewestFirst((current) => !current)}
+                    >
+                        {newestFirst ? "החדש תחילה ↓" : "הישן תחילה ↑"}
+                    </button>
                     <div className="fermentation-zoom-controls" aria-label="זום טבלת תסיסה">
                         <button
                             type="button"
