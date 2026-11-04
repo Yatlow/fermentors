@@ -1,4 +1,6 @@
-import type { StyleAverages, StyleAverageDay } from "../getAndPost/getStyleAverages";
+/** Read-only projection of styleAverages, with no Firebase dependency. */
+export type ForecastStyleDay = { plato: number | null; platoBatchCount?: number };
+export type ForecastStyleAverages = { style: string; days: Record<string, ForecastStyleDay> };
 import { batchDryHopThreshold } from "./dryHopThreshold";
 import { getFermentationEndPlatoLimit } from "./fermentationEndPlato";
 import { isCompletedYeastDrop } from "./coolingYeastTiming";
@@ -8,7 +10,7 @@ import {
     type PlatoForecastTank, type PlatoForecastReading, type PlatoForecastSpecs,
     type PlatoThresholdHint,
 } from "./platoThresholdForecast";
-import type { SpecChart } from "../getAndPost/getSpecsFromFb";
+type SpecChart = Record<string, Record<string, number>>;
 
 type ForecastTank = PlatoForecastTank & { brewDate?: string | null };
 type ForecastSpecs = PlatoForecastSpecs & { fermentationEndPlato?: Record<string, number> };
@@ -49,7 +51,7 @@ function measuredPlatoByDate(readings: PlatoForecastReading[], today: string) {
     }
     return result;
 }
-function reliablePlato(day: StyleAverageDay | undefined): number | null {
+function reliablePlato(day: ForecastStyleDay | undefined): number | null {
     if (!day || !Number.isInteger(day.platoBatchCount) ||
         Number(day.platoBatchCount) < MIN_DISTINCT_PLATO_BATCHES) return null;
     return asPlato(day.plato);
@@ -75,7 +77,7 @@ function styleProjection(
     tank: ForecastTank,
     readings: PlatoForecastReading[],
     today: string,
-    average: StyleAverages | null | undefined,
+    average: ForecastStyleAverages | null | undefined,
 ): StyleProjection | null {
     const brewed = brewDate(tank.brewDate);
     const brewedIndex = brewed ? utcDay(brewed) : null;
@@ -216,7 +218,7 @@ export function projectHybridFermentationMilestones(
     readings: PlatoForecastReading[],
     today: string,
     specs: ForecastSpecs,
-    average: StyleAverages | null | undefined,
+    average: ForecastStyleAverages | null | undefined,
 ): PlatoThresholdHint[] {
     if (tank.stage?.name !== "בתסיסה") return [];
     const curve = styleProjection(tank, readings, today, average);
