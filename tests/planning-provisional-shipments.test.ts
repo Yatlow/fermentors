@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defaultSettings, emptyWeek, type Product, type WeekPlan } from "../src/SERVICES/planning/planningEngine";
 import { auditShipmentAvailability, classifyPlanningShortageIncreases, newlyWorsenedShipmentShortages } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
-import { confirmableUnpackedShipmentShortages, sameWeekUnscheduledPackagingUnits, weeklyShipmentPackagingUnits } from "../src/SERVICES/planning/shipmentProvisionalPlanning";
+import { confirmableUnpackedShipmentShortages, sameWeekUnscheduledPackagingUnits, weeklyShipmentPackagingUnits, weeklyShipmentPackagingRuns, formatPlannedPackagingDay } from "../src/SERVICES/planning/shipmentProvisionalPlanning";
 import { openRuns } from "../src/SERVICES/planning/dailyPlanner";
 
 const today = "2026-11-04";
@@ -189,4 +189,13 @@ test("known missing or wrong SKU packing remains a hard block even in the edited
   plan.packaging.push({ id: "other-sku", productId: wheat.id,
     date: "2026-11-12", quantity: 105 });
   assert.equal(conditional([plan]).approved.length, 0);
+});
+
+test("show the actual packaging weekdays to the shipment planner, not generic week labels", () => {
+  assert.equal(formatPlannedPackagingDay("2026-11-10"), "יום שלישי 10/11/2026");
+  assert.equal(formatPlannedPackagingDay("2026-11-12"), "יום חמישי 12/11/2026");
+  assert.equal(formatPlannedPackagingDay(), "טרם נקבע יום אריזה");
+  const rows = weeklyShipmentPackagingRuns(openRuns([sameWeekStoutAndWheat()], products, []), weekId, stout.id);
+  assert.deepEqual(rows.map((row) => [row.tankNumber, row.remaining, formatPlannedPackagingDay(row.date)]),
+    [["3", 131, "יום שלישי 10/11/2026"]]);
 });
