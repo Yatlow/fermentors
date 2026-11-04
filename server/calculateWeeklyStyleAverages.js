@@ -1,4 +1,7 @@
-const WEEKLY_STYLE_MODEL_LAST_RUN_KEY = "weekly_style_averages_last_run_v1";
+// v2 intentionally schedules one rebuild after deployment so historical
+// per-day Plato cohort sizes are available without waiting a full week.
+// The separate 24-hour attempt cooldown and execution lock remain in force.
+const WEEKLY_STYLE_MODEL_LAST_RUN_KEY = "weekly_style_averages_last_run_v2";
 const WEEKLY_STYLE_MODEL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function calculateWeeklyStyleAverages(force) {
