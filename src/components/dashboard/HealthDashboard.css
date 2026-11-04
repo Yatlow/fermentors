@@ -597,58 +597,8 @@
 }
 .health-required-measurements > strong { color: #a16207; }
 
-
-/* One clear primary action + a quiet, compact alternative. Keep the controls
-   inside the alert on narrow phones instead of squeezing its description. */
-.health-dashboard .health-pressure-choices {
-    align-self: flex-start;
-    min-width: 0;
-    max-width: 100%;
-    gap: 7px;
-}
-
-.health-dashboard .health-pressure-choices .health-quick-report-button {
-    display: inline-flex;
-    justify-content: center;
-    align-items: center;
-    gap: 6px;
-    min-height: 36px;
-    border-radius: 9px;
-    padding: 7px 10px;
-    font-size: 0.78rem;
-    font-weight: 700;
-    line-height: 1.25;
-    white-space: nowrap;
-    box-shadow: none;
-    transition: background-color .15s ease, border-color .15s ease;
-}
-
-.health-dashboard .health-pressure-choices .health-pressure-change-button {
-    border-color: #93c5fd;
-    background: #eff6ff;
-    color: #1d4ed8;
-}
-
-.health-dashboard .health-pressure-choices .health-pressure-change-button:hover {
-    background: #dbeafe;
-}
-
-.health-dashboard .health-pressure-choices .health-pressure-hold-button {
-    border-color: #cbd5e1;
-    background: #fff;
-    color: #475569;
-}
-
-.health-dashboard .health-pressure-choices .health-pressure-hold-button:hover {
-    border-color: #94a3b8;
-    background: #f8fafc;
-}
-
-.health-dashboard .health-pressure-choices .health-quick-report-button:focus-visible {
-    outline: 2px solid #2563eb;
-    outline-offset: 2px;
-}
-
+/* Only layout changes: keep the existing blue button styling, text and icons.
+   On small screens place both actions beneath the recommendation text. */
 @media (max-width: 700px) {
     .health-dashboard .health-alert:has(.health-pressure-choices) {
         display: grid;
@@ -680,23 +630,21 @@
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         width: 100%;
+        min-width: 0;
         max-width: 100%;
-        gap: 7px;
-        align-self: stretch;
+        gap: 8px;
     }
 
     .health-dashboard .health-pressure-choices .health-quick-report-button {
         width: 100%;
         min-width: 0;
-        min-height: 38px;
-        padding: 7px 5px;
-        font-size: 0.74rem;
-        white-space: nowrap;
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
 }
 
 @media (max-width: 340px) {
     .health-dashboard .health-pressure-choices {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
     }
 }
