@@ -1,7 +1,7 @@
 type BrewTankDescriptor = { tankType: "single" | "double" | "triple" };
 import type { BrewRecipe } from "./brewRecipe";
 import { sameBrewWaterSheetValue } from "./brewWaterReconciliation";
-import { normalizedBrewSheetTime } from "./brewSheetTimeRecovery";
+
 import type { IngredientDefinition } from "./ingredientLibrary";
 import {
   serverReadBrewSheetRange,
@@ -216,6 +216,16 @@ type SheetWrite = {
 };
 
 const sheetBaselines = new Map<string, Map<string, string>>();
+
+/** A timestamp is not a numeric quantity. Keep minutes in Sheet comparisons. */
+function normalizedBrewSheetTime(value: unknown): string | null {
+  const match = String(value ?? "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
 
 function normalizeSheetValue(value: SheetCellValue | undefined): string {
   const text = String(value == null ? "" : value).trim();
