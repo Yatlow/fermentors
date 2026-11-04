@@ -2,7 +2,7 @@ import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshol
 import { hasActualCooling } from "./neglectAfterCooling";
 import { isCompletedYeastDrop } from "./coolingYeastTiming";
 import { getFermentationEndPlatoLimit } from "./fermentationEndPlato";
-import type { SpecChart } from "../getAndPost/getSpecsFromFb";
+type SpecChart = Record<string, Record<string, number>>;
 export type PlatoForecastTank = BatchDryHopSettings & { id: string; tankNumber?: unknown; beerStyle?: unknown; stage?: { name?: string } | null };
 export type PlatoForecastReading = { id?: string | number | null; plato?: string | number | null; notes?: string | number | null };
 export type PlatoForecastSpecs = { tolorances?: Record<string, number>; fermentationEndPlato?: Record<string, number> };
