@@ -23,6 +23,7 @@ const tests = [
   "brew-validation-progress",
   "quick-report-pressure-default",
   "mash-water-sheet-row",
+  "brew-water-reconciliation",
   "brew-sync-guards",
   "brew-persistence-races",
   "cellaring-action-state-regression",
