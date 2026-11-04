@@ -567,3 +567,20 @@ test("one physical pressure action earns one entry and does not rewrite journal 
     assert.doesNotMatch(info, /handledPressureAfterCarb\s*\|\|/);
     assert.match(info, /hasTodayCarbonation \|\| hasExplicitCarbTestNote/);
 });
+
+
+test("completed pressure explanation identifies an invalid carbonation test without changing the journal", () => {
+    const engine = readFileSync(new URL("../src/SERVICES/cellering/calculateCelleringRecomendations.ts", import.meta.url), "utf8");
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    const quickReport = readFileSync(new URL("../src/components/dashboard/QuickTankReportBox.tsx", import.meta.url), "utf8");
+
+    assert.match(engine, /outOfSpec: completedCarbonationPressureSpec\?\.outOfSpec === true/);
+    assert.match(engine, /completedCarbonationPressureSpec\?\.outOfSpec \? "לא תקינה" : "תקינה"/);
+    assert.match(engine, /importance: completedCarbonationPressureSpec\?\.importance \?\? 1/);
+    assert.match(dashboard, /"שינוי לחץ לאחר בדיקת גיזוז לא תקינה"/);
+    assert.match(dashboard, /<strong>לא תקינה<\/strong>/);
+    assert.match(dashboard, /"שינוי לחץ לאחר בדיקת גיזוז"/);
+    // The note written to Google Sheets remains the original generic pressure action.
+    assert.match(quickReport, /case "לחץ": return \(direction === "" \|\| value === ""\) \? null :/);
+    assert.doesNotMatch(quickReport, /בעקבות בדיקת גיזוז לא תקינה/);
+});

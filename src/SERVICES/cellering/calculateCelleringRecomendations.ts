@@ -1314,14 +1314,16 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         Number(lastMeasurement?.temp) > 9 &&
         !isPressureOutOfRangeVal.onSpec;
 
+    const completedCarbonationPressureSpec = completedCarbonationPressure !== null
+        ? isCarbonationOutOfRange(completedCarbonationPressure, style, givenSpecs)
+        : null;
     const pressureAdjustmentHandledToday = {
         completed: stage.name === "קר" && completedCarbonationPressure !== null,
+        outOfSpec: completedCarbonationPressureSpec?.outOfSpec === true,
         reason: completedCarbonationPressure !== null
-            ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז (${completedCarbonationPressure})`
+            ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז ${completedCarbonationPressureSpec?.outOfSpec ? "לא תקינה" : "תקינה"} (${completedCarbonationPressure})`
             : "",
-        importance: completedCarbonationPressure !== null
-            ? isCarbonationOutOfRange(completedCarbonationPressure, style, givenSpecs).importance
-            : 1,
+        importance: completedCarbonationPressureSpec?.importance ?? 1,
     };
 
     const requiredPressureAdjustment = {

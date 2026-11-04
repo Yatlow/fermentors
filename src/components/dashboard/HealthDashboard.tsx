@@ -914,7 +914,9 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             );
                             addCompleted(
                                 `pressure-adjust-${tank.id}`,
-                                "שינוי לחץ לאחר בדיקת גיזוז",
+                                recommendations.pressureAdjustmentHandledToday.outOfSpec
+                                    ? "שינוי לחץ לאחר בדיקת גיזוז לא תקינה"
+                                    : "שינוי לחץ לאחר בדיקת גיזוז",
                                 importance,
                                 recommendations.pressureAdjustmentHandledToday.reason
                             );
@@ -1394,7 +1396,11 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             <div className="health-completed-actions-list">
                                 {analysis.completedActions.map((action) => (
                                     <div className="health-completed-action" key={action.id}>
-                                        <span>✓ מיכל {action.tankNumber} · {action.title}</span>
+                                        <span>
+                                            ✓ מיכל {action.tankNumber} · {action.title === "שינוי לחץ לאחר בדיקת גיזוז לא תקינה"
+                                                ? <>שינוי לחץ לאחר בדיקת גיזוז <strong>לא תקינה</strong></>
+                                                : action.title}
+                                        </span>
                                         <b>+{action.points}</b>
                                         {action.detail && <small>{action.detail}</small>}
                                     </div>
