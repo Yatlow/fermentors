@@ -3209,6 +3209,7 @@ export default function BrewFormStepper({
 
       nextExecution = withDefaultAmount(nextExecution, writes);
       setExecution(nextExecution);
+      publishRecordedProgress(nextExecution);
       await writeSheet(key, writes);
       return;
     }
@@ -3467,6 +3468,7 @@ export default function BrewFormStepper({
     );
 
     setExecution(nextExecution);
+    publishRecordedProgress(nextExecution);
     await writeSheet("boil.start", writes);
   }
 
@@ -3489,6 +3491,9 @@ export default function BrewFormStepper({
     await commit(key, value, [
       { range: stageCell(rowOffset, "E"), value },
     ]);
+    publishRecordedProgress(
+      setBrewingExecutionField(latestExecutionRef.current, currentBlock, key, value),
+    );
   }
 
   function hopDose(
@@ -3660,6 +3665,7 @@ export default function BrewFormStepper({
       wpEnd,
     );
     setExecution(nextExecution);
+    publishRecordedProgress(nextExecution);
     await writeSheet("endBoilTime", [
       { range: stageCell(38, "E"), value },
       { range: stageCell(38, "F"), value: wpEnd },
