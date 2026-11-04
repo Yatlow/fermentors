@@ -108,10 +108,10 @@ test("empty carbonation measurements do not count as earlier valid readings", ()
     ], today, inRange)?.direction, "lower");
 });
 
-test("first in-range recommendation describes the first arrival, not the first test", () => {
+test("first in-range milestone remains internal while operator sees current test status", () => {
     const engine = read("../src/SERVICES/cellering/calculateCelleringRecomendations.ts");
-    assert.match(engine, /הגיזוז הגיע לראשונה לטווח התקין/);
-    assert.doesNotMatch(engine, /בדיקת הגיזוז הראשונה בטווח התקין/);
+    assert.match(engine, /בדיקת הגיזוז האחרונה תקינה/);
+    assert.doesNotMatch(engine, /הגיזוז הגיע לראשונה לטווח התקין|בדיקת הגיזוז הראשונה בטווח התקין/);
     const earlierMeasurements = [
         carb("2026-10-25_0919", 2.29, 1.4),
         carb("2026-10-27_0823", 2.39, 1.15),
