@@ -268,9 +268,13 @@ function brewSheetReconcilePlan_(values, execution, batch) {
 
 function brewSheetReconcileApply_(sheet, plan, maxCells) {
   const stats = { repaired: 0, verified: 0, conflicts: 0, unmapped: plan.unmapped, errors: 0 };
-  const candidates = plan.candidates.slice(0, maxCells);
+  const candidates = plan.candidates;
   const changed = [];
   candidates.forEach(function (item) {
+    // Limit physical writes rather than first N *candidates*. A formula or a
+    // manually protected blank near the beginning must not starve a later
+    // valid HLT/temperature candidate forever.
+    if (stats.repaired >= maxCells) return;
     try {
       // Revalidate semantic label and value on the LIVE Sheet immediately
       // before writing; the planning snapshot might be stale.
@@ -296,13 +300,25 @@ function brewSheetReconcileApply_(sheet, plan, maxCells) {
   if (changed.length) SpreadsheetApp.flush();
   changed.forEach(function (item) {
     try {
-      const actual = brewSheetReconcileText_(sheet.getRange(item.row, item.column).getDisplayValue());
+      const checked = sheet.getRange(item.row, item.column);
+      const actual = brewSheetReconcileText_(checked.getDisplayValue());
       const expected = brewSheetReconcileText_(item.value);
-      const parse = function (value) {
-        return Number((value.match(/^-?\d+(?:[,.]\d+)?/) || [])[0]);
+      // Google Sheets can display a rounded value or add a custom °C/unit
+      // while retaining the correct numeric value. Prefer exact underlying
+      // numbers over the formatting used in getDisplayValue().
+      const stored = typeof checked.getValue === "function" ? checked.getValue() : actual;
+      const expectedNumber = typeof item.value === "number" ? item.value : NaN;
+      const matchingNumber = Number.isFinite(expectedNumber) &&
+        typeof stored === "number" && Number.isFinite(stored) &&
+        stored === expectedNumber;
+      const leadingNumber = function (value) {
+        const text = brewSheetReconcileText_(value).replace(/\s/g, "");
+        const match = /^-?\d+(?:\.\d+)?/.exec(text);
+        return match ? Number(match[0]) : NaN;
       };
-      if (actual === expected || (expected !== "" && Number.isFinite(parse(expected)) &&
-          Number.isFinite(parse(actual)) && parse(expected) === parse(actual))) {
+      if (actual === expected || matchingNumber ||
+          (Number.isFinite(expectedNumber) && Number.isFinite(leadingNumber(actual)) &&
+           leadingNumber(actual) === expectedNumber)) {
         stats.verified++;
       } else {
         stats.errors++;
