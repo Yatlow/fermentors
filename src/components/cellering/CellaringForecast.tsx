@@ -12,7 +12,7 @@ import {
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import { projectKnownYeastCompletions } from "../../SERVICES/cellering/yeastCompletionForecast";
 import { projectCarbonationRetest, projectNonHoppyWarmYeast } from "../../SERVICES/cellering/actionForecast";
-import { forecastRoutinesForDate, type ForecastRoutine } from "../../SERVICES/cellering/forecastRoutines";
+import { anticipatedColdTanksForSunday, forecastRoutinesForDate, type ForecastRoutine } from "../../SERVICES/cellering/forecastRoutines";
 import { localDateKey } from "../../SERVICES/dashboard/healthModel";
 import "./CellaringForecast.css";
 
@@ -142,12 +142,17 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
             const weekday = dayOfWeek(date);
             const nextWeek = addDays(date, 7 - weekday);
             const plannedNumbers = nextWeekTanks[nextWeek] ?? [];
-            // Sunday is a routine for every currently cold tank; Wednesday/Thursday
-            // follow committed packaging. Explicit/conditional actions win on
-            // the same date so the forecast does not count a physical action twice.
+            // Sunday includes currently cold tanks, plus a SEPARATE conditional
+            // projection for fermenting tanks with scheduled cooling or measured
+            // cooling-readiness expected before Sunday. Never treat readiness as
+            // evidence that cooling was performed.
+            const anticipatedCold = weekday === 0 ? anticipatedColdTanksForSunday({
+                today, sunday: date, tanks: active, scheduled, conditional,
+            }) : [];
             const routines = forecastRoutinesForDate({
                 date, weekday,
                 coldTankNumbers: coldTanks.map((tank) => String(tank.tankNumber)),
+                anticipatedColdTankNumbers: anticipatedCold,
                 nextWeekPackagingTankNumbers: plannedNumbers,
                 scheduled: scheduledRows,
                 conditional: conditionalRows,
@@ -173,6 +178,8 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                     {day.scheduledRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
                         <span className="cellar-forecast-type">מתוזמן</span>
                         <div><strong>מיכל {item.tankNumber}</strong> · {scheduledActionLabel(item.actionType)}
+                        {item.note?.trim() ? <span className="cellar-forecast-scheduled-note"> — {item.note}</span> :
+                            item.actionType === "other" ? <span className="cellar-forecast-scheduled-note"> — לא צוין פירוט</span> : null}
                         {item.dueDate < day.date && new Date(item.dueDate + "T12:00:00Z").getUTCDay() !== 6 ? <small> · באיחור מאז {item.dueDate}</small> : null}</div>
                     </div>)}
                     {day.conditionalRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
@@ -183,8 +190,12 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                         <small className="cellar-forecast-basis">{item.basis}</small></div>
                     </div>)}
                     {day.routines.map((item) => <div className="cellar-forecast-item" key={item.id}>
-                        <span className="cellar-forecast-type cellar-forecast-routine">{item.source === "sunday" ? "שגרת ראשון" : "לפי תכנון"}</span>
-                        <div><strong>מיכל {item.tankNumber}</strong> · {item.title}{item.source === "packaging" ? " לפני אריזת השבוע הבא" : ""}</div>
+                        <span className={"cellar-forecast-type " + (item.source === "sunday-predicted-cold" ? "cellar-forecast-conditional" : "cellar-forecast-routine")}>
+                            {item.source === "sunday" ? "שגרת ראשון" : item.source === "sunday-predicted-cold" ? "מותנה בקירור" : "לפי תכנון"}
+                        </span>
+                        <div><strong>מיכל {item.tankNumber}</strong> · {item.title}{item.source === "packaging" ? " לפני אריזת השבוע הבא" : ""}
+                            {item.source === "sunday-predicted-cold" ? <small className="cellar-forecast-basis">שגרת יום ראשון, רק אם המיכל יקורר בפועל לפני יום ראשון</small> : null}
+                        </div>
                     </div>)}
                 </div>
             </section>)}
