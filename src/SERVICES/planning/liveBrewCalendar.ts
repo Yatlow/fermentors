@@ -1,4 +1,5 @@
 import { parseDate, weekStart, type BrewPlan } from "./planningEngine";
+import { hasCredibleLiveBrewProgress, type BrewProgressLike } from "../brewing/brewProgressDisplay";
 
 export type CalendarBrewSource = {
   id: string;
@@ -9,6 +10,7 @@ export type CalendarBrewSource = {
   beerVolume?: string | number | null;
   batchNumber?: string | number | null;
   tankStatus?: boolean | null;
+  brewProgress?: BrewProgressLike;
 };
 
 export type LiveBrewCalendarEntry = {
@@ -18,6 +20,8 @@ export type LiveBrewCalendarEntry = {
   date: string;
   liters: number;
   batchNumber: string;
+  /** Display-only: date inferred from current progress until it is saved. */
+  dateUnverified?: boolean;
 };
 
 const norm = (value: unknown) => String(value ?? "").replace(/^#/, "").trim();
@@ -37,10 +41,18 @@ export function sourceBrewCalendarEntries(
   const seen = new Set<string>();
   const result: LiveBrewCalendarEntry[] = [];
   for (const source of sources) {
-    const date = parseDate(source.brewDate ?? "");
+    const action = Number(source.action);
+    const liveProgress = action === 0 && hasCredibleLiveBrewProgress(source.brewProgress);
+    const recordedDate = parseDate(source.brewDate ?? "");
+    // ACTION-0 brewing can advance before the date is synchronized. Only
+    // credible in-progress stage data can show a provisional entry for today.
+    // Never substitute today for a malformed or historical recorded date.
+    const dateUnverified = !recordedDate && !String(source.brewDate ?? "").trim() && liveProgress;
+    const date = recordedDate ?? (dateUnverified ? today : null);
     if (!date || date < today || weekStart(date) !== week ||
-        (Number(source.action) !== 0 && Number(source.action) !== 1) ||
-        source.tankStatus === true || !source.beerStyle || !source.batchNumber ||
+        (action !== 0 && action !== 1) ||
+        (source.tankStatus === true && !liveProgress) ||
+        !source.beerStyle || !source.batchNumber ||
         Number(source.tankNumber) === 1) continue;
 
     const number = norm(source.tankNumber || source.id);
@@ -62,6 +74,7 @@ export function sourceBrewCalendarEntries(
       date,
       liters: Math.max(0, Number(source.beerVolume) || 0),
       batchNumber: batch,
+      ...(dateUnverified ? { dateUnverified: true } : {}),
     });
   }
   return result.sort((a,b) => a.date.localeCompare(b.date) ||

@@ -519,3 +519,64 @@ test("weekly recommendation is capped at 131 crates when stout physical volume i
   });
   assert.equal(model.packagingRecommendation.find((r) => r.tankNumber === "3")?.quantity, 131);
 });
+
+test("Gantt: winter batch 1600 twenty special kegs are actual only, not also planned", () => {
+  const plan: WeekPlan = { ...week(), id: "2026-11-01", packaging: [
+    { id: "winter-20", productId: "", nonInventoryStyle: "חורף", nonInventoryType: "kegs",
+      tankId: "tank-6", tankNumber: "6", batchNumber: "1600", quantity: 20 },
+    { id: "winter-154", productId: "winter-crates", quantity: 154,
+      tankId: "tank-6", tankNumber: "6", batchNumber: "1600" },
+  ] };
+  const productsForWinter: Settings["products"] = [{
+    id: "winter-crates", sku: "winter-crates", style: "חורף", type: "crates",
+    monthly: 0, tempo: 0, tempoDate: "2026-11-04", leadDays: 21,
+  }];
+  const actuals: Actual[] = [{ id: "winter-keg-report", date: "2026-11-04",
+    beerStyle: "חורף", packagingType: "kegs", quantity: 20,
+    tankNumber: "6", batchNumber: "1600" }];
+  const sources = [{ id: "tank-6", tankNumber: 6, batchNumber: "1600", action: 1 }];
+  const pending = pendingPackagingDecisions(plan, productsForWinter, actuals, sources);
+  assert.deepEqual(pending.map((run) => run.id), ["winter-154"],
+    "the 20 winter kegs are shown only as the actual packaging report");
+  const saved = mergeCompletedPackagingBack(plan, plan, productsForWinter, actuals, sources);
+  assert.equal(saved.packaging.filter((run) => run.id === "winter-20").length, 1,
+    "preserve the completed row once on an unrelated planning save");
+  const savedTwice = mergeCompletedPackagingBack(saved, saved, productsForWinter, actuals, sources);
+  assert.deepEqual(savedTwice.packaging, saved.packaging, "replanning must be idempotent");
+});
+
+test("Gantt: special beer matching is by physical tank + batch and subtracts only actual units", () => {
+  const original: WeekPlan = { ...week(), id: "2026-11-01", packaging: [
+    { id: "winter-20", productId: "", nonInventoryStyle: "חורף", nonInventoryType: "kegs",
+      tankId: "tank-6", tankNumber: "6", batchNumber: "1600", quantity: 20 },
+  ] };
+  const actual = (id: string, tankNumber: string, batchNumber: string, quantity: number): Actual => ({
+    id, date: "2026-11-04", beerStyle: "חורף", packagingType: "kegs",
+    tankNumber, batchNumber, quantity,
+  });
+  assert.equal(pendingPackagingDecisions(original, products, [
+    actual("correct", "6", "1600", 8),
+  ], [])[0]?.quantity, 12);
+  for (const wrong of [
+    actual("wrong-batch", "6", "1599", 20),
+    actual("wrong-tank", "7", "1600", 20),
+    { ...actual("wrong-format", "6", "1600", 20), packagingType: "bottles" },
+    { ...actual("unidentified", "6", "1600", 20), batchNumber: undefined },
+  ]) {
+    assert.equal(pendingPackagingDecisions(original, products, [wrong], [])[0]?.quantity, 20);
+  }
+});
+
+test("Gantt: an executed special report cannot complete two matching planned rows", () => {
+  const run = { id: "winter-a", productId: "", nonInventoryStyle: "חורף",
+    nonInventoryType: "kegs" as const, tankNumber: "6", batchNumber: "1600", quantity: 20 };
+  const plan: WeekPlan = { ...week(), id: "2026-11-01",
+    packaging: [run, { ...run, id: "winter-b" }] };
+  const actuals: Actual[] = [{
+    id: "once", date: "2026-11-04", beerStyle: "חורף",
+    packagingType: "kegs", tankNumber: "6", batchNumber: "1600", quantity: 20,
+  }];
+  const pending = pendingPackagingDecisions(plan, products, actuals, []);
+  assert.deepEqual(pending.map((item) => item.id), ["winter-b"]);
+  assert.equal(pending.reduce((sum, item) => sum + item.quantity, 0), 20);
+});

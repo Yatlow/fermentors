@@ -74,6 +74,46 @@ function reportsForPhysicalRun(
 }
 
 /**
+ * Special/seasonal packaging (for example winter kegs) has no inventory SKU,
+ * so openRuns intentionally excludes it. Reconcile these decisions against
+ * physical packaging reports by tank + batch + type instead of leaving every
+ * such row permanently pending in the Gantt.
+ *
+ * Reports are consumed at most once across all matching special decisions.
+ * An unidentified report never completes a special run by style alone.
+ */
+function specialPackagingRemaining(
+  allPlans: WeekPlan[],
+  products: Product[],
+  actuals: Actual[],
+  sources: PackagingSource[],
+): Map<string, number> {
+  const leftByActual = new Map<string, number>();
+  const remaining = new Map<string, number>();
+  const ordered = [...allPlans].sort((a, b) => a.id.localeCompare(b.id))
+    .flatMap((week) => week.packaging.map((run, index) => ({ week, run, index })))
+    .filter(({ run }) => !!run.nonInventoryStyle && !!run.nonInventoryType &&
+      !products.some((product) => product.id === run.productId))
+    .sort((a, b) => a.week.id.localeCompare(b.week.id) ||
+      (a.run.date ?? "9999").localeCompare(b.run.date ?? "9999") ||
+      String(a.run.id ?? a.index).localeCompare(String(b.run.id ?? b.index)));
+  for (const { week, run, index } of ordered) {
+    let outstanding = Math.max(0, run.quantity);
+    for (const { actual } of reportsForPhysicalRun(week, run, products, actuals, sources)) {
+      const units = Math.max(0, Number(actual.quantity) || 0) /
+        (run.nonInventoryType === "crates" && actual.unit === "בקבוקים" ? 24 : 1);
+      const available = leftByActual.get(actual.id) ?? units;
+      const fulfilled = Math.min(outstanding, available);
+      outstanding -= fulfilled;
+      leftByActual.set(actual.id, available - fulfilled);
+      if (outstanding <= 0) break;
+    }
+    remaining.set(openRunKey(week, run, index), outstanding);
+  }
+  return remaining;
+}
+
+/**
  * The calendar editor contains only remaining decisions. Actual quantities
  * are rendered separately from packagingLog on their real execution date.
  * Once a tank/batch is physically closed, its unproduced estimate is not an
@@ -89,11 +129,9 @@ export function pendingPackagingDecisions(
   // Keep one global physical-report pool across planned weeks. Running one
   // openRuns([week]) per card silently assigned the same packaging report to
   // several weeks after a reschedule.
-  const remaining = new Map(openRuns(allPlans, products, actuals)
-    .filter((run) => run.week === week.id)
-    .map((run) => [run.key, run.remaining]));
+  const completed = completionMap(week, products, actuals, allPlans, sources);
   return week.packaging.flatMap((run, index) => {
-    const qty = remaining.get(openRunKey(week, run, index)) ?? run.quantity;
+    const qty = completed.get(openRunKey(week, run, index))?.remaining ?? run.quantity;
     if (qty <= 0) return [];
     if (sourceShowsTankClosed(run, sourceForRun(run, sources)) &&
       reportsForPhysicalRun(week, run, products, actuals, sources).length > 0) return [];
@@ -106,12 +144,18 @@ function completionMap(
   products: Product[],
   actuals: Actual[],
   allPlans: WeekPlan[] = [week],
+  sources: PackagingSource[] = [],
 ) {
-  return new Map(
+  const completed = new Map<string, { remaining: number }>(
     openRuns(allPlans, products, actuals)
       .filter((run) => run.week === week.id)
-      .map((run) => [run.key, run] as const),
+      .map((run) => [run.key, { remaining: run.remaining }] as const),
   );
+  for (const [key, remaining] of specialPackagingRemaining(allPlans, products, actuals, sources)) {
+    if (week.packaging.some((run, index) => openRunKey(week, run, index) === key))
+      completed.set(key, { remaining });
+  }
+  return completed;
 }
 
 function actualCompletedForRun(
@@ -138,7 +182,7 @@ export function plansAfterActualPackagingCompletion(
   sources: PackagingSource[],
 ): WeekPlan[] {
   return plans.map((week) => {
-    const completed = completionMap(week, products, actuals, plans);
+    const completed = completionMap(week, products, actuals, plans, sources);
     return {
       ...week,
       packaging: week.packaging.map((run, index) => {
@@ -168,7 +212,7 @@ export function mergeCompletedPackagingBack(
   sources: PackagingSource[],
   allPlans: WeekPlan[] = [original],
 ): WeekPlan {
-  const open = completionMap(original, products, actuals, allPlans);
+  const open = completionMap(original, products, actuals, allPlans, sources);
   const preserved: Plan[] = [];
   const pending = edited.packaging.map((run) => ({ ...run }));
   const consumed = new Set<number>();
