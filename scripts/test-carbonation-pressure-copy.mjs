@@ -5,6 +5,7 @@ import { test } from "node:test";
 const read = (file) => readFileSync(new URL(file, import.meta.url), "utf8");
 const engine = read("../src/SERVICES/cellering/calculateCelleringRecomendations.ts");
 const dashboard = read("../src/components/dashboard/HealthDashboard.tsx");
+const titleFormatter = read("../src/SERVICES/dashboard/cellarRecommendationTitles.ts");
 const styles = read("../src/components/dashboard/HealthDashboard.css");
 
 test("pressure advice identifies the CURRENT bad carbonation test, not a historical milestone", () => {
@@ -19,10 +20,11 @@ test("pressure advice identifies the CURRENT bad carbonation test, not a histori
   assert.match(engine, /pressureChoice: beforeFirstInRangeCarbonation \|\| firstInRangeAdvice !== null/);
 });
 
-test("out-of-spec pressure recommendation shows explicit bad-test title", () => {
-  assert.match(dashboard, /recommendation\.recommendationKey === "pressureAdjustment" &&\s*recommendation\.carbonationTestOutOfSpec/);
-  assert.match(dashboard, /מיכל \$\{number\}: בדיקת גיזוז לא תקינה/);
+test("out-of-spec pressure recommendation preserves explicit bad-test context in title and detail", () => {
+  assert.match(dashboard, /title: cellarRecommendationTitle\(/);
   assert.match(dashboard, /carbonationTestOutOfSpec: recommendation\.carbonationTestOutOfSpec/);
+  assert.match(titleFormatter, /input\.carbonationTestOutOfSpec/);
+  assert.match(titleFormatter, /המלצה לשינוי לחץ לאחר בדיקת גיזוז לא תקינה/);
 });
 
 test("pressure hold retains its exact original appearance, label and action", () => {
