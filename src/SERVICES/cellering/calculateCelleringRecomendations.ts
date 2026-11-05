@@ -3,6 +3,7 @@ import { getPlannedPackagingContainerNumbers } from "../../components/reports/Pa
 import { getBrewAge } from "../../components/dashboard/TankCard";
 import { type SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { TankStageInfo } from "../dashboard/tankstage";
+import type { CellarTitleVariant } from "../dashboard/cellarRecommendationTitles";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
 import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshold";
 import { shouldShowNeglectedTank } from "./neglectWeekday";
@@ -651,6 +652,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     let requiresWarmYeastDrop = {
         display: true,
+        titleVariant: undefined as CellarTitleVariant | undefined,
         req: false,
         reason: undefined as string | undefined,
         importance: 1
@@ -737,6 +739,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             };
         }
     }
+    requiresWarmYeastDrop.titleVariant = isHoppy ? "afterDryHop" : "warmFermentation";
     const CoolAge =
         CooldDate !== null
             ? getDaysSinceDate(CooldDate)
@@ -780,6 +783,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     const requiersYeastDropAfterCooling = {
         display: true,
+        titleVariant: needsSecondDropAfterSunday ? "additionalAfterSunday" as const : "afterCooling" as const,
         req: needsFirstColdYeastDrop || needsSecondDropAfterSunday,
         reason: needsSecondDropAfterSunday
             ? firstColdYeastAge! > 2
@@ -822,6 +826,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const tookCare = Boolean(carbRes) && pressureHandledToday;
     let requiresCarbTest = {
         display: false,
+        titleVariant: undefined as CellarTitleVariant | undefined,
         req: false,
         reason: undefined as string | undefined,
         importance: 1,
@@ -851,6 +856,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     ) {
         requiresCarbTest.display = true;
         requiresCarbTest.req = true;
+        requiresCarbTest.titleVariant = CoolAge > 1 ? "firstAfterCoolingOverdue" : "firstAfterCooling";
         requiresCarbTest.reason = CoolAge > 1
             ? `בדיקת הגיזוז הראשונה שהומלצה יום אחרי הקירור התפספסה לפני ${CoolAge - 1} ימים- מומלץ לבצע היום ולפתוח ברזי גליקול`
             : "מומלץ לבצע בדיקת גיזוז ולפתוח ברזי גליקול- (יום אחרי קירור)";
@@ -938,7 +944,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         if (stage.name === "קר" && (corrected === 4) && tankNumber && nextWeekPack.includes(tankNumber) && carbRes === null) {
             requiresCarbTest.display = true,
                 requiresCarbTest.req = true;
-            requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. מומלץ לבצע בדיקת גיזוז`
+            requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. מומלץ לבצע בדיקת גיזוז`;
+            requiresCarbTest.titleVariant = "prePackaging";
             requiresCarbTest.importance = 1;
         }
         if (stage.name === "קר" && (corrected === 5) && tankNumber && nextWeekPack.includes(tankNumber) && carbRes === null) {
@@ -947,7 +954,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
                 requiresCarbTest.display = true,
                     requiresCarbTest.req = true;
-                requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. אתמול לא בוצעה בדיקת גיזוז. מומלץ לבצע בדיקת גיזוז`
+                requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. אתמול לא בוצעה בדיקת גיזוז. מומלץ לבצע בדיקת גיזוז`;
+                requiresCarbTest.titleVariant = "prePackaging";
                 requiresCarbTest.importance = 1;
             }
         }
@@ -958,7 +966,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
                 requiresCarbTest.display = true,
                     requiresCarbTest.req = true;
-                requiresCarbTest.reason = `היום יום ראשון- ולכן אתמול לא בוצע למיכל בדיקת גיזוז ראשונה אחרי קירור, מומלץ לבצע היום בדיקת גיזוז (ראשונה אחרי קירור) ולפתוח ברזי גליקול`
+                requiresCarbTest.reason = `היום יום ראשון- ולכן אתמול לא בוצע למיכל בדיקת גיזוז ראשונה אחרי קירור, מומלץ לבצע היום בדיקת גיזוז (ראשונה אחרי קירור) ולפתוח ברזי גליקול`;
+                requiresCarbTest.titleVariant = "firstAfterCoolingOverdue";
                 requiresCarbTest.importance = 1;
             }
         }
@@ -1013,6 +1022,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     requiresCarbTest.display = true;
                     requiresCarbTest.reason =
                         `הגיזוז האחרון שנמדד לא תקין (${lastCarbonationMeasurement.carbonation})- לא נמדד גיזוז יותר מיומיים, מומלץ לבצע בדיקת גיזוז חוזרת`;
+                    requiresCarbTest.titleVariant = "retest";
 
                     requiresCarbTest.importance =
                         lastCarbonationSpec.importance;
@@ -1045,6 +1055,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     requiresCarbTest.req = true;
                     requiresCarbTest.display = true;
                     requiresCarbTest.importance = lastCarbSpec.importance;
+                    requiresCarbTest.titleVariant = retestPolicy.waitReason === "ordinary_pressure"
+                        ? "retestAfterPressureChange"
+                        : retestPolicy.waitReason === "bottom_carbonation"
+                            ? "retestAfterBottomCarbonation"
+                            : "retest";
 
                     const retestReason = carbonationRetestDueReason(retestPolicy) ??
                         `בדיקת הגיזוז האחרונה לא היתה תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
@@ -1073,6 +1088,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 }
             }
         }
+    }
+    // All visible carbonation alerts have a reliable subtype, even for legacy
+    // paths that did not set one explicitly.
+    if (requiresCarbTest.req && !requiresCarbTest.titleVariant) {
+        requiresCarbTest.titleVariant = hasCarbonationAfterCooling ? "retest" : "firstAfterCooling";
     }
     // Thursday planning action is driven by next week's committed packaging,
     // not by the current fermentation stage. A tank scheduled to empty next
@@ -1328,6 +1348,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     const requiredPressureAdjustment = {
         display: true,
+        titleVariant: firstInRangeAdvice ? "firstInRange" as const
+            : coldCarbNeedsPressureAdjustment ? "outOfSpec" as const : "ventAdjust" as const,
         req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment || firstInRangeAdvice !== null,
         // Keep the legacy recommendation key (and today's ignore decisions)
         // but explicitly distinguish raising/lowering pressure from vent tuning.
