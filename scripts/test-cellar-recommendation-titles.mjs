@@ -94,10 +94,10 @@ test("cooling caveats stay visibly non-actionable", () => {
 test("title depends on structured evidence, never reason copy", () => {
     const engine = readFileSync(new URL("../src/SERVICES/cellering/calculateCelleringRecomendations.ts", import.meta.url), "utf8");
     const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
-    assert.match(engine, /retestPolicy\\.waitReason === "ordinary_pressure"/);
-    assert.match(engine, /retestPolicy\\.waitReason === "bottom_carbonation"/);
-    assert.match(engine, /requiresCarbTest\\.titleVariant = CoolAge > 1/);
-    assert.match(engine, /requiresWarmYeastDrop\\.titleVariant = isHoppy/);
-    assert.match(dashboard, /title: cellarRecommendationTitle\\(/);
-    assert.match(dashboard, /titleVariant: row\\.titleVariant/);
+    assert.ok(engine.includes('retestPolicy.waitReason === "ordinary_pressure"'));
+    assert.ok(engine.includes('retestPolicy.waitReason === "bottom_carbonation"'));
+    assert.ok(engine.includes("requiresCarbTest.titleVariant = CoolAge > 1"));
+    assert.ok(engine.includes("requiresWarmYeastDrop.titleVariant = isHoppy"));
+    assert.ok(dashboard.includes("title: cellarRecommendationTitle("));
+    assert.ok(dashboard.includes("titleVariant: row.titleVariant"));
 });
