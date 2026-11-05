@@ -879,16 +879,12 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                         );
 
                         scheduledCompletedForDisplay.forEach((row) => {
-                            const isDecision = row.source === "user" || row.actionType === "pressureChange";
+                            // Completed legacy schedule entries are brewer decisions too.
                             addCompleted(
                                 `scheduled-${row.id}`,
                                 scheduledActionLabel(row.actionType),
                                 1,
-                                isDecision
-                                    ? `בוצע לפי החלטת סלרינג${row.note ? ` · ${row.note}` : ""}`
-                                    : row.note
-                                        ? `בוצע לפי המלצה מתוזמנת · ${row.note}`
-                                        : "בוצע לפי המלצה מתוזמנת"
+                                `בוצע לפי החלטת סלרינג${row.note ? ` · ${row.note}` : ""}`
                             );
                         });
 
