@@ -555,6 +555,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                         req: true,
                                         display: true,
                                         importance: row.importance,
+                                        titleVariant: row.titleVariant,
                                         reason: row.detail,
                                     },
                                 })),
