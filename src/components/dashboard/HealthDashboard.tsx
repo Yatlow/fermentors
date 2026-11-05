@@ -13,6 +13,7 @@ import {
     type Measurement,
 } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import { bottomCarbonationRecommendation } from "../../SERVICES/cellering/bottomCarbonation";
+import { cellarRecommendationTitle, type CellarTitleVariant } from "../../SERVICES/dashboard/cellarRecommendationTitles";
 import { hasActualCooling } from "../../SERVICES/cellering/neglectAfterCooling";
 import { isCompletedYeastDrop } from "../../SERVICES/cellering/coolingYeastTiming";
 import {
@@ -83,6 +84,8 @@ type HealthAlert = {
 };
 
 type Recommendation = {
+    titleVariant?: CellarTitleVariant;
+    scheduledNote?: string;
     actionType?: ScheduledCellarActionType | "ventAdjust";
     pressureDirection?: PressureChangeDirection;
     targetPressure?: number;
@@ -552,6 +555,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                         req: true,
                                         display: true,
                                         importance: row.importance,
+                                        titleVariant: row.titleVariant,
                                         reason: row.detail,
                                     },
                                 })),
@@ -783,6 +787,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                     pressureDirection: row.actionType === "pressureChange" ? row.pressureDirection : undefined,
                                     targetPressure: row.actionType === "pressureChange" ? row.targetPressure : undefined,
                                     userDecision: row.source === "user" || row.actionType === "pressureChange",
+                                    scheduledNote: row.note,
                                     reason: conflict || (
                                         row.source === "user" || row.actionType === "pressureChange"
                                             ? `החלטת סלרינג: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`
@@ -803,14 +808,18 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             tankAlerts.push({
                                 id: `recommendation-${tank.id}-${recommendation.recommendationKey}`,
                                 severity: recommendationSeverity(importance),
-                                title: recommendation.reviewOnly
-                                    ? `מיכל ${number}: סייג לפני קירור`
-                                    : recommendation.userDecision
-                                        ? `מיכל ${number}: החלטת סלרינג`
-                                        : recommendation.recommendationKey === "pressureAdjustment" &&
-                                          recommendation.carbonationTestOutOfSpec
-                                            ? `מיכל ${number}: בדיקת גיזוז לא תקינה`
-                                            : `מיכל ${number}: המלצת סלרינג`,
+                                title: cellarRecommendationTitle({
+                                    tankNumber: number,
+                                    recommendationKey: recommendation.recommendationKey,
+                                    titleVariant: recommendation.titleVariant,
+                                    actionType: recommendation.actionType,
+                                    userDecision: recommendation.userDecision,
+                                    pressureDirection: recommendation.pressureDirection,
+                                    pressureSuggestion: recommendation.pressureSuggestion,
+                                    carbonationTestOutOfSpec: recommendation.carbonationTestOutOfSpec,
+                                    reviewOnly: recommendation.reviewOnly,
+                                    scheduledNote: recommendation.scheduledNote,
+                                }),
                                 detail: recommendation.reason || "נדרשת פעולת סלרינג.",
                                 tankNumber: number,
                                 batchNumber: String(tank.batchNumber),
