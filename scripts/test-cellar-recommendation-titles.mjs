@@ -143,6 +143,8 @@ test("dashboard and forecast distinguish scheduled decisions from calculated for
     assert.match(dashboard, /recommendationKey: `scheduled-\$\{row\.id\}`/);
     assert.match(dashboard, /userDecision: true,/);
     assert.ok(!dashboard.includes('row.source === "user" || row.actionType === "pressureChange"'));
+    assert.match(dashboard, /בוצע לפי החלטת סלרינג/);
+    assert.ok(!dashboard.includes("בוצע לפי המלצה מתוזמנת"));
     assert.match(forecast, /<span className="cellar-forecast-type">החלטת סלרינג<\/span>/);
     assert.match(forecast, /cellar-forecast-conditional/);
     assert.match(schedule, /const sourceFields = \{ source: "user" as const \};/);
