@@ -39,12 +39,12 @@ function scheduledTitle(input: CellarRecommendationTitleInput): string {
     switch (input.actionType) {
         case "carbTest": return prefix + "בדיקת גיזוז" + suffix;
         case "yeastDrop": return prefix + "הורדת שמרים" + suffix;
-        case "coolDown": return prefix + "קירור" + suffix;
-        case "bottomCarbonation": return prefix + "גיזוז מלמטה" + suffix;
+        case "coolDown": return prefix + "קירור" + (decision ? "" : " מתוזמן");
+        case "bottomCarbonation": return prefix + "גיזוז מלמטה" + (decision ? "" : " מתוזמן");
         case "pressureChange": {
             const change = input.pressureDirection === "raise" ? "העלאת לחץ"
                 : input.pressureDirection === "lower" ? "הורדת לחץ" : "שינוי לחץ";
-            return prefix + change + suffix;
+            return prefix + change + (decision ? "" : " מתוזמן");
         }
         case "other": {
             const note = input.scheduledNote?.trim();
