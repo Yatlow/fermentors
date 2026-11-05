@@ -27,7 +27,7 @@ test("natural recommendations have action-specific titles", () => {
         ["bottomCarbonation", "המלצה להתחלת גיזוז מלמטה"],
         ["bottomCarbonationFollowUp", "המלצה לסגירת גיזוז מלמטה"],
         ["diacetylRest", "המלצה לביצוע מנוחת דיאצטיל"],
-        ["neglectedStatus", "נדרשת תשומת לב"],
+        ["neglectedStatus", "המלצה לבדיקת מצב המיכל"],
         ["coolDown", "המלצה להתחלת קירור"],
     ];
     for (const [key, expected] of pairs) {
@@ -45,10 +45,10 @@ test("yeast timing remains distinguishable", () => {
 test("first, overdue, repeated, treated and packaging carbonation tests differ", () => {
     const pairs = [
         ["firstAfterCooling", "המלצה לבדיקת גיזוז ראשונה אחרי קירור"],
-        ["firstAfterCoolingOverdue", "בדיקת גיזוז ראשונה באיחור"],
+        ["firstAfterCoolingOverdue", "המלצה לבדיקת גיזוז ראשונה באיחור"],
         ["retest", "המלצה לבדיקת גיזוז חוזרת"],
-        ["retestAfterPressureChange", "בדיקת גיזוז חוזרת אחרי שינוי לחץ"],
-        ["retestAfterBottomCarbonation", "בדיקת גיזוז חוזרת אחרי גיזוז מלמטה"],
+        ["retestAfterPressureChange", "המלצה לבדיקת גיזוז חוזרת אחרי שינוי לחץ"],
+        ["retestAfterBottomCarbonation", "המלצה לבדיקת גיזוז חוזרת אחרי גיזוז מלמטה"],
         ["prePackaging", "המלצה לבדיקת גיזוז לפני אריזה"],
     ];
     for (const [titleVariant, expected] of pairs) {
@@ -72,13 +72,13 @@ test("pressure status and pressure direction remain distinct", () => {
 
 test("scheduled actions and user decisions preserve provenance", () => {
     assert.equal(format("scheduled-abc", { actionType: "carbTest" }),
-        "מיכל 7: בדיקת גיזוז מתוזמנת");
+        "מיכל 7: המלצה מתוזמנת לבדיקת גיזוז");
     assert.equal(format("scheduled-abc", { actionType: "yeastDrop" }),
-        "מיכל 7: הורדת שמרים מתוזמנת");
+        "מיכל 7: המלצה מתוזמנת להורדת שמרים");
     assert.equal(format("scheduled-abc", { actionType: "coolDown" }),
-        "מיכל 7: קירור מתוזמן");
+        "מיכל 7: המלצה מתוזמנת לקירור");
     assert.equal(format("scheduled-abc", { actionType: "bottomCarbonation" }),
-        "מיכל 7: גיזוז מלמטה מתוזמן");
+        "מיכל 7: המלצה מתוזמנת לגיזוז מלמטה");
     assert.equal(format("scheduled-abc", { actionType: "pressureChange", userDecision: true, pressureDirection: "raise" }),
         "מיכל 7: החלטת סלרינג – העלאת לחץ");
     assert.equal(format("scheduled-abc", { actionType: "pressureChange", userDecision: true, pressureDirection: "lower" }),
@@ -89,6 +89,40 @@ test("scheduled actions and user decisions preserve provenance", () => {
 
 test("cooling caveats stay visibly non-actionable", () => {
     assert.equal(format("coolDown", { reviewOnly: true }), "מיכל 7: סייג לפני קירור");
+});
+
+
+test("every system recommendation starts with המלצה after the tank number", () => {
+    const naturalKeys = [
+        "dryHop", "pressureClose", "warmYeastDrop", "warmYeastDropCompletion",
+        "yeastDropAfterCooling", "coldYeastDropCompletion", "wedYeastDropOnThu",
+        "carbTest", "bottomCarbonation", "bottomCarbonationFollowUp",
+        "diacetylRest", "neglectedStatus", "coolDown", "pressureAdjustment",
+        "anUnrecognizedRecommendation",
+    ];
+    for (const recommendationKey of naturalKeys) {
+        assert.match(format(recommendationKey), /^מיכל 7: המלצה(?: |$)/, recommendationKey);
+    }
+    for (const titleVariant of [
+        "firstAfterCooling", "firstAfterCoolingOverdue", "retest", "retestAfterPressureChange",
+        "retestAfterBottomCarbonation", "prePackaging",
+    ]) {
+        assert.match(format("carbTest", { titleVariant }), /^מיכל 7: המלצה(?: |$)/, titleVariant);
+    }
+    for (const actionType of [
+        "carbTest", "yeastDrop", "coolDown", "bottomCarbonation", "pressureChange", "other", "unknown",
+    ]) {
+        assert.match(format("scheduled-test", { actionType }), /^מיכל 7: המלצה(?: |$)/, actionType);
+    }
+    assert.equal(format("scheduled-test", { actionType: "pressureChange", pressureDirection: "raise" }),
+        "מיכל 7: המלצה מתוזמנת להעלאת לחץ");
+    assert.equal(format("scheduled-test", { actionType: "other", scheduledNote: "בדיקת ריח" }),
+        "מיכל 7: המלצה מתוזמנת – בדיקת ריח");
+    // Source-of-truth exceptions: factual warning and user-authored decisions
+    // are deliberately not mislabelled as automatic recommendations.
+    assert.equal(format("coolDown", { reviewOnly: true }), "מיכל 7: סייג לפני קירור");
+    assert.equal(format("scheduled-test", { actionType: "yeastDrop", userDecision: true }),
+        "מיכל 7: החלטת סלרינג – הורדת שמרים");
 });
 
 test("title depends on structured evidence, never reason copy", () => {
