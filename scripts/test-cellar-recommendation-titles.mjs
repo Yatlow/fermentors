@@ -70,15 +70,15 @@ test("pressure status and pressure direction remain distinct", () => {
         "מיכל 7: המלצה להורדת לחץ");
 });
 
-test("scheduled actions and user decisions preserve provenance", () => {
+test("persisted scheduled actions are brewer decisions, including legacy rows", () => {
     assert.equal(format("scheduled-abc", { actionType: "carbTest" }),
-        "מיכל 7: המלצה מתוזמנת לבדיקת גיזוז");
+        "מיכל 7: החלטת סלרינג – בדיקת גיזוז");
     assert.equal(format("scheduled-abc", { actionType: "yeastDrop" }),
-        "מיכל 7: המלצה מתוזמנת להורדת שמרים");
+        "מיכל 7: החלטת סלרינג – הורדת שמרים");
     assert.equal(format("scheduled-abc", { actionType: "coolDown" }),
-        "מיכל 7: המלצה מתוזמנת לקירור");
+        "מיכל 7: החלטת סלרינג – קירור");
     assert.equal(format("scheduled-abc", { actionType: "bottomCarbonation" }),
-        "מיכל 7: המלצה מתוזמנת לגיזוז מלמטה");
+        "מיכל 7: החלטת סלרינג – גיזוז מלמטה");
     assert.equal(format("scheduled-abc", { actionType: "pressureChange", userDecision: true, pressureDirection: "raise" }),
         "מיכל 7: החלטת סלרינג – העלאת לחץ");
     assert.equal(format("scheduled-abc", { actionType: "pressureChange", userDecision: true, pressureDirection: "lower" }),
@@ -112,17 +112,41 @@ test("every system recommendation starts with המלצה after the tank number",
     for (const actionType of [
         "carbTest", "yeastDrop", "coolDown", "bottomCarbonation", "pressureChange", "other", "unknown",
     ]) {
-        assert.match(format("scheduled-test", { actionType }), /^מיכל 7: המלצה(?: |$)/, actionType);
+        assert.match(format("scheduled-test", { actionType }), /^מיכל 7: החלטת סלרינג(?: | – )/, actionType);
     }
     assert.equal(format("scheduled-test", { actionType: "pressureChange", pressureDirection: "raise" }),
-        "מיכל 7: המלצה מתוזמנת להעלאת לחץ");
+        "מיכל 7: החלטת סלרינג – העלאת לחץ");
     assert.equal(format("scheduled-test", { actionType: "other", scheduledNote: "בדיקת ריח" }),
-        "מיכל 7: המלצה מתוזמנת – בדיקת ריח");
+        "מיכל 7: החלטת סלרינג – בדיקת ריח");
     // Source-of-truth exceptions: factual warning and user-authored decisions
     // are deliberately not mislabelled as automatic recommendations.
     assert.equal(format("coolDown", { reviewOnly: true }), "מיכל 7: סייג לפני קירור");
     assert.equal(format("scheduled-test", { actionType: "yeastDrop", userDecision: true }),
         "מיכל 7: החלטת סלרינג – הורדת שמרים");
+});
+
+test("scheduled user decisions remain decisions without source/userDecision metadata", () => {
+    // Legacy documents did not always include source: "user".
+    assert.equal(format("scheduled-legacy", { actionType: "carbTest", userDecision: false }),
+        "מיכל 7: החלטת סלרינג – בדיקת גיזוז");
+    assert.equal(format("scheduled-legacy", { actionType: "pressureChange", pressureDirection: "lower" }),
+        "מיכל 7: החלטת סלרינג – הורדת לחץ");
+    assert.equal(format("scheduled-legacy", { actionType: "other", scheduledNote: "בדיקת ארומה" }),
+        "מיכל 7: החלטת סלרינג – בדיקת ארומה");
+});
+
+test("dashboard and forecast distinguish scheduled decisions from calculated forecasts", () => {
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    const forecast = readFileSync(new URL("../src/components/cellering/CellaringForecast.tsx", import.meta.url), "utf8");
+    const schedule = readFileSync(new URL("../src/SERVICES/cellering/scheduledCellarRecommendations.ts", import.meta.url), "utf8");
+    const panel = readFileSync(new URL("../src/components/dashboard/ScheduledCellarRecommendationsPanel.tsx", import.meta.url), "utf8");
+    assert.match(dashboard, /recommendationKey: `scheduled-\$\{row\.id\}`/);
+    assert.match(dashboard, /userDecision: true,/);
+    assert.ok(!dashboard.includes('row.source === "user" || row.actionType === "pressureChange"'));
+    assert.match(forecast, /<span className="cellar-forecast-type">החלטת סלרינג<\/span>/);
+    assert.match(forecast, /cellar-forecast-conditional/);
+    assert.match(schedule, /const sourceFields = \{ source: "user" as const \};/);
+    assert.match(panel, /label: `החלטת סלרינג · \$\{scheduledActionLabel\(row\.actionType\)\}`/);
 });
 
 test("title depends on structured evidence, never reason copy", () => {
