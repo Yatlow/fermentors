@@ -32,39 +32,24 @@ export type CellarRecommendationTitleInput = {
     scheduledNote?: string;
 };
 
+/**
+ * Persisted scheduled cellar rows are brewer decisions. Unlike the forecast's
+ * calculated/conditional recommendations, they were manually created in the
+ * scheduling panel. Older records may lack source: "user", so never infer
+ * their origin from that optional legacy field.
+ */
 function scheduledTitle(input: CellarRecommendationTitleInput): string {
-    const note = input.scheduledNote?.trim();
-
-    // A brewer's explicit decision is a decision, not advice. Keep its source
-    // visible rather than misrepresenting it as a system recommendation.
-    if (input.userDecision) {
-        switch (input.actionType) {
-            case "carbTest": return "החלטת סלרינג – בדיקת גיזוז";
-            case "yeastDrop": return "החלטת סלרינג – הורדת שמרים";
-            case "coolDown": return "החלטת סלרינג – קירור";
-            case "bottomCarbonation": return "החלטת סלרינג – גיזוז מלמטה";
-            case "pressureChange":
-                return input.pressureDirection === "raise" ? "החלטת סלרינג – העלאת לחץ"
-                    : input.pressureDirection === "lower" ? "החלטת סלרינג – הורדת לחץ"
-                    : "החלטת סלרינג – שינוי לחץ";
-            case "other": return `החלטת סלרינג – ${note || "פעולה אחרת"}`;
-            default: return "החלטת סלרינג";
-        }
-    }
-
-    // "Recommendation" must lead every actionable system-generated title,
-    // including scheduled recommendations. The operator retains discretion.
     switch (input.actionType) {
-        case "carbTest": return "המלצה מתוזמנת לבדיקת גיזוז";
-        case "yeastDrop": return "המלצה מתוזמנת להורדת שמרים";
-        case "coolDown": return "המלצה מתוזמנת לקירור";
-        case "bottomCarbonation": return "המלצה מתוזמנת לגיזוז מלמטה";
+        case "carbTest": return "החלטת סלרינג – בדיקת גיזוז";
+        case "yeastDrop": return "החלטת סלרינג – הורדת שמרים";
+        case "coolDown": return "החלטת סלרינג – קירור";
+        case "bottomCarbonation": return "החלטת סלרינג – גיזוז מלמטה";
         case "pressureChange":
-            return input.pressureDirection === "raise" ? "המלצה מתוזמנת להעלאת לחץ"
-                : input.pressureDirection === "lower" ? "המלצה מתוזמנת להורדת לחץ"
-                : "המלצה מתוזמנת לשינוי לחץ";
-        case "other": return `המלצה מתוזמנת – ${note || "פעולה אחרת"}`;
-        default: return "המלצה מתוזמנת";
+            return input.pressureDirection === "raise" ? "החלטת סלרינג – העלאת לחץ"
+                : input.pressureDirection === "lower" ? "החלטת סלרינג – הורדת לחץ"
+                : "החלטת סלרינג – שינוי לחץ";
+        case "other": return `החלטת סלרינג – ${input.scheduledNote?.trim() || "פעולה אחרת"}`;
+        default: return "החלטת סלרינג";
     }
 }
 
