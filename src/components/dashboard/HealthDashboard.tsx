@@ -786,13 +786,11 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                     actionType: row.actionType,
                                     pressureDirection: row.actionType === "pressureChange" ? row.pressureDirection : undefined,
                                     targetPressure: row.actionType === "pressureChange" ? row.targetPressure : undefined,
-                                    userDecision: row.source === "user" || row.actionType === "pressureChange",
+                                    // Every persisted scheduled row was entered as a cellar
+                                    // decision. Legacy documents may not have source: "user".
+                                    userDecision: true,
                                     scheduledNote: row.note,
-                                    reason: conflict || (
-                                        row.source === "user" || row.actionType === "pressureChange"
-                                            ? `החלטת סלרינג: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`
-                                            : `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`
-                                    ),
+                                    reason: conflict || `החלטת סלרינג: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`,
                                 };
                             }),
                         ].forEach((recommendation) => {
