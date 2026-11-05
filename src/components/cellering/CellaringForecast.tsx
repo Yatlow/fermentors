@@ -216,7 +216,7 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                     </button>
                     {isDayExpanded && <div id={detailsId} className="cellar-forecast-items">
                         {day.scheduledRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
-                            <span className="cellar-forecast-type">מתוזמן</span>
+                            <span className="cellar-forecast-type">החלטת סלרינג</span>
                             <div className="cellar-forecast-item-copy">
                                 <div className="cellar-forecast-item-title">
                                     <strong>מיכל {item.tankNumber}</strong>
