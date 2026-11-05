@@ -40,3 +40,13 @@ test("pressure hold retains its exact original appearance, label and action", ()
   assert.match(styles, /white-space: normal;/);
   assert.doesNotMatch(styles, /health-pressure-choices \.health-quick-report-button\s*\{[^}]*?(?:background|border-color|font-size|border-radius|padding):/s);
 });
+
+
+test("all mobile cellar recommendation explanations span the card, not the button column", () => {
+  assert.match(styles, /\.health-dashboard \.health-alert > \.health-alert-copy\s*\{\s*display: contents;/);
+  assert.match(styles, /\.health-dashboard \.health-alert > \.health-alert-copy > span\s*\{\s*grid-area: detail;/);
+  assert.match(styles, /"detail detail detail"/);
+  assert.match(styles, /\.health-dashboard \.health-alert > \.health-quick-report-button\s*\{\s*grid-area: actions;/);
+  assert.match(styles, /\.health-dashboard \.health-alert > \.health-pressure-choices\s*\{\s*grid-area: actions;/);
+  assert.match(styles, /\.health-dashboard \.health-alert > \.health-ignore-button\s*\{\s*grid-area: ignore;/);
+});

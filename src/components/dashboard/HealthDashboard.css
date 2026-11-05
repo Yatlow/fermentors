@@ -648,3 +648,74 @@
         grid-template-columns: minmax(0, 1fr);
     }
 }
+
+
+/* Mobile cellar recommendations: reserve the entire card width for the
+   recommendation explanation. On narrow screens the quick-report and ignore
+   controls previously compressed long notes into a thin text column. */
+@media (max-width: 700px) {
+    .health-dashboard .health-alert {
+        display: grid;
+        grid-template-columns: 22px minmax(0, 1fr) 31px;
+        grid-template-areas:
+            "icon title ignore"
+            "detail detail detail"
+            "actions actions actions";
+        align-items: start;
+        column-gap: 9px;
+        row-gap: 7px;
+    }
+
+    .health-dashboard .health-alert:has(.health-pressure-choices) {
+        grid-template-areas:
+            "icon title ignore"
+            "detail detail detail"
+            "actions actions actions";
+    }
+
+    .health-dashboard .health-alert > .health-alert-icon {
+        grid-area: icon;
+    }
+
+    /* Let the existing title and explanation each participate in the card's
+       grid independently, without changing React/quick-report behavior. */
+    .health-dashboard .health-alert > .health-alert-copy {
+        display: contents;
+    }
+
+    .health-dashboard .health-alert > .health-alert-copy > strong {
+        grid-area: title;
+        min-width: 0;
+        align-self: center;
+    }
+
+    .health-dashboard .health-alert > .health-alert-copy > span {
+        grid-area: detail;
+        min-width: 0;
+        width: 100%;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+    }
+
+    .health-dashboard .health-alert > .health-ignore-button {
+        grid-area: ignore;
+        justify-self: end;
+        margin-inline-start: 0;
+    }
+
+    .health-dashboard .health-alert > .health-quick-report-button {
+        grid-area: actions;
+        justify-self: start;
+        max-width: 100%;
+        min-width: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .health-dashboard .health-alert > .health-pressure-choices {
+        grid-area: actions;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+    }
+}

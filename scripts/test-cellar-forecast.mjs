@@ -28,6 +28,8 @@ const { projectCarbonationRetest, projectNonHoppyWarmYeast } =
     await import(moduleDataUrl(resolve(dir, "actionForecast.ts")));
 const { forecastRoutinesForDate, anticipatedColdTanksForSunday } =
     await import(moduleDataUrl(resolve(dir, "forecastRoutines.ts")));
+const { summarizeCellaringForecastDay, conditionalForecastKind, conciseForecastTitle } =
+    await import(moduleDataUrl(resolve(dir, "forecastPresentation.ts")));
 const { projectKnownYeastCompletions } =
     await import(moduleDataUrl(resolve(dir, "yeastCompletionForecast.ts")));
 const { projectPlatoThresholdRecheck } =
@@ -255,5 +257,53 @@ test("scheduled 'other' notes are displayed, including long free-form instructio
     assert.match(source, /item\.note\?\.trim\(\)/);
     assert.match(source, /item\.actionType === "other"/);
     assert.match(source, /cellar-forecast-scheduled-note/);
+    assert.match(source, /מותנה בקירור/);
+});
+
+test("daily executive summary groups the exact forecast rows by action, not by badge source", () => {
+    const day = summarizeCellaringForecastDay({
+        scheduledRows: [
+            { actionType: "carbTest" }, { actionType: "yeastDrop" }, { actionType: "other" },
+        ],
+        conditionalRows: [
+            { id: "9:plato-recheck:2026-11-06", title: "צפי לדרייהופ — בדיקת תנאים" },
+            { id: "11:carb-retest:2026-11-06", title: "בדיקת גיזוז חוזרת" },
+            { id: "19:cooling-readiness:2026-11-06", title: "צפי לבדיקת מוכנות לקירור" },
+        ],
+        routines: [
+            { actionType: "carbTest", source: "sunday" },
+            { actionType: "yeastDrop", source: "sunday-predicted-cold" },
+        ],
+    });
+    assert.equal(day.total, 8);
+    assert.equal(day.conditionalCount, 4, "predicted cold Sunday work is conditional too");
+    assert.deepEqual(day.groups.map((g) => [g.kind, g.count]), [
+        ["carbTest", 3], ["yeastDrop", 2], ["dryHop", 1],
+        ["coolDown", 1], ["other", 1],
+    ]);
+    assert.equal(day.groups[0].label, "בדיקות גיזוז");
+});
+
+test("forecast categories keep tests, dry-hop projections and carbonating from below separate", () => {
+    assert.equal(conditionalForecastKind({ id: "a", title: "צפי לדרייהופ — בדיקת תנאים" }), "dryHop");
+    assert.equal(conditionalForecastKind({ id: "b", title: "בדיקת גיזוז חוזרת" }), "carbTest");
+    assert.equal(conditionalForecastKind({ id: "c", title: "מנוחת דיאצטיל" }), "diacetyl");
+    assert.equal(conditionalForecastKind({ id: "d", title: "גיזוז מלמטה" }), "bottomCarbonation");
+    assert.equal(conciseForecastTitle("צפי לדרייהופ — בדיקת תנאים"), "בדיקת תנאים: דרייהופ");
+    assert.equal(conciseForecastTitle("בדיקת גיזוז חוזרת"), "בדיקת גיזוז חוזרת");
+});
+
+test("forecast accordion defaults to concise daily rows while retaining explanations and free-form work", () => {
+    const source = readFileSync(resolve("src/components/cellering/CellaringForecast.tsx"), "utf8");
+    assert.match(source, /expandedDays, setExpandedDays\] = useState<Set<string>>\(\(\) => new Set\(\)\)/);
+    assert.match(source, /aria-expanded=\{isDayExpanded\}/);
+    assert.match(source, /aria-controls=\{detailsId\}/);
+    assert.match(source, /summary\.groups\.map\(/);
+    assert.match(source, /summary\.conditionalCount > 0/);
+    assert.match(source, /isDayExpanded && <div id=\{detailsId\}/);
+    assert.match(source, /<summary>למה\?<\/summary>/);
+    assert.match(source, /item\.actionType === "other"/);
+    assert.match(source, /cellar-forecast-scheduled-note/);
+    assert.match(source, /item\.basis/);
     assert.match(source, /מותנה בקירור/);
 });
