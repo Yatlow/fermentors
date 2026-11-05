@@ -112,7 +112,7 @@ test("every system recommendation starts with המלצה after the tank number",
     for (const actionType of [
         "carbTest", "yeastDrop", "coolDown", "bottomCarbonation", "pressureChange", "other", "unknown",
     ]) {
-        assert.match(format("scheduled-test", { actionType }), /^מיכל 7: החלטת סלרינג(?: | – )/, actionType);
+        assert.match(format("scheduled-test", { actionType }), /^מיכל 7: החלטת סלרינג(?: – .+)?$/, actionType);
     }
     assert.equal(format("scheduled-test", { actionType: "pressureChange", pressureDirection: "raise" }),
         "מיכל 7: החלטת סלרינג – העלאת לחץ");
