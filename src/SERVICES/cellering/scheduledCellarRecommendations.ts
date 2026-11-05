@@ -321,9 +321,10 @@ export async function createScheduledCellarRecommendation(input: {
       })()
     : false;
 
-  const sourceFields = input.source === "user"
-    ? { source: "user" as const }
-    : {};
+  // The schedule collection stores brewer-entered decisions, not calculated
+  // forecast recommendations. Keep the explicit marker for all new rows.
+  // Legacy documents without this field are still treated as decisions.
+  const sourceFields = { source: "user" as const };
   const pressureFields = input.actionType === "pressureChange"
     ? {
         pressureDirection: input.pressureDirection,
