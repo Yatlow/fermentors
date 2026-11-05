@@ -1,9 +1,12 @@
+import type { CellarTitleVariant } from "../dashboard/cellarRecommendationTitles";
+
 /**
  * A purely derived, read-only "ignored" view for calendar-suppressed actions.
  * Never write these entries to ignoredCellarRecommendations/Firestore.
  * Manual ignores and daily auto-suppression retain separate lifecycles.
  */
 type SuppressedRecommendation = {
+  titleVariant?: CellarTitleVariant;
   req?: boolean | null;
   display?: boolean;
   autoIgnoredReason?: string | null;
@@ -21,6 +24,7 @@ export type AutomaticallyIgnoredCellarRecommendation = {
   tankNumber: string;
   batchNumber: string;
   recommendationKey: string;
+  titleVariant?: CellarTitleVariant;
   title: string;
   detail: string;
   importance: number;
@@ -51,6 +55,7 @@ export function automaticIgnoredRecommendationsForTank(input: {
       batchNumber,
       ignoredDate: input.ignoredDate,
       recommendationKey: key,
+      titleVariant: recommendation?.titleVariant,
       title,
       detail: String(recommendation?.reason ?? "נדרשת פעולת סלרינג."),
       importance: Math.max(1, Math.min(3, importance)),
