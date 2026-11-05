@@ -32,25 +32,24 @@ export type CellarRecommendationTitleInput = {
     scheduledNote?: string;
 };
 
+/**
+ * Persisted scheduled cellar rows are brewer decisions. Unlike the forecast's
+ * calculated/conditional recommendations, they were manually created in the
+ * scheduling panel. Older records may lack source: "user", so never infer
+ * their origin from that optional legacy field.
+ */
 function scheduledTitle(input: CellarRecommendationTitleInput): string {
-    const decision = input.userDecision === true;
-    const prefix = decision ? "החלטת סלרינג – " : "";
-    const suffix = decision ? "" : " מתוזמנת";
     switch (input.actionType) {
-        case "carbTest": return prefix + "בדיקת גיזוז" + suffix;
-        case "yeastDrop": return prefix + "הורדת שמרים" + suffix;
-        case "coolDown": return prefix + "קירור" + (decision ? "" : " מתוזמן");
-        case "bottomCarbonation": return prefix + "גיזוז מלמטה" + (decision ? "" : " מתוזמן");
-        case "pressureChange": {
-            const change = input.pressureDirection === "raise" ? "העלאת לחץ"
-                : input.pressureDirection === "lower" ? "הורדת לחץ" : "שינוי לחץ";
-            return prefix + change + (decision ? "" : " מתוזמן");
-        }
-        case "other": {
-            const note = input.scheduledNote?.trim();
-            return prefix + (note || "פעולה אחרת") + suffix;
-        }
-        default: return decision ? "החלטת סלרינג" : "המלצה מתוזמנת";
+        case "carbTest": return "החלטת סלרינג – בדיקת גיזוז";
+        case "yeastDrop": return "החלטת סלרינג – הורדת שמרים";
+        case "coolDown": return "החלטת סלרינג – קירור";
+        case "bottomCarbonation": return "החלטת סלרינג – גיזוז מלמטה";
+        case "pressureChange":
+            return input.pressureDirection === "raise" ? "החלטת סלרינג – העלאת לחץ"
+                : input.pressureDirection === "lower" ? "החלטת סלרינג – הורדת לחץ"
+                : "החלטת סלרינג – שינוי לחץ";
+        case "other": return `החלטת סלרינג – ${input.scheduledNote?.trim() || "פעולה אחרת"}`;
+        default: return "החלטת סלרינג";
     }
 }
 
@@ -91,11 +90,11 @@ export function cellarRecommendationTitle(input: CellarRecommendationTitleInput)
                     case "firstAfterCooling":
                         description = "המלצה לבדיקת גיזוז ראשונה אחרי קירור"; break;
                     case "firstAfterCoolingOverdue":
-                        description = "בדיקת גיזוז ראשונה באיחור"; break;
+                        description = "המלצה לבדיקת גיזוז ראשונה באיחור"; break;
                     case "retestAfterPressureChange":
-                        description = "בדיקת גיזוז חוזרת אחרי שינוי לחץ"; break;
+                        description = "המלצה לבדיקת גיזוז חוזרת אחרי שינוי לחץ"; break;
                     case "retestAfterBottomCarbonation":
-                        description = "בדיקת גיזוז חוזרת אחרי גיזוז מלמטה"; break;
+                        description = "המלצה לבדיקת גיזוז חוזרת אחרי גיזוז מלמטה"; break;
                     case "retest":
                         description = "המלצה לבדיקת גיזוז חוזרת"; break;
                     case "prePackaging":
@@ -111,7 +110,7 @@ export function cellarRecommendationTitle(input: CellarRecommendationTitleInput)
             case "diacetylRest":
                 description = "המלצה לביצוע מנוחת דיאצטיל"; break;
             case "neglectedStatus":
-                description = "נדרשת תשומת לב"; break;
+                description = "המלצה לבדיקת מצב המיכל"; break;
             case "coolDown":
                 description = "המלצה להתחלת קירור"; break;
             case "pressureAdjustment":
@@ -130,7 +129,7 @@ export function cellarRecommendationTitle(input: CellarRecommendationTitleInput)
                 }
                 break;
             default:
-                description = "המלצת סלרינג";
+                description = "המלצה כללית לסלרינג";
         }
     }
     return `מיכל ${input.tankNumber}: ${description}`;
