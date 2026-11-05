@@ -650,11 +650,15 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             ? getDaysSinceDate(dryHopDate)
             : null;
 
-    let requiresWarmYeastDrop = {
+    let requiresWarmYeastDrop: {
+        display: boolean;
+        titleVariant?: CellarTitleVariant;
+        req: boolean;
+        reason?: string;
+        importance: number;
+    } = {
         display: true,
-        titleVariant: undefined as CellarTitleVariant | undefined,
         req: false,
-        reason: undefined as string | undefined,
         importance: 1
     };
 
