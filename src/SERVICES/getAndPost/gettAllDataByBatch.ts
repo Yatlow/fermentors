@@ -228,8 +228,8 @@ function observeSharedPendingSheetSyncJobs(snapshot: QuerySnapshot<DocumentData>
   // Last committed report wins when two clients update the same field.
   // Firestore query order is not necessarily report-time order.
   const orderedJobs = [...snapshot.docs].sort((a, b) => {
-    const time = (row: DocumentData) => {
-      const value = row.data()?.createdAt;
+    const time = (row: (typeof snapshot.docs)[number]) => {
+      const value = row.data().createdAt;
       return typeof value?.toMillis === "function" ? value.toMillis() : 0;
     };
     return time(a) - time(b) || a.id.localeCompare(b.id);
