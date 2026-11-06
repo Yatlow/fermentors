@@ -1210,12 +1210,23 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
     }), [analysis.alerts]);
 
     const ignoredForDisplay = useMemo(() => [
-        ...ignoredRecommendations.map((row) => ({
-            ...row,
-            autoReason: null as null,
-        })),
+        ...ignoredRecommendations.map((row) => {
+            // Older manually ignored scheduled actions stored only a generic
+            // label. Recover the exact decision type from the active schedule,
+            // without modifying the ignored record or its restore identity.
+            const scheduled = row.recommendationKey.startsWith("scheduled-")
+                ? scheduledRecommendations.find((item) => `scheduled-${item.id}` === row.recommendationKey)
+                : undefined;
+            return {
+                ...row,
+                autoReason: null as null,
+                actionType: scheduled?.actionType,
+                pressureDirection: scheduled?.pressureDirection,
+                scheduledNote: scheduled?.note,
+            };
+        }),
         ...analysis.autoIgnored,
-    ], [ignoredRecommendations, analysis.autoIgnored]);
+    ], [ignoredRecommendations, analysis.autoIgnored, scheduledRecommendations]);
 
     const groupedDailyActions = useMemo(() => {
         const grouped = new Map<string, { tankNumber: string; titles: string[]; detail?: string }>();
@@ -1419,19 +1430,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                         <span className="health-ignored-copy">
                                             <span className="health-ignored-label">
                                                 <LightbulbOff size={15} aria-hidden="true" />
-                                                מיכל {row.tankNumber} · {cellarIgnoredActionTitle({
-                                                    ...row,
-                                                    ...(row.recommendationKey.startsWith("scheduled-") ? (() => {
-                                                        const scheduled = scheduledRecommendations.find(
-                                                            (item) => `scheduled-${item.id}` === row.recommendationKey
-                                                        );
-                                                        return scheduled ? {
-                                                            actionType: scheduled.actionType,
-                                                            pressureDirection: scheduled.pressureDirection,
-                                                            scheduledNote: scheduled.note,
-                                                        } : {};
-                                                    })() : {}),
-                                                })}
+                                                מיכל {row.tankNumber} · {cellarIgnoredActionTitle(row)}
                                             </span>
                                             {row.autoReason && <small>{row.autoReason}</small>}
                                         </span>
