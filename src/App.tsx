@@ -1,5 +1,5 @@
 import { LayoutDashboard, TestTubes, FileChartLine, PocketKnife, Map as MapIcon, Beer, CalendarCog, Menu, ChevronDown, Search, UserRound, ArrowLeftRight } from "lucide-react";
-import { observeMeasurementRevisions, stopMeasurementRevisionTracking } from "./SERVICES/getAndPost/gettAllDataByBatch";
+import { observeMeasurementRevisions, stopMeasurementRevisionTracking, subscribeSharedPendingCellarMeasurements } from "./SERVICES/getAndPost/gettAllDataByBatch";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
     collection,
@@ -380,6 +380,13 @@ function App() {
     useEffect(() => {
         if (!user || !isApproved) return;
         return subscribeToProductCatalog();
+    }, [user, isApproved]);
+
+    useEffect(() => {
+        if (!user || !isApproved) return;
+        return subscribeSharedPendingCellarMeasurements(
+            (error) => console.warn("Unable to subscribe to cross-device pending cellar reports:", error)
+        );
     }, [user, isApproved]);
 
     useEffect(() => {
