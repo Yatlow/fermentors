@@ -13,6 +13,17 @@ export function requiresFermentationPlatoPh(tank: {
   return !Number.isFinite(numeric) || numeric > 9;
 }
 
+/** Recommendations in the post-Plato/pH modal are scoped to fermenting,
+ * warm/unknown-temperature tanks; the global dashboard stays unfiltered.
+ */
+export function hotMeasurementRecommendationTanks<T extends {
+  action?: string | number | null;
+  stage?: { name?: string } | null;
+  currentData?: { temp?: string | number | null } | null;
+}>(tanks: readonly T[]): T[] {
+  return tanks.filter((tank) => Number(tank.action) === 1 && requiresFermentationPlatoPh(tank));
+}
+
 /** The cellar grace clock is independent of the 00:00 daily measurement reset. */
 export const FERMENTATION_GRACE_MS = 12 * 60 * 60 * 1000;
 export const GRACE_RESET_HOUR = 4;
