@@ -8,7 +8,7 @@ const source = readFileSync(new URL("../src/SERVICES/dashboard/cellarRecommendat
 const js = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
 }).outputText;
-const { cellarRecommendationTitle: title } = await import(
+const { cellarRecommendationTitle: title, cellarIgnoredActionTitle: ignoredTitle } = await import(
     "data:text/javascript;base64," + Buffer.from(js).toString("base64")
 );
 
@@ -160,4 +160,65 @@ test("title depends on structured evidence, never reason copy", () => {
     assert.ok(engine.includes("requiresWarmYeastDrop.titleVariant = isHoppy"));
     assert.ok(dashboard.includes("title: cellarRecommendationTitle("));
     assert.ok(dashboard.includes("titleVariant: row.titleVariant"));
+});
+
+
+test("ignored automatic actions use explicit operational titles", () => {
+    const ignored = ({ recommendationKey, title = "", importance = 1, autoReason = "התעלמות אוטומטית - יום שישי", ...extra }) =>
+        ignoredTitle({ tankNumber: 17, recommendationKey, title, importance, autoReason, ...extra });
+    assert.equal(ignored({ recommendationKey: "neglectedStatus", title: "טיפול במיכל" }), "טיפול במיכל מוזנח");
+    assert.equal(ignored({ recommendationKey: "warmYeastDropCompletion", title: "הורדת שמרים" }),
+        "השלמת הורדת שמרים חמה");
+    assert.equal(ignored({ recommendationKey: "coldYeastDropCompletion", title: "הורדת שמרים" }),
+        "השלמת הורדת שמרים קרה");
+    assert.equal(ignored({ recommendationKey: "carbTest", title: "בדיקת גיזוז", importance: 2 }),
+        "בדיקת גיזוז חוזרת (סטייה נמוכה בגיזוז)");
+    // A severity 3 action is not silently mislabelled as a low deviation.
+    assert.equal(ignored({ recommendationKey: "carbTest", title: "בדיקת גיזוז", importance: 3 }),
+        "בדיקת גיזוז");
+});
+
+test("manual ignores keep the original subtype and strip only the recommendation prefix", () => {
+    assert.equal(ignoredTitle({ tankNumber: 7, recommendationKey: "carbTest",
+        title: "מיכל 7: המלצה לבדיקת גיזוז חוזרת אחרי שינוי לחץ" }),
+        "בדיקת גיזוז חוזרת אחרי שינוי לחץ");
+    assert.equal(ignoredTitle({ tankNumber: 7, recommendationKey: "warmYeastDrop",
+        title: "מיכל 7: המלצה להורדת שמרים אחרי דרייהופ" }),
+        "הורדת שמרים אחרי דרייהופ");
+    assert.equal(ignoredTitle({ tankNumber: 7, recommendationKey: "pressureAdjustment",
+        title: "מיכל 7: המלצה לכיוון פורק" }), "כיוון פורק");
+    assert.equal(ignoredTitle({ tankNumber: 7, recommendationKey: "scheduled-abc",
+        title: "מיכל 7: החלטת סלרינג – העלאת לחץ" }), "החלטת סלרינג – העלאת לחץ");
+    assert.equal(ignoredTitle({ tankNumber: 7, recommendationKey: "nextAction",
+        title: "מיכל 7: המלצה לפעולה עתידית חדשה" }), "פעולה עתידית חדשה");
+});
+
+test("previously stored generic ignored titles use canonical action names where known", () => {
+    const legacy = (recommendationKey, title, extra = {}) =>
+        ignoredTitle({ tankNumber: 10, recommendationKey, title, ...extra });
+    assert.equal(legacy("warmYeastDropCompletion", "הורדת שמרים"),
+        "השלמת הורדת שמרים חמה");
+    assert.equal(legacy("coldYeastDropCompletion", "הורדת שמרים"),
+        "השלמת הורדת שמרים קרה");
+    assert.equal(legacy("neglectedStatus", "טיפול במיכל"), "טיפול במיכל מוזנח");
+    assert.equal(legacy("dryHop", "דרייהופ"), "ביצוע דרייהופ");
+    assert.equal(legacy("pressureClose", "סגירת לחץ"), "סגירת מיכל");
+    assert.equal(legacy("yeastDropAfterCooling", "הורדת שמרים"), "הורדת שמרים אחרי קירור");
+    assert.equal(legacy("carbTest", "בדיקת גיזוז", { titleVariant: "retest" }), "בדיקת גיזוז חוזרת");
+    assert.equal(legacy("carbTest", "בדיקת גיזוז", { detail: "מומלץ לבצע בדיקת גיזוז חוזרת" }),
+        "בדיקת גיזוז חוזרת");
+    assert.equal(legacy("carbTest", "בדיקת גיזוז", { detail: "אין מספיק מידע" }), "בדיקת גיזוז");
+    assert.equal(legacy("scheduled-ab", "המלצה מתוזמנת", { actionType: "pressureChange", pressureDirection: "lower" }),
+        "החלטת סלרינג – הורדת לחץ");
+    assert.equal(legacy("scheduled-ab", "המלצה מתוזמנת"), "החלטת סלרינג");
+    assert.equal(legacy("measurementRound", "סבב מדידות"), "השלמת סבב מדידות");
+});
+
+test("ignored titles are display-only: source recommendations retain the word recommendation", () => {
+    assert.match(format("carbTest", { titleVariant: "retest" }), /^מיכל 7: המלצה /);
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    assert.match(dashboard, /title: alert\.title,/);
+    assert.match(dashboard, /cellarIgnoredActionTitle\(\{/);
+    assert.doesNotMatch(dashboard, /recommendationShortLabel/);
+    assert.match(dashboard, /row\.autoReason \? restoreAutomatic\(row\) : void restoreIgnored\(row\)/);
 });
