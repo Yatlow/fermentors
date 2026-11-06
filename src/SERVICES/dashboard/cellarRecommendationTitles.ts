@@ -134,3 +134,70 @@ export function cellarRecommendationTitle(input: CellarRecommendationTitleInput)
     }
     return `מיכל ${input.tankNumber}: ${description}`;
 }
+
+
+/**
+ * "Ignored today" is a log of the underlying action, not another recommendation.
+ * Preserve the source title (for newly ignored alerts), removing only its tank
+ * prefix and the word "המלצה". Legacy records stored truncated titles, so the
+ * canonical recommendation title is used only when the saved title is generic.
+ *
+ * This is presentation-only: it does not touch Firestore identities, the
+ * importance level, restoration, the recommendation engine or cellar KPIs.
+ */
+export type IgnoredCellarActionTitleInput = CellarRecommendationTitleInput & {
+    title?: string | null;
+    detail?: string | null;
+    importance?: number | null;
+    autoReason?: string | null;
+};
+
+function ignoredTitleText(title: string | null | undefined): string {
+    return String(title ?? "")
+        .trim()
+        .replace(/^מיכל\s+\S+\s*[:·]\s*/u, "")
+        .replace(/^המלצה\s+ל/u, "")
+        .replace(/^המלצה\s+/u, "")
+        .trim();
+}
+
+// Titles written by older versions were broad, sometimes losing the *entire*
+// recommendation subtype (e.g. a yeast-drop completion became "הורדת שמרים").
+const legacyShortTitles = new Set([
+    "סבב מדידות", "דרייהופ", "סגירת לחץ", "הורדת שמרים",
+    "בדיקת גיזוז", "גיזוז מלמטה", "מנוחת דיאצטיל",
+    "טיפול במיכל", "קירור", "שינוי לחץ", "מתוזמנת",
+]);
+
+export function cellarIgnoredActionTitle(input: IgnoredCellarActionTitleInput): string {
+    const key = input.recommendationKey;
+
+    // An auto-ignored moderate retest always originates from the Friday
+    // carbonation-retest gate. A first-after-cooling test is never auto-ignored
+    // by that gate. Never infer this subtype from importance alone.
+    if (key === "carbTest" && input.autoReason && input.importance === 2) {
+        return "בדיקת גיזוז חוזרת (סטייה נמוכה בגיזוז)";
+    }
+    if (key === "neglectedStatus") return "טיפול במיכל מוזנח";
+    if (key === "measurementRound") return "השלמת סבב מדידות";
+
+    const saved = ignoredTitleText(input.title);
+    if (saved && !legacyShortTitles.has(saved)) {
+        return saved;
+    }
+
+    // Legacy generic text has no subtype. Derive from canonical keys and
+    // available structured metadata, never fabricate a missing event type.
+    if (key.startsWith("scheduled-") && !input.actionType) {
+        return "החלטת סלרינג";
+    }
+    if (key === "carbTest" && !input.titleVariant && saved === "בדיקת גיזוז") {
+        // Old records may explicitly name a repeat or first test in the
+        // persisted description. This fallback affects display only.
+        const detail = String(input.detail ?? "");
+        if (/בדיקת\s+ה?גיזוז\s+חוזרת/u.test(detail)) return "בדיקת גיזוז חוזרת";
+        if (/בדיקת\s+ה?גיזוז\s+(?:הראשונה|ראשונה)/u.test(detail)) return "בדיקת גיזוז ראשונה אחרי קירור";
+    }
+
+    return ignoredTitleText(cellarRecommendationTitle(input));
+}
