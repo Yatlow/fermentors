@@ -610,3 +610,63 @@ test("packaging pressure is not independently credited to the cellar KPI (tank 6
     const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
     assert.match(dashboard, /todayRows\.some\(\(row\) => isCellarPressureActionNote\(row\.notes\)\)/);
 });
+
+
+// Guard the weekend yeast-completion ignore and the sugar/pH modal scope in
+// the standard `npm test` CI suite (the TS-only tests are not part of it).
+const loadPureCellarModule = async (relativePath) => {
+    const source = readFileSync(new URL(relativePath, import.meta.url), "utf8");
+    const js = ts.transpileModule(source, {
+        compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
+    }).outputText;
+    return import("data:text/javascript;base64," + Buffer.from(js).toString("base64"));
+};
+const {
+    autoIgnoreYeastCompletionOnWeekend,
+    automaticIgnoredRecommendationsForTank,
+    partitionAutomaticallyIgnoredRecommendations,
+} = await loadPureCellarModule("../src/SERVICES/cellering/autoIgnoredCellarRecommendations.ts");
+const { hotMeasurementRecommendationTanks } = await loadPureCellarModule("../src/SERVICES/dashboard/cellarGrace.ts");
+
+test("Friday/Saturday auto-ignore incomplete warm and cold yeast-drop follow-ups, with restore", () => {
+    const base = { req: true, display: true, importance: 1, reason: "נשארו 2 דליים" };
+    for (const [weekday, day] of [[5, "שישי"], [6, "שבת"]]) {
+        const suppressed = autoIgnoreYeastCompletionOnWeekend(base, weekday);
+        assert.equal(suppressed.req, false);
+        assert.equal(suppressed.display, false);
+        assert.equal(suppressed.autoIgnoredReason, `התעלמות אוטומטית - יום ${day}`);
+        const rows = automaticIgnoredRecommendationsForTank({
+            tankNumber: 14, batchNumber: "1626", ignoredDate: "2026-11-06",
+            recommendations: {
+                requiresWarmYeastDropCompletion: suppressed,
+                requiresColdYeastDropCompletion: suppressed,
+            },
+        });
+        assert.deepEqual(rows.map(row => row.recommendationKey), ["warmYeastDropCompletion", "coldYeastDropCompletion"]);
+        const { ignored, restored } = partitionAutomaticallyIgnoredRecommendations(rows, new Set([rows[1].id]));
+        assert.equal(ignored.length, 1);
+        assert.equal(restored[0].recommendationKey, "coldYeastDropCompletion");
+    }
+    for (const weekday of [0, 1, 2, 3, 4]) {
+        assert.equal(autoIgnoreYeastCompletionOnWeekend(base, weekday).req, true);
+        assert.equal(autoIgnoreYeastCompletionOnWeekend(base, weekday).autoIgnoredReason, null);
+    }
+    assert.equal(autoIgnoreYeastCompletionOnWeekend({ ...base, req: false }, 5).autoIgnoredReason, null);
+    const engine = readFileSync(new URL("../src/SERVICES/cellering/calculateCelleringRecomendations.ts", import.meta.url), "utf8");
+    assert.match(engine, /requiresWarmYeastDropCompletion: autoIgnoreYeastCompletionOnWeekend/);
+    assert.match(engine, /requiresColdYeastDropCompletion: autoIgnoreYeastCompletionOnWeekend/);
+});
+
+test("Plato/pH modal shows only active fermentors above 9C or awaiting initial temperature", () => {
+    const tanks = [
+        { id: "hot", action: 1, stage: { name: "בתסיסה" }, currentData: { temp: 18 } },
+        { id: "unknown", action: 1, stage: { name: "בתסיסה" }, currentData: { temp: null } },
+        { id: "cold", action: 1, stage: { name: "קר" }, currentData: { temp: 4 } },
+        { id: "chilled", action: 1, stage: { name: "בתסיסה" }, currentData: { temp: 8 } },
+        { id: "inactive", action: 0, stage: { name: "בתסיסה" }, currentData: { temp: 18 } },
+    ];
+    assert.deepEqual(hotMeasurementRecommendationTanks(tanks).map(tank => tank.id), ["hot", "unknown"]);
+    const modal = readFileSync(new URL("../src/components/cellering/SendMessurmentsHeader.tsx", import.meta.url), "utf8");
+    assert.match(modal, /reportName === "חם" \? hotMeasurementRecommendationTanks\(brews\) : brews/);
+    assert.match(modal, /<HealthDashboard brews=\{recommendationBrews\}/);
+});
