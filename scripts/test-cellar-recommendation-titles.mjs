@@ -218,7 +218,7 @@ test("ignored titles are display-only: source recommendations retain the word re
     assert.match(format("carbTest", { titleVariant: "retest" }), /^מיכל 7: המלצה /);
     const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
     assert.match(dashboard, /title: alert\.title,/);
-    assert.match(dashboard, /cellarIgnoredActionTitle\(\{/);
+    assert.match(dashboard, /cellarIgnoredActionTitle\(row\)/);
     assert.doesNotMatch(dashboard, /recommendationShortLabel/);
     assert.match(dashboard, /row\.autoReason \? restoreAutomatic\(row\) : void restoreIgnored\(row\)/);
 });
