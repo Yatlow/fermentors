@@ -98,7 +98,8 @@ function patchesFor(batchId: string): Measurement[] {
 function applyOptimisticPatches(rows: Measurement[], batchId: string): Measurement[] {
   const allPatches = [...patchesFor(batchId), ...(sharedPendingByBatch.get(batchId) ?? [])];
   return allPatches.reduce(
-    (current, patch) => mergeOptimisticMeasurementIntoHistory(current, patch),
+    (current, patch) => patchIsCoveredByRows(patch, rows)
+      ? current : mergeOptimisticMeasurementIntoHistory(current, patch),
     collapseMeasurementsToLatestPerDay(rows)
   );
 }
