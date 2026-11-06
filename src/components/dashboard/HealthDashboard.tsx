@@ -13,7 +13,7 @@ import {
     type Measurement,
 } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import { bottomCarbonationRecommendation } from "../../SERVICES/cellering/bottomCarbonation";
-import { cellarRecommendationTitle, type CellarTitleVariant } from "../../SERVICES/dashboard/cellarRecommendationTitles";
+import { cellarRecommendationTitle, cellarIgnoredActionTitle, type CellarTitleVariant } from "../../SERVICES/dashboard/cellarRecommendationTitles";
 import { hasActualCooling } from "../../SERVICES/cellering/neglectAfterCooling";
 import { isCompletedYeastDrop } from "../../SERVICES/cellering/coolingYeastTiming";
 import {
@@ -171,22 +171,6 @@ const EMPTY_ANALYSIS: CellarAnalysis = {
     checkedTanks: 0,
     completeMeasurementTankNumbers: [],
 };
-
-function recommendationShortLabel(key: string, fallback = "המלצת סלרינג"): string {
-    if (key === "measurementRound") return "סבב מדידות";
-    if (key === "dryHop") return "דרייהופ";
-    if (key === "pressureClose") return "סגירת לחץ";
-    if (key === "warmYeastDrop" || key === "warmYeastDropCompletion") return "הורדת שמרים";
-    if (key === "yeastDropAfterCooling" || key === "coldYeastDropCompletion" || key === "wedYeastDropOnThu") return "הורדת שמרים";
-    if (key === "carbTest") return "בדיקת גיזוז";
-    if (key === "bottomCarbonation" || key === "bottomCarbonationFollowUp") return "גיזוז מלמטה";
-    if (key === "diacetylRest") return "מנוחת דיאצטיל";
-    if (key === "neglectedStatus") return "טיפול במיכל";
-    if (key === "coolDown") return "קירור";
-    if (key === "pressureAdjustment") return fallback === "כיוון פורק" ? "כיוון פורק" : "שינוי לחץ";
-    if (key.startsWith("scheduled-")) return "המלצה מתוזמנת";
-    return fallback;
-}
 
 function tankLabel(tank: Fermentor): string {
     return String(tank.tankNumber ?? tank.uid ?? tank.id);
@@ -1226,12 +1210,23 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
     }), [analysis.alerts]);
 
     const ignoredForDisplay = useMemo(() => [
-        ...ignoredRecommendations.map((row) => ({
-            ...row,
-            autoReason: null as null,
-        })),
+        ...ignoredRecommendations.map((row) => {
+            // Older manually ignored scheduled actions stored only a generic
+            // label. Recover the exact decision type from the active schedule,
+            // without modifying the ignored record or its restore identity.
+            const scheduled = row.recommendationKey.startsWith("scheduled-")
+                ? scheduledRecommendations.find((item) => `scheduled-${item.id}` === row.recommendationKey)
+                : undefined;
+            return {
+                ...row,
+                autoReason: null as null,
+                actionType: scheduled?.actionType,
+                pressureDirection: scheduled?.pressureDirection,
+                scheduledNote: scheduled?.note,
+            };
+        }),
         ...analysis.autoIgnored,
-    ], [ignoredRecommendations, analysis.autoIgnored]);
+    ], [ignoredRecommendations, analysis.autoIgnored, scheduledRecommendations]);
 
     const groupedDailyActions = useMemo(() => {
         const grouped = new Map<string, { tankNumber: string; titles: string[]; detail?: string }>();
@@ -1271,9 +1266,9 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                 tankNumber: alert.tankNumber,
                 batchNumber: alert.batchNumber,
                 recommendationKey: alert.recommendationKey,
-                title: alert.scheduledActionType === "ventAdjust"
-                    ? "כיוון פורק"
-                    : recommendationShortLabel(alert.recommendationKey, alert.title),
+                // Store the source title, not a lossy category label. The
+                // ignored-list formatter removes only "המלצה" at render time.
+                title: alert.title,
                 detail: alert.detail,
                 importance: alert.importance ?? 1,
             });
@@ -1435,7 +1430,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                         <span className="health-ignored-copy">
                                             <span className="health-ignored-label">
                                                 <LightbulbOff size={15} aria-hidden="true" />
-                                                מיכל {row.tankNumber} · {recommendationShortLabel(row.recommendationKey, row.title)}
+                                                מיכל {row.tankNumber} · {cellarIgnoredActionTitle(row)}
                                             </span>
                                             {row.autoReason && <small>{row.autoReason}</small>}
                                         </span>
