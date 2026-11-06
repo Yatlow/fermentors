@@ -225,7 +225,16 @@ function observeSharedPendingSheetSyncJobs(snapshot: QuerySnapshot<DocumentData>
 
   const next = new Map<string, PendingCellarMeasurement[]>();
   const nextSignatures = new Map<string, string>();
-  snapshot.docs.forEach((row) => {
+  // Last committed report wins when two clients update the same field.
+  // Firestore query order is not necessarily report-time order.
+  const orderedJobs = [...snapshot.docs].sort((a, b) => {
+    const time = (row: DocumentData) => {
+      const value = row.data()?.createdAt;
+      return typeof value?.toMillis === "function" ? value.toMillis() : 0;
+    };
+    return time(a) - time(b) || a.id.localeCompare(b.id);
+  });
+  orderedJobs.forEach((row) => {
     const data = row.data();
     const signature = JSON.stringify([data.readingsJson, data.createdAt]);
     nextSignatures.set(row.id, signature);
