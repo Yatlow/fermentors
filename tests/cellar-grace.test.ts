@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import {
   FERMENTATION_GRACE_MS,
   GRACE_RESET_HOUR,
@@ -12,6 +13,7 @@ import {
   dailyMeasurementStatusLabel,
   completedDailyRoundKpi,
   shouldShowPlatoPhTank,
+  hotMeasurementRecommendationTanks,
 } from "../src/SERVICES/dashboard/cellarGrace";
 
 const fullyMeasured = { temp: true, pressure: true, plato: true, pH: true };
@@ -202,4 +204,20 @@ test("fermenting tank with blank/invalid temperature requires sugar and pH, but 
   const incomplete = { ...fullVeteranFields, [missingTemp.id]: missingPH };
   assert.equal(measurementGraceTankIds(all, incomplete, new Date(2026, 9, 15, 22)).has("tank16"), false);
   assert.equal(measurementGraceTankIds(all, fullVeteranFields, new Date(2026, 9, 15, 22)).has("tank16"), true);
+});
+
+
+test("post Plato/pH recommendations include only active warm/unknown fermentors, not cold tanks", () => {
+  const tanks = [
+    { id: "warm", action: 1, stage: { name: "בתסיסה" }, currentData: { temp: 17 } },
+    { id: "unknown", action: 1, stage: { name: "בתסיסה" }, currentData: { temp: null } },
+    { id: "cold", action: 1, stage: { name: "קר" }, currentData: { temp: 3 } },
+    { id: "chilled-fermentor", action: 1, stage: { name: "בתסיסה" }, currentData: { temp: 8 } },
+    { id: "empty", action: 3, stage: { name: "בתסיסה" }, currentData: { temp: 17 } },
+    { id: "unstarted", action: 0, stage: { name: "בתסיסה" }, currentData: { temp: 18 } },
+  ];
+  assert.deepEqual(hotMeasurementRecommendationTanks(tanks).map(tank => tank.id), ["warm", "unknown"]);
+  const modal = readFileSync("src/components/cellering/SendMessurmentsHeader.tsx", "utf8");
+  assert.match(modal, /reportName === "חם" \? hotMeasurementRecommendationTanks\(brews\) : brews/);
+  assert.match(modal, /<HealthDashboard brews=\{recommendationBrews\}/);
 });
