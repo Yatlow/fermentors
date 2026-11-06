@@ -21,7 +21,7 @@ function localDay(value: unknown): string | null {
     if (typeof timestamp.toDate === "function") date = timestamp.toDate();
     else if (typeof timestamp.seconds === "number") date = new Date(timestamp.seconds * 1000);
   } else if (typeof value === "string" || typeof value === "number") {
-    date = new Date(value);
+    date = new Date(typeof value === "number" ? value : Date.parse(value));
   }
   if (!date || !Number.isFinite(date.getTime())) return null;
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"),
