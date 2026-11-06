@@ -1,9 +1,10 @@
 import BeerLoader from "./../general/Loading";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { writeReadingsToSheets, type writeReadingResult } from "../../SERVICES/getAndPost/writeReadingToSheets";
 import type { Fermentor, NewReading, ReadingToSend } from "../../App";
 import type { Measurement } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import HealthDashboard from "../dashboard/HealthDashboard";
+import { hotMeasurementRecommendationTanks } from "../../SERVICES/dashboard/cellarGrace";
 import {
     dueScheduledForTank,
     setScheduledCellarRecommendationStatus,
@@ -56,6 +57,12 @@ export default function SendMessurmentsHeader({
     const [sendResults, setSendResults] = useState<writeReadingResult[]>([]);
     const [showSendStatus, setShowSendStatus] = useState(false);
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
+    // Only the post-sugar/pH confirmation modal is limited to warm tanks.
+    // The full cellar dashboard and the pressure-report modal remain unchanged.
+    const recommendationBrews = useMemo(
+        () => reportName === "חם" ? hotMeasurementRecommendationTanks(brews) : brews,
+        [brews, reportName],
+    );
 
     // חדש: מתריע אם הכתיבה בפועל לגיליון נכשלה ברקע, אחרי שכבר הוצגו המלצות למשתמש
     const [writeWarning, setWriteWarning] = useState<writeReadingResult[] | null>(null);
@@ -744,7 +751,7 @@ export default function SendMessurmentsHeader({
                                         </div>
                                     )}
 
-                                    <HealthDashboard brews={brews} specs={specs} recommendationsOnly compactRecommendations />
+                                    <HealthDashboard brews={recommendationBrews} specs={specs} recommendationsOnly compactRecommendations />
 
                                     <p>{""}</p>
                                 </div>
