@@ -1,4 +1,4 @@
-import { collection, getDocsFromCache, getDocsFromServer, orderBy, query, type QuerySnapshot, type DocumentData } from "firebase/firestore";
+import { collection, getDocsFromCache, getDocsFromServer, onSnapshot, orderBy, query, where, type QuerySnapshot, type DocumentData, type Unsubscribe } from "firebase/firestore";
 import { db } from "../../firebase";
 import type { Measurement } from "../cellering/calculateCelleringRecomendations";
 import { recordReadAudit } from "../readAudit";
@@ -8,8 +8,9 @@ import {
   measurementDayKeyFromId,
   mergeOptimisticMeasurementIntoHistory,
 } from "./measurementHistoryModel";
+import { pendingMeasurementsFromSyncJob, type PendingCellarMeasurement } from "./sharedSheetSyncMeasurements";
 
-type Entry = { data?: Measurement[]; loadedAt: number; pending?: Promise<Measurement[]> };
+type Entry = { data?: Measurement[]; base?: Measurement[]; loadedAt: number; pending?: Promise<Measurement[]> };
 const cache = new Map<string, Entry>();
 const revisions = new Map<string, string>();
 const embeddedBatches = new Set<string>();
@@ -19,6 +20,11 @@ const embeddedBatches = new Set<string>();
 // measurement history and trigger a full server download again.
 const serverEmbeddedBatches = new Set<string>();
 const optimisticByBatch = new Map<string, Map<string, Measurement>>();
+// The existing durable Sheet outbox is the realtime stream of pending action
+// evidence across devices. Keep the source rows separate from the local overlay.
+const sharedPendingJobs = new Map<string, PendingCellarMeasurement[]>();
+const sharedPendingJobSignatures = new Map<string, string>();
+const sharedPendingByBatch = new Map<string, Measurement[]>();
 let watching = false;
 let session = 0;
 let firstServerSnapshotPromise: Promise<void> | null = null;
@@ -90,7 +96,8 @@ function patchesFor(batchId: string): Measurement[] {
 }
 
 function applyOptimisticPatches(rows: Measurement[], batchId: string): Measurement[] {
-  return patchesFor(batchId).reduce(
+  const allPatches = [...patchesFor(batchId), ...(sharedPendingByBatch.get(batchId) ?? [])];
+  return allPatches.reduce(
     (current, patch) => mergeOptimisticMeasurementIntoHistory(current, patch),
     collapseMeasurementsToLatestPerDay(rows)
   );
@@ -173,32 +180,96 @@ function dropCoveredOptimisticPatches(batchId: string, rows: Measurement[]): voi
  * Firestore/Sheets remain authoritative and we do not create a second document
  * id when today's Sheet row already has an earlier time.
  */
-export function applyOptimisticMeasurementUpdate(
-  batchNumber: string | number,
-  measurement: Measurement
-): void {
-  const batchId = keyOf(batchNumber);
+function rememberOptimisticPatch(batchId: string, measurement: Measurement): void {
   const day = measurementDayKeyFromId(measurement.id);
-  if (!batchId || !day) return;
-
+  if (!day) return;
   let byDay = optimisticByBatch.get(batchId);
   if (!byDay) {
     byDay = new Map<string, Measurement>();
     optimisticByBatch.set(batchId, byDay);
   }
-
   const previous = byDay.get(day);
-  const mergedPatch = previous
+  byDay.set(day, previous
     ? mergeOptimisticMeasurementIntoHistory([previous], measurement)[0]
-    : measurement;
-  byDay.set(day, mergedPatch);
+    : measurement);
+}
 
+export function applyOptimisticMeasurementUpdate(
+  batchNumber: string | number,
+  measurement: Measurement
+): void {
+  const batchId = keyOf(batchNumber);
+  if (!batchId || !measurementDayKeyFromId(measurement.id)) return;
+  rememberOptimisticPatch(batchId, measurement);
   const cached = cache.get(batchId);
-  if (cached?.data) {
-    cached.data = mergeOptimisticMeasurementIntoHistory(cached.data, measurement);
-  }
-
+  if (cached?.data) cached.data = mergeOptimisticMeasurementIntoHistory(cached.data, measurement);
   notifyMeasurementsUpdated(batchId);
+}
+
+/** Subscribe once per app session. The same pending outbox is already watched
+ * by SheetSyncStatus, but this feed also refreshes cellar scores in other tabs
+ * and in browsers that did not originate the measurement. */
+export function subscribeSharedPendingCellarMeasurements(
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(query(collection(db, "sheetSyncJobs"), where("state", "==", "pending")),
+    observeSharedPendingSheetSyncJobs, onError);
+}
+
+function observeSharedPendingSheetSyncJobs(snapshot: QuerySnapshot<DocumentData>): void {
+  // An offline IndexedDB snapshot can contain jobs already completed by the
+  // server. Wait for a server-confirmed view; local submitted readings already
+  // have their own optimistic overlay.
+  if (snapshot.metadata.fromCache) return;
+
+  const next = new Map<string, PendingCellarMeasurement[]>();
+  const nextSignatures = new Map<string, string>();
+  snapshot.docs.forEach((row) => {
+    const data = row.data();
+    const signature = JSON.stringify([data.readingsJson, data.createdAt]);
+    nextSignatures.set(row.id, signature);
+    next.set(row.id, pendingMeasurementsFromSyncJob(data));
+  });
+  if (nextSignatures.size === sharedPendingJobSignatures.size &&
+      [...nextSignatures].every(([id, value]) => sharedPendingJobSignatures.get(id) === value)) return;
+
+  const affected = new Set<string>();
+  sharedPendingJobs.forEach((readings, id) => {
+    if (next.has(id)) return;
+    // Outbox cleanup follows confirmed Sheet -> Firestore reconciliation, but
+    // compact cellarState can still lag. Carry the latest patch until the next
+    // authoritative embedded snapshot proves that the values were absorbed.
+    readings.forEach(({ batchId, measurement }) => {
+      rememberOptimisticPatch(batchId, measurement as Measurement);
+      affected.add(batchId);
+    });
+  });
+  sharedPendingByBatch.forEach((_rows, batchId) => affected.add(batchId));
+  sharedPendingJobs.clear();
+  sharedPendingJobSignatures.clear();
+  sharedPendingByBatch.clear();
+
+  next.forEach((readings, id) => {
+    sharedPendingJobs.set(id, readings);
+    sharedPendingJobSignatures.set(id, nextSignatures.get(id) ?? "");
+    readings.forEach(({ batchId, measurement }) => {
+      const patches = sharedPendingByBatch.get(batchId) ?? [];
+      patches.push(measurement as Measurement);
+      sharedPendingByBatch.set(batchId, patches);
+      affected.add(batchId);
+    });
+  });
+
+  affected.forEach((batchId) => {
+    const entry = cache.get(batchId);
+    if (entry?.base) {
+      dropCoveredOptimisticPatches(batchId, entry.base);
+      entry.data = applyOptimisticPatches(entry.base, batchId);
+    } else {
+      cache.delete(batchId);
+    }
+    notifyMeasurementsUpdated(batchId);
+  });
 }
 
 /** Call outside React state updaters, from the EXISTING fermentors listener. */
@@ -214,6 +285,7 @@ export function observeMeasurementRevisions(snapshot: QuerySnapshot<DocumentData
 
   const next = new Map<string, string[]>();
   const nextEmbedded = new Map<string, Measurement[]>();
+  const affected = new Set<string>();
 
   snapshot.docs.forEach(document => {
     const data = document.data();
@@ -241,6 +313,7 @@ export function observeMeasurementRevisions(snapshot: QuerySnapshot<DocumentData
   const fresh = new Map([...next].map(([id, values]) => [id, values.sort().join("|")]));
   new Set([...revisions.keys(), ...fresh.keys()]).forEach(id => {
     if (revisions.get(id) !== fresh.get(id)) {
+      affected.add(id);
       // Do not throw away an authoritative compact cellarState just because a
       // revision changed or a transient tank write omitted cellarState. The next
       // embedded snapshot will refresh it. Without this guard every fermentor
@@ -258,14 +331,22 @@ export function observeMeasurementRevisions(snapshot: QuerySnapshot<DocumentData
   nextEmbedded.forEach((baseRows, id) => {
     embeddedBatches.add(id);
     serverEmbeddedBatches.add(id);
+    const previousBase = cache.get(id)?.base;
+    if (!previousBase || JSON.stringify(previousBase) !== JSON.stringify(baseRows)) {
+      affected.add(id);
+    }
     dropCoveredOptimisticPatches(id, baseRows);
     cache.set(id, {
+      base: baseRows,
       data: applyOptimisticPatches(baseRows, id),
       loadedAt: Date.now(),
     });
   });
 
   markFirstServerSnapshotReady();
+  // The compact history may update without changing React's tank references.
+  // Emit once per affected batch, not for unrelated tank or metadata changes.
+  affected.forEach(notifyMeasurementsUpdated);
 }
 
 export function stopMeasurementRevisionTracking(): void {
@@ -275,6 +356,9 @@ export function stopMeasurementRevisionTracking(): void {
   serverEmbeddedBatches.clear();
   cache.clear();
   optimisticByBatch.clear();
+  sharedPendingJobs.clear();
+  sharedPendingJobSignatures.clear();
+  sharedPendingByBatch.clear();
   session++;
   // Release any callers waiting on the old listener, then prepare a fresh gate
   // for the next authenticated fermentors subscription.
@@ -336,7 +420,7 @@ export async function getMeasurementsByBatch(
       if (localSnapshot.size === persisted.count) {
         const rawRows = localSnapshot.docs.map(document => ({ ...document.data(), id: document.id })) as Measurement[];
         const rows = applyOptimisticPatches(rawRows, id);
-        cache.set(id, { data: rows, loadedAt: Date.now() });
+        cache.set(id, { base: rawRows, data: rows, loadedAt: Date.now() });
         recordReadAudit("Measurements persistent cache", localSnapshot.size);
         return copy(rows);
       }
@@ -360,6 +444,7 @@ export async function getMeasurementsByBatch(
       if (cache.get(id) !== entry) return getMeasurementsByBatch(id);
       const rawRows = snapshot.docs.map(document => ({ ...document.data(), id: document.id })) as Measurement[];
       const rows = applyOptimisticPatches(rawRows, id);
+      entry.base = rawRows;
       entry.data = rows;
       entry.loadedAt = Date.now();
       entry.pending = undefined;
