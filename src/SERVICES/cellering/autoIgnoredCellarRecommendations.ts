@@ -17,7 +17,31 @@ type SuppressedRecommendation = {
 type CellarRecommendationSources = {
   requiresCarbTest?: SuppressedRecommendation | null;
   neglectedStatus?: SuppressedRecommendation | null;
+  requiresWarmYeastDropCompletion?: SuppressedRecommendation | null;
+  requiresColdYeastDropCompletion?: SuppressedRecommendation | null;
 } | null;
+
+/**
+ * Match the existing weekend auto-ignore behavior for low-priority catch-up
+ * work. Keep the underlying yeast deficit visible in the ignored list and
+ * restoreable for this session, without dismissing or persisting anything.
+ * Only *completions* are affected, never the first yeast-drop recommendation.
+ */
+export function autoIgnoreYeastCompletionOnWeekend(
+  recommendation: { req: boolean; display: boolean; importance: number; reason?: string },
+  dayOfWeek: number,
+) {
+  const suppressed = (dayOfWeek === 5 || dayOfWeek === 6) &&
+    recommendation.req && recommendation.display;
+  return {
+    ...recommendation,
+    req: suppressed ? false : recommendation.req,
+    display: suppressed ? false : recommendation.display,
+    autoIgnoredReason: suppressed
+      ? `התעלמות אוטומטית - יום ${dayOfWeek === 5 ? "שישי" : "שבת"}`
+      : null,
+  };
+}
 
 export type AutomaticallyIgnoredCellarRecommendation = {
   id: string;
@@ -41,6 +65,8 @@ export function automaticIgnoredRecommendationsForTank(input: {
   const candidates = [
     { key: "carbTest", title: "בדיקת גיזוז", recommendation: input.recommendations?.requiresCarbTest },
     { key: "neglectedStatus", title: "טיפול במיכל", recommendation: input.recommendations?.neglectedStatus },
+    { key: "warmYeastDropCompletion", title: "השלמת הורדת שמרים חמה", recommendation: input.recommendations?.requiresWarmYeastDropCompletion },
+    { key: "coldYeastDropCompletion", title: "השלמת הורדת שמרים קרה", recommendation: input.recommendations?.requiresColdYeastDropCompletion },
   ];
 
   return candidates.flatMap(({ key, title, recommendation }) => {

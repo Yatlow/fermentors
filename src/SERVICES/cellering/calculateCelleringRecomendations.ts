@@ -13,6 +13,7 @@ import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestT
 import { getCoolingPlatoStabilityEvidence } from "./coolingPlatoStability";
 import { carbonationSpecKey, getFermentationEndPlatoLimit } from "./fermentationEndPlato";
 import { isCompletedYeastDrop, yeastDropAllowsCooling } from "./coolingYeastTiming";
+import { autoIgnoreYeastCompletionOnWeekend } from "./autoIgnoredCellarRecommendations";
 import { carbonationPressureContext, firstInRangePressureAdvice, subsequentCarbonationPressureAdvice, hasReachedCarbonationRange, livePressureReading, preferredPressureReading } from "./carbonationPressureInsights";
 
 
@@ -1710,9 +1711,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiresDryHop,
         requiresPresureClose,
         requiresWarmYeastDrop,
-        requiresWarmYeastDropCompletion,
+        requiresWarmYeastDropCompletion: autoIgnoreYeastCompletionOnWeekend(requiresWarmYeastDropCompletion, today),
         requiersYeastDropAfterCooling,
-        requiresColdYeastDropCompletion,
+        requiresColdYeastDropCompletion: autoIgnoreYeastCompletionOnWeekend(requiresColdYeastDropCompletion, today),
         requiiersWedYeastDropOnThus,
         requiresCarbTest,
         requiredBottomCarbonation,
