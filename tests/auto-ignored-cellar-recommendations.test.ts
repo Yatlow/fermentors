@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import {
   automaticIgnoredRecommendationsForTank,
+  autoIgnoreYeastCompletionOnWeekend,
   partitionAutomaticallyIgnoredRecommendations,
 } from "../src/SERVICES/cellering/autoIgnoredCellarRecommendations";
 
@@ -86,4 +87,51 @@ test("Friday severity 3 remains actionable while moderate retests enter auto-ign
   assert.match(source, /if \(retestPolicy\.due && shouldRecommendCarbonationRetestOnDate\(todayDate, lastCarbSpec\.importance\)\)/);
   assert.match(source, /retestPolicy\.due && !shouldRecommendCarbonationRetestOnDate\(todayDate, lastCarbSpec\.importance\)/);
   assert.match(source, /autoIgnoredReason: coldNeglect !== null && \(today === 5 \|\| today === 6\)/);
+});
+
+
+test("Friday and Saturday auto-ignore only outstanding yeast completions, preserving weekday visibility", () => {
+  const incomplete = { req: true, display: true, importance: 1, reason: "נשארו 2 דליים להוציא" };
+  for (const [weekday, label] of [[5, "שישי"], [6, "שבת"]] as const) {
+    const suppressed = autoIgnoreYeastCompletionOnWeekend(incomplete, weekday);
+    assert.equal(suppressed.req, false);
+    assert.equal(suppressed.display, false);
+    assert.equal(suppressed.autoIgnoredReason, `התעלמות אוטומטית - יום ${label}`);
+    assert.equal(suppressed.importance, 1);
+    assert.equal(suppressed.reason, incomplete.reason);
+  }
+  for (const weekday of [0, 1, 2, 3, 4]) {
+    assert.deepEqual(autoIgnoreYeastCompletionOnWeekend(incomplete, weekday), {
+      ...incomplete, autoIgnoredReason: null,
+    });
+  }
+  assert.equal(autoIgnoreYeastCompletionOnWeekend({ ...incomplete, req: false }, 5).autoIgnoredReason, null);
+  assert.equal(autoIgnoreYeastCompletionOnWeekend({ ...incomplete, display: false }, 6).autoIgnoredReason, null);
+});
+
+test("warm and cold yeast completion auto-ignores are separately restorable, not daily score items", () => {
+  const rows = automaticIgnoredRecommendationsForTank({
+    tankNumber: 12,
+    batchNumber: 1625,
+    ignoredDate: "2026-11-06",
+    recommendations: {
+      requiresWarmYeastDropCompletion: autoIgnoreYeastCompletionOnWeekend(
+        { req: true, display: true, importance: 1, reason: "השלמת הוצאה חמה" }, 5,
+      ),
+      requiresColdYeastDropCompletion: autoIgnoreYeastCompletionOnWeekend(
+        { req: true, display: true, importance: 1, reason: "השלמת הוצאה קרה" }, 5,
+      ),
+    },
+  });
+  assert.deepEqual(rows.map(row => row.recommendationKey), ["warmYeastDropCompletion", "coldYeastDropCompletion"]);
+  assert.deepEqual(rows.map(row => row.detail), ["השלמת הוצאה חמה", "השלמת הוצאה קרה"]);
+  assert.deepEqual(rows.map(row => row.importance), [1, 1]);
+  const result = partitionAutomaticallyIgnoredRecommendations(rows, new Set([rows[1].id]));
+  assert.deepEqual(result.ignored, [rows[0]]);
+  assert.deepEqual(result.restored, [rows[1]]);
+  // Reinstated yeast completions participate in the same natural-yeast KPI path.
+  const dashboard = readFileSync("src/components/dashboard/HealthDashboard.tsx", "utf8");
+  assert.match(dashboard, /"warmYeastDropCompletion"/);
+  assert.match(dashboard, /"coldYeastDropCompletion"/);
+  assert.match(dashboard, /const naturalYeast = naturalRecommendations\.some/);
 });
