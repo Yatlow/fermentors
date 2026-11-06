@@ -119,6 +119,8 @@ function sheetOutboxPayload(readings: ReadingLike[]): string {
     return JSON.stringify(
         readings.map((reading) => ({
             tankId: String(reading.tankId),
+            // Preserve the reported local day/time for other devices.
+            id: reading.id == null ? null : String(reading.id),
             tankNumber: reading.tankNumber == null ? null : String(reading.tankNumber),
             batchNumber: reading.batchNumber == null ? null : String(reading.batchNumber),
             temp: reading.temp ?? null,
