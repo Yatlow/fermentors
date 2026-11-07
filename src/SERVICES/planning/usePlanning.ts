@@ -508,6 +508,7 @@ export function usePlanning(
                 dismissedRecommendations?: unknown;
                 allowExceptions?: unknown;
                 oversizeTruckApprovals?: unknown;
+                sundayKegOverageApprovals?: unknown;
                 changeReason?: unknown;
                 calendarEvents?: unknown;
                 calendarNotes?: unknown;
@@ -530,6 +531,9 @@ export function usePlanning(
                   : {}),
                 ...(Array.isArray(week.oversizeTruckApprovals)
                   ? { oversizeTruckApprovals: week.oversizeTruckApprovals }
+                  : {}),
+                ...(Array.isArray(week.sundayKegOverageApprovals)
+                  ? { sundayKegOverageApprovals: week.sundayKegOverageApprovals }
                   : {}),
                 ...(typeof week.changeReason === "string"
                   ? { changeReason: week.changeReason }
