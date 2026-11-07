@@ -43,6 +43,8 @@ export type Release = {
   remaining: number;
   workLiters: number;
   reason: string;
+  /** Past batch closures proven by both a physical ready state and a matching packaging report. */
+  completedPhysicalCycles?: Array<{ cycleId: string; emptyDate: string }>;
 };
 export type BrewSizeLabel = "בודד" | "כפול" | "משולש";
 
@@ -158,6 +160,48 @@ export function forecastUndatedTankReleasePackaging(
   }));
 }
 
+/**
+ * A new batch may already be staged (action 0) after the previous physical
+ * batch was fully packed LAST week. The current tank snapshot then belongs to
+ * the new batch, while its old canonical planning cycle still has no emptyDate.
+ * Match the old cycle using its explicit tank + batch + style identity and an
+ * actual packaging report, never by tank alone or by an approximate brew date.
+ *
+ * The ready/empty physical state is the evidence that final emptying occurred;
+ * the report dates anchor it to the prior packaging week. Do not use this for
+ * an active, still-full tank or ambiguous/reused batch identities.
+ */
+function completedPastPhysicalCycles(
+  source: TankSource,
+  cycles: TankScheduleCycle[],
+  actuals: Actual[],
+  today: string,
+): Array<{ cycleId: string; emptyDate: string }> {
+  if (!isReadyForBrew(source) || source.tankNumber == null) return [];
+  const ordered = orderedTankSchedule(cycles).filter((cycle) => cycle.status !== "cancelled");
+  return ordered.flatMap((cycle, index) => {
+    if (cycle.emptyDate || cycle.brewDate >= today) return [];
+    const batch = normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber);
+    if (!batch || ordered.filter((candidate) =>
+      normalizedBatch(candidate.batchNumber ?? candidate.plannedBatchNumber) === batch).length !== 1) return [];
+
+    const next = ordered.slice(index + 1).find((candidate) => candidate.brewDate > cycle.brewDate);
+    const reportedDates = actuals.flatMap((actual) => {
+      const date = actualDate(actual);
+      return date && date >= cycle.brewDate && date <= today &&
+        (!next || date < next.brewDate) &&
+        String(actual.tankNumber ?? "").trim() === String(source.tankNumber).trim() &&
+        normalizedBatch(actual.batchNumber) === batch &&
+        sameStyle(actual.beerStyle ?? "", cycle.style) &&
+        ["kegs", "bottles"].includes(String(actual.packagingType ?? "")) &&
+        num(actual.quantity) > 0 ? [date] : [];
+    });
+    return reportedDates.length
+      ? [{ cycleId: cycle.cycleId, emptyDate: reportedDates.sort().at(-1)! }]
+      : [];
+  });
+}
+
 export function tankReleases(
   sources: TankSource[],
   tanks: Tank[],
@@ -256,17 +300,25 @@ export function tankReleases(
         .filter((date): date is string => !!date && date >= weekStart(today) && date <= today)
         .sort()
         .at(-1);
+      const completedPhysicalCycles = completedPastPhysicalCycles(
+        source, schedules.get(source.id) ?? [], actuals, today,
+      );
+      const lastCompleted = completedPhysicalCycles.map((item) => item.emptyDate).sort().at(-1);
+      const emptyDate = packedThisWeek ?? lastCompleted ?? null;
       return {
         tankId: source.id,
-        date: packedThisWeek ? nextBrewingWeek(packedThisWeek) : today,
-        emptyDate: packedThisWeek ?? null,
+        date: emptyDate ? [today, nextBrewingWeek(emptyDate)].sort().at(-1)! : today,
+        emptyDate,
         remaining: 0,
         workLiters,
+        ...(completedPhysicalCycles.length ? { completedPhysicalCycles } : {}),
         reason: packedThisWeek
           ? "המיכל נארז השבוע; זמין לבישול מהשבוע הבא לאחר ניקיון"
-          : Number(source.action) === 0 || source.stage?.name === "מחכה לבישול"
-            ? "המיכל מחכה לבישול וזמין לשיבוץ · נפח המחזור הבא מחושב לפי גודל המיכל"
-            : "המיכל פנוי; יש לאמת ניקיון וחיטוי",
+          : lastCompleted
+            ? "ריקון מחזור קודם מאומת לפי דיווח אריזה ומצב מיכל פנוי"
+            : Number(source.action) === 0 || source.stage?.name === "מחכה לבישול"
+              ? "המיכל מחכה לבישול וזמין לשיבוץ · נפח המחזור הבא מחושב לפי גודל המיכל"
+              : "המיכל פנוי; יש לאמת ניקיון וחיטוי",
       };
     }
 
@@ -711,9 +763,18 @@ export function reconcilePhysicalCycleEmptying(
   release: Release | undefined,
   today: string,
 ): TankScheduleCycle[] {
-  if (!source || !tank || !release?.emptyDate || isReadyForBrew(source)) return cycles;
+  // Recover already-emptied historical cycles even when the physical source has
+  // advanced to a different, not-yet-brewed batch (action 0). The exact cycle
+  // identities come from the verified packaging reports in tankReleases().
+  const completed = new Map((release?.completedPhysicalCycles ?? [])
+    .map(({ cycleId, emptyDate }) => [cycleId, emptyDate]));
+  const reconciled = cycles.map((cycle) =>
+    !cycle.emptyDate && completed.has(cycle.cycleId)
+      ? { ...cycle, emptyDate: completed.get(cycle.cycleId)! }
+      : cycle);
+  if (!source || !tank || !release?.emptyDate || isReadyForBrew(source)) return reconciled;
   // Only a proven physical/legacy packaging release can close a forecast cycle.
-  if (!release.reason.includes("legacy") && !release.reason.includes("המחזור הפיזי")) return cycles;
+  if (!release.reason.includes("legacy") && !release.reason.includes("המחזור הפיזי")) return reconciled;
   const physicalBatch = normalizedBatch(source.batchNumber);
   const snapshotBatch = normalizedBatch(tank.batch);
   if (!physicalBatch || (snapshotBatch && snapshotBatch !== physicalBatch)) return cycles;
@@ -721,11 +782,11 @@ export function reconcilePhysicalCycleEmptying(
   const physicalStyle = String(source.beerStyle ?? tank.style);
   if (!physicalDate || physicalDate > today || !physicalStyle ||
       !sameStyle(physicalStyle, tank.style) || release.emptyDate < physicalDate) return cycles;
-  const matches = cycles.filter((cycle) =>
+  const matches = reconciled.filter((cycle) =>
     cycle.status !== "cancelled" && cycle.brewDate === physicalDate &&
     sameStyle(cycle.style, physicalStyle));
-  if (matches.length !== 1 || matches[0].emptyDate) return cycles;
-  return cycles.map((cycle) => cycle.cycleId === matches[0].cycleId
+  if (matches.length !== 1 || matches[0].emptyDate) return reconciled;
+  return reconciled.map((cycle) => cycle.cycleId === matches[0].cycleId
     ? { ...cycle, emptyDate: release.emptyDate! } : cycle);
 }
 
