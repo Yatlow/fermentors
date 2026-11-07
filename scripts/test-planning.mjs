@@ -27,6 +27,7 @@ try {
     "tank-schedule-projection",
     "planning-canonical-current-cycle",
     "planning-past-physical-batch-release",
+    "planning-sunday-keg-approval",
     "planning-canonical-availability-regression",
     "planning-winter-split-release-regression",
     "planning-brew-assignment-scope-regression",
