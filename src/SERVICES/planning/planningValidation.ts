@@ -1,6 +1,7 @@
 import { parseDate, weekStart, type Settings, type WeekPlan } from "./planningEngine";
 import { packagingLimit, weekday } from "./productionCycle";
 import { validateTruckGroups } from "./truckPlanner";
+import { hasSundayKegOverageApproval } from "./sundayKegCapacity";
 
 /** Collect all distinct operational failures rather than returning only the
  * first error. The save gate compares the full before/after set, so pre-existing
@@ -61,7 +62,9 @@ export function planningWeekIssues(
           errors.push(`${date}: יותר מפריט אריזה אחד מסוג ${type === "crates" ? "ארגזים" : "חביות"} ביום`);
         const total = typedRuns.reduce((sum, run) => sum + run.quantity, 0);
         const cap = packagingLimit(date, type);
-        if (total > cap)
+        const approvedSundayKegs = type === "kegs" && weekday(date) === 0 &&
+          hasSundayKegOverageApproval(w, { date, quantity: total });
+        if (total > cap && !approvedSundayKegs)
           errors.push(`${date}: ${total} ${type === "crates" ? "ארגזים" : "חביות"} חורגים מקיבולת ${cap}`);
       }
     }

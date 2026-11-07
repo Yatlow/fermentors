@@ -82,6 +82,8 @@ export type WeekPlan = {
   allowExceptions?: boolean;
   /** Explicit planner approvals for truck floor-slot overages, scoped by dispatch date and truck ID. */
   oversizeTruckApprovals?: string[];
+  /** Sunday keg capacity exceptions, scoped to one date and the approved exact keg total. */
+  sundayKegOverageApprovals?: { date: string; quantity: number }[];
 };
 export type Actual = {
   id: string;

@@ -1,10 +1,12 @@
 import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { validatePlanningDecisionChange } from "../../SERVICES/planning/planningDecisionSafety";
 import { changedMixedPackagingDays } from "../../SERVICES/planning/planningValidation";
+import { hasSundayKegOverageApproval, sundayKegOverages, withSundayKegOverageApprovals } from "../../SERVICES/planning/sundayKegCapacity";
 import { pendingShipmentSubLabelReviews, type ShipmentSubLabelReview } from "../../SERVICES/planning/planningShipmentReservations";
 import { setMarkedForShipment } from "../../SERVICES/cooler/Palletservice";
 import { truckPlanningGroupKey } from "../../SERVICES/planning/truckPlanner";
@@ -139,13 +141,13 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
       setSpecialPalletBusy(false);
     }
   }
-  const [confirmation, setConfirmation] = useState<{ title: string; message: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<{ title: string; message: string; confirmLabel?: string } | null>(null);
   const confirmationResolver = useRef<((approved: boolean) => void) | null>(null);
-  function confirmPlanning(message: string): Promise<boolean> {
+  function confirmPlanning(message: string, title = "אישור שינוי בתכנון", confirmLabel?: string): Promise<boolean> {
     if (confirmationResolver.current) return Promise.resolve(false);
     return new Promise((resolve) => {
       confirmationResolver.current = resolve;
-      setConfirmation({ title: "אישור שינוי בתכנון", message });
+      setConfirmation({ title, message, confirmLabel });
     });
   }
   function closePlanningConfirmation(approved: boolean) {
@@ -201,10 +203,34 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
     // When a trip is removed/moved, never let its old approval silently
     // authorize a later unrelated trip that happens to reuse the same ID.
     const liveTruckKeys = new Set((identified.deliveries ?? []).map(truckPlanningGroupKey));
-    const canonical = identified.oversizeTruckApprovals?.length
+    let canonical = identified.oversizeTruckApprovals?.length
       ? { ...identified, oversizeTruckApprovals: identified.oversizeTruckApprovals
           .filter((key) => liveTruckKeys.has(key)) }
       : identified;
+    // A Sunday keg capacity approval belongs to the exact date and *exact*
+    // total. Reuse an existing unchanged approval, but discard stale approvals
+    // when the day/quantity changes or the overage is removed.
+    canonical = withSundayKegOverageApprovals({
+      ...canonical,
+      sundayKegOverageApprovals: canonical.sundayKegOverageApprovals ?? original?.sundayKegOverageApprovals,
+    }, settings.products);
+    const unapprovedSundayKegs = sundayKegOverages(canonical, settings.products)
+      .filter((overage) => !hasSundayKegOverageApproval(canonical, overage));
+    if (unapprovedSundayKegs.length) {
+      const details = unapprovedSundayKegs.map(({ date, quantity }) =>
+        `• ${date}: ${quantity} חביות (${quantity - 100} מעל המגבלה של 100)`)
+        .join("\n");
+      const accepted = await confirmPlanning(
+        `ביום ראשון מגבלת האריזה הרגילה היא 100 חביות.\n\n${details}\n\n` +
+        "זוהי חריגה תפעולית נקודתית שמחייבת בדיקת היתכנות לכוח אדם, ציוד וזמן משמרת. " +
+        "האישור יחול רק על התאריך והכמות המוצגים, ולא יבטל מגבלות אחרות.\n\n" +
+        "לאשר את החריגה ולשמור?",
+        "אישור חריגה · אריזת חביות ביום ראשון",
+        "אשר חריגה ושמור",
+      );
+      if (!accepted) throw new Error("השמירה בוטלה: חריגת החביות ביום ראשון לא אושרה.");
+      canonical = withSundayKegOverageApprovals(canonical, settings.products, unapprovedSundayKegs);
+    }
     // Warn only when this save introduces/changes a shipment decision.
     // A deliberate no-shipment week remains permitted.
     const shipmentDecisionChanged = JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? []);
@@ -406,21 +432,24 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
           </section>
         </div>
       )}
-      {confirmation && (
-        <div className="bp-inventory-dialog-backdrop" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) closePlanningConfirmation(false);
-        }}>
+      {confirmation && createPortal(
+        <div className="bp-inventory-dialog-backdrop brew-planning" dir="rtl"
+          style={{ zIndex: "calc(var(--layer-modal, 1000) + 20)" }}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closePlanningConfirmation(false);
+          }}>
           <section className="bp-modal bp-planning-scroll-modal" role="dialog" aria-modal="true"
             aria-labelledby="bp-confirmation-title" aria-describedby="bp-confirmation-description"
-            style={{ maxWidth: 560, width: "min(92vw, 560px)" }}>
+            style={{ maxWidth: 560, width: "min(92vw, 560px)", padding: 20 }}>
             <h3 id="bp-confirmation-title">{confirmation.title}</h3>
             <p id="bp-confirmation-description" style={{ whiteSpace: "pre-line", lineHeight: 1.7 }}>{confirmation.message}</p>
             <div className="bp-modal-actions">
               <button type="button" className="btn-secondary" onClick={() => closePlanningConfirmation(false)}>ביטול</button>
-              <button type="button" className="btn-primary" onClick={() => closePlanningConfirmation(true)}>אישור ושמירה</button>
+              <button type="button" className="btn-primary" onClick={() => closePlanningConfirmation(true)}>{confirmation.confirmLabel ?? "אישור ושמירה"}</button>
             </div>
           </section>
-        </div>
+        </div>,
+        document.body,
       )}
       {inventoryInputOpen && tab === "fiveWeeks" && (
         <div className="bp-inventory-dialog-backdrop" onMouseDown={(event) => {

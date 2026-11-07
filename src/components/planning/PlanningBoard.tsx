@@ -30,6 +30,7 @@ import {
   validateBrewReleases,
 } from "../../SERVICES/planning/productionCycle";
 import { validatePlanningWeek } from "../../SERVICES/planning/planningValidation";
+import { sundayKegOverages, withSundayKegOverageApprovals } from "../../SERVICES/planning/sundayKegCapacity";
 import { resolvePackagingBrewId, type PackagingPlan } from "../../SERVICES/planning/planIdentity";
 import { pendingPackagingDecisions } from "../../SERVICES/planning/packagingActuals";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
@@ -314,20 +315,26 @@ export default function PlanningBoard({
     };
 
     let all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
-    let error = validatePlanningWeek(effectiveNext, settings, all, today);
+    // The central save boundary owns the planner approval dialog. Do not
+    // pre-empt it with a hard local Sunday >100-keg error; this preview is
+    // never persisted and all other operational checks remain enforced.
+    const locallyConfirmedSundayCapacity = (draft: WeekPlan) =>
+      withSundayKegOverageApprovals(draft, settings.products,
+        sundayKegOverages(draft, settings.products));
+    let error = validatePlanningWeek(locallyConfirmedSundayCapacity(effectiveNext), settings, all, today);
     if (error && !deliveriesWereEdited) {
       const withoutDeliveries = { ...effectiveNext, deliveries: [] };
       const allWithoutCurrentDeliveries = all.map((week) =>
         week.id === effectiveNext.id ? withoutDeliveries : week
       );
-      error = validatePlanningWeek(withoutDeliveries, settings, allWithoutCurrentDeliveries, today);
+      error = validatePlanningWeek(locallyConfirmedSundayCapacity(withoutDeliveries), settings, allWithoutCurrentDeliveries, today);
     }
     if (error && packagingWasEdited && !confirmBrews) {
       const packagingOnly = { ...effectiveNext, deliveries: [], brews: [] };
       const allPackagingOnly = all.map((week) =>
         week.id === effectiveNext.id ? packagingOnly : week
       );
-      error = validatePlanningWeek(packagingOnly, settings, allPackagingOnly, today);
+      error = validatePlanningWeek(locallyConfirmedSundayCapacity(packagingOnly), settings, allPackagingOnly, today);
     }
     if (error) throw new Error(error);
 
