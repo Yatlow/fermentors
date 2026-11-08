@@ -12,6 +12,7 @@ import {
   type ScheduledCellarEvidenceMeasurement,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import { scheduledDateValidationError } from "../../SERVICES/cellering/scheduledDatePolicy";
+import { pressureDecisionContext, stripPressureChoiceInstructions } from "../../SERVICES/cellering/pressureDecisionCopy";
 import "./ScheduledCellarRecommendationsPanel.css";
 
 export type NaturalFutureCellarRecommendation = {
@@ -44,14 +45,6 @@ function tomorrowKey(): string {
 function displayDate(value: string): string {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
-}
-
-function pressureContext(reason: string): string {
-  return reason
-    .replace(/\s*מומלץ לבצע שינוי לחץ בהתאם או לוודא שבוצע\.?\s*$/u, "")
-    .replace(/\s*מומלץ לבצע שינוי לחץ בהתאם\.?\s*$/u, "")
-    .replace(/[.\s]+$/u, "")
-    .trim();
 }
 
 export default function ScheduledCellarRecommendationsPanel({
@@ -109,7 +102,9 @@ export default function ScheduledCellarRecommendationsPanel({
         actionType: row.actionType,
         label: `החלטת סלרינג · ${scheduledActionLabel(row.actionType)}`,
         dueDate: row.dueDate,
-        detail: row.note || undefined,
+        detail: row.actionType === "pressureChange"
+          ? stripPressureChoiceInstructions(row.note || "") || undefined
+          : row.note || undefined,
         manualId: row.id,
         userDecision: true,
       })),
@@ -190,7 +185,7 @@ export default function ScheduledCellarRecommendationsPanel({
     }
 
     const directionLabel = pressureDirection === "raise" ? "העלאת" : "הורדת";
-    const context = pressureContext(pressureDecisionCandidate.reason);
+    const context = pressureDecisionContext(pressureDecisionCandidate.reason);
     const decisionText = `${context ? `${context}. ` : ""}יש לבצע ${directionLabel} לחץ ל-${target} bar`;
 
     setSaving(true);

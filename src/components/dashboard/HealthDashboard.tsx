@@ -6,6 +6,7 @@ import { cellarBadgeFieldsForDay } from "../../SERVICES/dashboard/cellarMeasurem
 import { CELLAR_CELEBRATION_ACK_KEY, evaluateCellarCelebration, type SettledCellarScore } from "../../SERVICES/dashboard/cellarCelebrationPolicy";
 import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
 import { isCellarPressureActionNote } from "../../SERVICES/cellering/cellarActionState";
+import { stripPressureChoiceInstructions } from "../../SERVICES/cellering/pressureDecisionCopy";
 import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
@@ -755,6 +756,9 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                 const conflict = row.actionType === "pressureChange"
                                     ? scheduledPressureDecisionConflictText(row, measurements)
                                     : null;
+                                const decisionNote = row.actionType === "pressureChange"
+                                    ? stripPressureChoiceInstructions(row.note || "")
+                                    : row.note || "";
                                 return {
                                     recommendationKey: `scheduled-${row.id}`,
                                     req: true,
@@ -767,7 +771,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                     // decision. Legacy documents may not have source: "user".
                                     userDecision: true,
                                     scheduledNote: row.note,
-                                    reason: conflict || `החלטת סלרינג: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`,
+                                    reason: conflict || `החלטת סלרינג: ${decisionNote || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`,
                                 };
                             }),
                         ].forEach((recommendation) => {
@@ -861,7 +865,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                 `scheduled-${row.id}`,
                                 scheduledActionLabel(row.actionType),
                                 1,
-                                `בוצע לפי החלטת סלרינג${row.note ? ` · ${row.note}` : ""}`
+                                `בוצע לפי החלטת סלרינג${row.note ? ` · ${row.actionType === "pressureChange" ? stripPressureChoiceInstructions(row.note) : row.note}` : ""}`
                             );
                         });
 
