@@ -2,10 +2,9 @@ import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from
 import { FileSpreadsheet, PencilSparkles } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
-import { sameStyle } from "../../SERVICES/planning/planningEngine";
+import { dateKey, sameStyle } from "../../SERVICES/planning/planningEngine";
 import { subscribePlannedPackagingMaps } from "../../SERVICES/planning/plannedPackagingForTanks";
 import { packagingIndicatorsForTanks, type PackagingMaps } from "../../SERVICES/planning/plannedPackagingProjection";
-import { dateKey } from "../../SERVICES/planning/planningEngine";
 import { loadRecipes } from "../../SERVICES/brewing/recipeEditorStore";
 import { loadSharedBrewingLibrary } from "../../SERVICES/brewing/sharedBrewingLibrary";
 import HealthDashboard from "./HealthDashboard";
@@ -150,7 +149,7 @@ export default function Dashboard({
 
     return (
         <div className="dashboard">
-            <HealthDashboard brews={healthBrews ?? filteredBrews} specs={specs} onRecommendedTanksChange={onRecommendedTanksChange} onOpenRecommendationCountChange={onOpenRecommendationCountChange} onPendingMeasurementTanksChange={onPendingMeasurementTanksChange} />
+            <HealthDashboard brews={healthBrews ?? filteredBrews} specs={specs} plannedPackagingDates={packagingDates} onRecommendedTanksChange={onRecommendedTanksChange} onOpenRecommendationCountChange={onOpenRecommendationCountChange} onPendingMeasurementTanksChange={onPendingMeasurementTanksChange} />
             <SheetSyncStatus />
 
             <div className="dashboard-filter-info">
