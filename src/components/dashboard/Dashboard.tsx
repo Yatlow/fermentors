@@ -3,7 +3,9 @@ import { FileSpreadsheet, PencilSparkles } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { sameStyle } from "../../SERVICES/planning/planningEngine";
-import { getPlannedPackagingForTank, getUndatedPlannedPackagingWeekForTank } from "../../SERVICES/planning/plannedPackagingForTanks";
+import { subscribePlannedPackagingMaps } from "../../SERVICES/planning/plannedPackagingForTanks";
+import { packagingIndicatorsForTanks, type PackagingMaps } from "../../SERVICES/planning/plannedPackagingProjection";
+import { dateKey } from "../../SERVICES/planning/planningEngine";
 import { loadRecipes } from "../../SERVICES/brewing/recipeEditorStore";
 import { loadSharedBrewingLibrary } from "../../SERVICES/brewing/sharedBrewingLibrary";
 import HealthDashboard from "./HealthDashboard";
@@ -56,8 +58,8 @@ export default function Dashboard({
 }: DashboardProps) {
     const [brewFormTank, setBrewFormTank] = useState<Fermentor | null>(null);
     const [brewRecipes, setBrewRecipes] = useState(() => loadRecipes());
-    const [undatedPackagingWeeks, setUndatedPackagingWeeks] = useState<Record<string, string>>({});
-    const [packagingDates, setPackagingDates] = useState<Record<string, string>>({});
+    const [livePackaging, setLivePackaging] = useState<PackagingMaps | null>(null);
+    const packagingDay = dateKey(new Date());
 
     useEffect(() => {
         let cancelled = false;
@@ -69,50 +71,23 @@ export default function Dashboard({
         return () => { cancelled = true; };
     }, []);
 
-    // Packaging planning depends on tank assignment, not live measurements.
-    // Keep this signature stable when temperature, pressure or notes change.
-    const packagingTankSignature = (healthBrews ?? filteredBrews)
-        .filter(tank => Number(tank.tankNumber) > 1 && Number(tank.action) === 1)
-        .map(tank => [tank.id, tank.tankNumber, tank.batchNumber].join(":"))
-        .sort().join("|");
-
+    // One live listener for all planned tank packaging. The server-confirmed
+    // snapshot updates every dashboard card and packaging sort across devices.
     useEffect(() => {
-        let cancelled = false;
-        const activeTanks = (healthBrews ?? filteredBrews).filter(
-            (tank) => Number(tank.tankNumber) > 1 && Number(tank.action) === 1,
-        );
-
-        Promise.all(activeTanks.map(async (tank) => {
-            try {
-                const result = await getUndatedPlannedPackagingWeekForTank({
-                    tankId: tank.id,
-                    tankNumber: tank.tankNumber,
-                    batchNumber: tank.batchNumber,
-                });
-                return [tank.id, result?.weekStart || ""] as const;
-            } catch (error) {
-                console.warn("Failed loading undated packaging week", tank.tankNumber, error);
-                return [tank.id, ""] as const;
-            }
-        })).then((entries) => {
-            if (cancelled) return;
-            setUndatedPackagingWeeks(Object.fromEntries(entries.filter(([, week]) => Boolean(week))));
+        setLivePackaging(null);
+        return subscribePlannedPackagingMaps(packagingDay, setLivePackaging, (error) => {
+            console.warn("Failed syncing dashboard packaging plan", error);
+            setLivePackaging(null);
         });
+    }, [packagingDay]);
 
-        Promise.all(activeTanks.map(async (tank) => {
-            try {
-                const result = await getPlannedPackagingForTank({
-                    tankId: tank.id, tankNumber: tank.tankNumber, batchNumber: tank.batchNumber,
-                });
-                return [tank.id, result?.date || ""] as const;
-            } catch {
-                return [tank.id, ""] as const;
-            }
-        })).then((entries) => {
-            if (!cancelled) setPackagingDates(Object.fromEntries(entries));
-        });
-        return () => { cancelled = true; };
-    }, [packagingTankSignature]);
+    const { dates: packagingDates, undatedWeeks: undatedPackagingWeeks } = useMemo(() =>
+        packagingIndicatorsForTanks(
+            livePackaging,
+            (healthBrews ?? filteredBrews)
+                .filter((tank) => Number(tank.tankNumber) > 1 && Number(tank.action) === 1)
+                .map((tank) => ({ id: tank.id, tankNumber: tank.tankNumber, batchNumber: tank.batchNumber })),
+        ), [livePackaging, healthBrews, filteredBrews]);
 
     const displayBrews = useMemo(() => {
         const visible = onlyWithCellarRecommendations
@@ -244,6 +219,7 @@ export default function Dashboard({
                                 onUpdatePasivation={handleUpdatePasivation}
                                 specs={specs}
                                 weekOnlyPackaging={weekOnlyPackaging ? shortDate(weekOnlyPackaging) : undefined}
+                                plannedPackagingDate={packagingDates[fermentor.id]}
                             />
                             {showBrewFormButton && (
                                 <div className="dashboardBrewActionPair" aria-label="פעולות בישול">
