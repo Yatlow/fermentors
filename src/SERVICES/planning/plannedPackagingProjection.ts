@@ -93,3 +93,48 @@ export function plannedPackagingDateForTank(maps: PackagingMaps, input: {
   dates.sort();
   return dates[0] ?? null;
 }
+
+/** Undated weekly decision for the same physical tank/batch. */
+export function plannedUndatedPackagingWeekForTank(maps: PackagingMaps, input: {
+  tankId?: string | number | null;
+  tankNumber?: string | number | null;
+  batchNumber?: string | number | null;
+}): string | null {
+  if (plannedPackagingDateForTank(maps, input)) return null;
+  const keys = [
+    planningKey(input.tankNumber, input.batchNumber),
+    planningKey(input.tankId, input.batchNumber),
+  ].filter(Boolean);
+  const weeks = keys.map((key) => maps.planningWeekOnly.get(key))
+    .filter((value): value is string => Boolean(value));
+  weeks.push(...[input.tankNumber, input.tankId].map(tankKey).filter(Boolean)
+    .map((key) => maps.planningWeekOnlyByTank.get(key))
+    .filter((value): value is string => Boolean(value)));
+  weeks.sort();
+  return weeks[0] ?? null;
+}
+
+/** Derive cards and dashboard sorting from the SAME live planning snapshot. */
+export function packagingIndicatorsForTanks(
+  maps: PackagingMaps | null,
+  tanks: Array<{
+    id: string;
+    tankNumber?: string | number | null;
+    batchNumber?: string | number | null;
+  }>,
+): { dates: Record<string, string>; undatedWeeks: Record<string, string> } {
+  const dates: Record<string, string> = {};
+  const undatedWeeks: Record<string, string> = {};
+  if (!maps) return { dates, undatedWeeks };
+  for (const tank of tanks) {
+    const input = { tankId: tank.id, tankNumber: tank.tankNumber, batchNumber: tank.batchNumber };
+    const date = plannedPackagingDateForTank(maps, input);
+    if (date) {
+      dates[tank.id] = date;
+    } else {
+      const week = plannedUndatedPackagingWeekForTank(maps, input);
+      if (week) undatedWeeks[tank.id] = week;
+    }
+  }
+  return { dates, undatedWeeks };
+}
