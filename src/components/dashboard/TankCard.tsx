@@ -23,15 +23,12 @@ import type { QuickReportPressureDecision } from "../../SERVICES/cellering/quick
 import BatchHistoryChart from "./Batchhistorychart";
 import { Pencil, MessageCirclePlus, SaveCheck } from 'lucide-react';
 import { updateSpecficNote } from "../../SERVICES/cellering/updateSpecficNote";
-import {
-  getPlannedPackagingForTank,
-  type PlannedTankPackaging,
-} from "../../SERVICES/planning/plannedPackagingForTanks";
 
 
 type TankCardProps = {
   tank: Fermentor;
   weekOnlyPackaging?: string;
+  plannedPackagingDate?: string;
 
   onUpdatePasivation?: (
     tankId: string,
@@ -131,6 +128,7 @@ export function getBrewAge(
 function TankCard({
   tank,
   weekOnlyPackaging,
+  plannedPackagingDate,
 //   onUpdatePasivation,
   specs
 }: TankCardProps) {
@@ -325,7 +323,6 @@ function TankCard({
 
 
   const [showInfo, setShowInfo] = useState(false);
-  const [plannedPackaging, setPlannedPackaging] = useState<PlannedTankPackaging | null>(null);
   const [state, setState] =
     useState<TankState>({
       action:
@@ -399,32 +396,6 @@ function TankCard({
     tank.specificTankNote,
   ]);
 
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (Number(tank.tankNumber) <= 1 || Number(tank.action) !== 1) {
-      setPlannedPackaging(null);
-      return;
-    }
-
-    getPlannedPackagingForTank({
-      tankId: tank.id,
-      tankNumber: tank.tankNumber,
-      batchNumber: tank.batchNumber,
-    })
-      .then((plan) => {
-        if (!cancelled) setPlannedPackaging(plan);
-      })
-      .catch((error) => {
-        console.warn("Failed loading planned packaging for tank", tank.tankNumber, error);
-        if (!cancelled) setPlannedPackaging(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [tank.id, tank.tankNumber, tank.action, tank.batchNumber]);
 
   const isCLT = Number(tank.tankNumber) === 1;
 
@@ -1194,9 +1165,9 @@ function TankCard({
 
           )}
 
-        {Number(tank.tankNumber) > 1 && Number(tank.action) === 1 && plannedPackaging && (() => {
-          const [year, month, day] = plannedPackaging.date.split("-");
-          const plannedDate = new Date(`${plannedPackaging.date}T00:00:00`);
+        {Number(tank.tankNumber) > 1 && Number(tank.action) === 1 && plannedPackagingDate && (() => {
+          const [year, month, day] = plannedPackagingDate.split("-");
+          const plannedDate = new Date(`${plannedPackagingDate}T00:00:00`);
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           const daysLeft = Math.max(0, Math.round((plannedDate.getTime() - today.getTime()) / 86400000));
@@ -1208,7 +1179,7 @@ function TankCard({
           );
         })()}
 
-        {Number(tank.tankNumber) > 1 && Number(tank.action) === 1 && !plannedPackaging && weekOnlyPackaging && (
+        {Number(tank.tankNumber) > 1 && Number(tank.action) === 1 && !plannedPackagingDate && weekOnlyPackaging && (
           <div className="tank-planned-packaging">
             מתוכנן להורדה בשבוע {weekOnlyPackaging} · טרם שובץ יום
           </div>

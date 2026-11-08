@@ -33,7 +33,6 @@ import {
     type MeasurementIssue,
     type ScoredRecommendation,
 } from "../../SERVICES/dashboard/healthModel";
-import { getPlannedPackagingForTank } from "../../SERVICES/planning/plannedPackagingForTanks";
 import { getPlannedPackagingContainerNumbers } from "../reports/PackagingReportsView";
 import { shouldShowWednesdayPackagingCarb } from "../../SERVICES/dashboard/weeklyCarbRoutine";
 import {
@@ -150,6 +149,8 @@ type Props = {
     recommendationsOnly?: boolean;
     /** In the dashboard, show only active recommendations; keep the score engine running. */
     compactRecommendations?: boolean;
+    /** Live server-confirmed plan from the owning Dashboard, shared with tank cards. */
+    plannedPackagingDates?: Record<string, string>;
 };
 
 const EMPTY_DAILY_ACTION_PROGRESS: DailyActionProgress = {
@@ -234,7 +235,7 @@ const severityOrder: Record<Severity, number> = {
     info: 1,
 };
 
-export default function HealthDashboard({ brews, specs, recommendationsOnly = false, compactRecommendations = false, onRecommendedTanksChange, onOpenRecommendationCountChange, onPendingMeasurementTanksChange }: Props & { onPendingMeasurementTanksChange?: (tankNumbers: string[]) => void; onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
+export default function HealthDashboard({ brews, specs, recommendationsOnly = false, compactRecommendations = false, plannedPackagingDates, onRecommendedTanksChange, onOpenRecommendationCountChange, onPendingMeasurementTanksChange }: Props & { onPendingMeasurementTanksChange?: (tankNumbers: string[]) => void; onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
     const [expanded, setExpanded] = useState(recommendationsOnly);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
     const [analyzing, setAnalyzing] = useState(true);
@@ -634,21 +635,13 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             return true;
                         });
 
-                        let packagingToday = false;
-                        if (day === 0 && tank.stage.name === "קר") {
-                            try {
-                                const plannedPackaging = await getPlannedPackagingForTank({
-                                    tankId: tank.id,
-                                    tankNumber: tank.tankNumber,
-                                    batchNumber: tank.batchNumber,
-                                });
-                                packagingToday = plannedPackaging?.date === today;
-                            } catch (error) {
-                                // Planning metadata should never break cellar analysis.
-                                // If it cannot be loaded, keep the established Sunday routine.
-                                console.warn("Failed checking today's packaging plan for cellar routine:", error);
-                            }
-                        }
+                        // Use the same server-confirmed planning snapshot as the tank
+                        // cards. Replanning Sunday packaging also refreshes the cellar
+                        // routine; do not read a stale local plan per tank.
+                        const packagingToday =
+                            day === 0 &&
+                            tank.stage.name === "קר" &&
+                            plannedPackagingDates?.[tank.id] === today;
 
                         const sundayColdAction =
                             day === 0 &&
@@ -1028,7 +1021,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
             cancelled = true;
             clearTimeout(analysisTimer);
         };
-    }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday, ignoredRecommendations, restoredAutoIds]);
+    }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday, ignoredRecommendations, restoredAutoIds, plannedPackagingDates]);
 
     const recommendedTankKey = useMemo(() => [...new Set(analysis.alerts
         .filter((alert) => alert.recommendationKey && alert.recommendationKey !== "measurementRound")
