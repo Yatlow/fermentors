@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import ts from "typescript";
 
 const read = (file) => readFileSync(new URL(file, import.meta.url), "utf8");
 const engine = read("../src/SERVICES/cellering/calculateCelleringRecomendations.ts");
@@ -51,4 +52,34 @@ test("all mobile cellar recommendation explanations span the card, not the butto
   assert.match(styles, /\.health-dashboard \.health-alert > \.health-quick-report-button\s*\{\s*grid-area: actions;/);
   assert.match(styles, /\.health-dashboard \.health-alert > \.health-pressure-choices\s*\{\s*grid-area: actions;/);
   assert.match(styles, /\.health-dashboard \.health-alert > \.health-ignore-button\s*\{\s*grid-area: ignore;/);
+});
+
+
+const pressureDecisionSource = read("../src/SERVICES/cellering/pressureDecisionCopy.ts");
+const pressureDecisionJavaScript = ts.transpileModule(pressureDecisionSource, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const { stripPressureChoiceInstructions, pressureDecisionContext } = await import(
+  "data:text/javascript;base64," + Buffer.from(pressureDecisionJavaScript).toString("base64")
+);
+
+test("a pressure decision records test context and target without alternative hold guidance", () => {
+  const recommendation = "בדיקת הגיזוז היום לא תקינה (2.35, יעד 2.4). לחץ במיכל: 0.71 bar. ניתן לדווח על שינוי לחץ או לבחור להשאיר את הלחץ ללא שינוי, בהתאם לשיקול דעת המבשל.";
+  const instruction = `${pressureDecisionContext(recommendation)}. יש לבצע העלאת לחץ ל-1 bar`;
+  assert.equal(instruction, "בדיקת הגיזוז היום לא תקינה (2.35, יעד 2.4). לחץ במיכל: 0.71 bar. יש לבצע העלאת לחץ ל-1 bar");
+  assert.match(engine, /ניתן לדווח על שינוי לחץ או לבחור להשאיר את הלחץ ללא שינוי/);
+  assert.match(read("../src/components/dashboard/ScheduledCellarRecommendationsPanel.tsx"), /pressureDecisionContext\(pressureDecisionCandidate\.reason\)/);
+});
+
+test("saved decisions lose obsolete choice instructions in the dashboard and future list", () => {
+  const legacy = "בדיקת הגיזוז היום לא תקינה (2.35, יעד 2.4). לחץ במיכל: 0.71 bar. ניתן לדווח על שינוי לחץ או לבחור להשאיר את הלחץ ללא שינוי, בהתאם לשיקול דעת המבשל. יש לבצע העלאת לחץ ל-1 bar";
+  const clean = stripPressureChoiceInstructions(legacy);
+  assert.equal(clean, "בדיקת הגיזוז היום לא תקינה (2.35, יעד 2.4). לחץ במיכל: 0.71 bar. יש לבצע העלאת לחץ ל-1 bar");
+  assert.match(dashboard, /stripPressureChoiceInstructions\(row\.note/);
+  assert.match(read("../src/components/dashboard/ScheduledCellarRecommendationsPanel.tsx"), /stripPressureChoiceInstructions\(row\.note/);
+});
+
+test("first valid carbonation pressure decisions also exclude optional hold wording", () => {
+  const recommendation = "בדיקת הגיזוז האחרונה תקינה (2.4, יעד 2.4). לחץ במיכל: 1 bar. ניתן לשקול הורדת לחץ או לבחור להשאיר את הלחץ ללא שינוי.";
+  assert.equal(pressureDecisionContext(recommendation), "בדיקת הגיזוז האחרונה תקינה (2.4, יעד 2.4). לחץ במיכל: 1 bar");
 });
