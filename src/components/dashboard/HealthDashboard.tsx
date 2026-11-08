@@ -756,6 +756,9 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                 const conflict = row.actionType === "pressureChange"
                                     ? scheduledPressureDecisionConflictText(row, measurements)
                                     : null;
+                                const decisionNote = row.actionType === "pressureChange"
+                                    ? stripPressureChoiceInstructions(row.note || "")
+                                    : row.note || "";
                                 return {
                                     recommendationKey: `scheduled-${row.id}`,
                                     req: true,
@@ -768,7 +771,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                     // decision. Legacy documents may not have source: "user".
                                     userDecision: true,
                                     scheduledNote: row.note,
-                                    reason: conflict || `החלטת סלרינג: ${row.actionType === "pressureChange" ? stripPressureChoiceInstructions(row.note || "") : row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`,
+                                    reason: conflict || `החלטת סלרינג: ${decisionNote || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`,
                                 };
                             }),
                         ].forEach((recommendation) => {
