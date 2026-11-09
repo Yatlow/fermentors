@@ -116,12 +116,12 @@ test("real changed readings and unrelated fields are not overwritten by prefix r
 test("partial draft inputs do not update brewing execution until the complete value is committed", () => {
   const { readFileSync } = require("node:fs");
   const form = readFileSync("src/components/brewing/BrewFormStepper.tsx", "utf8");
-  assert.match(form, /value=\\{numericDraftValue\\("lauterWaterTemp"\\)\\}/);
-  assert.match(form, /value=\\{numericDraftValue\\("frPlato"\\)\\}/);
+  assert.match(form, /value=\{numericDraftValue\("lauterWaterTemp"\)\}/);
+  assert.match(form, /value=\{numericDraftValue\("frPlato"\)\}/);
   const draft = form.slice(form.indexOf("function editNumericDraft("), form.indexOf("function clearNumericDraft("));
-  assert.doesNotMatch(draft, /setExecution\\(/);
-  assert.match(form, /void commitWaterField\\("lauterWaterTemp", value\\)/);
-  assert.match(form, /void commitSugar\\("frPlato", value, 36, "B"\\)/);
+  assert.doesNotMatch(draft, /setExecution\(/);
+  assert.match(form, /void commitWaterField\("lauterWaterTemp", value\)/);
+  assert.match(form, /void commitSugar\("frPlato", value, 36, "B"\)/);
 });
 
 test("empty legacy Firestore blocks are recovered from the Sheet without manufacturing approval", () => {
