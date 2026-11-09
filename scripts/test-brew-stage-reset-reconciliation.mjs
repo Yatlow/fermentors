@@ -102,4 +102,27 @@ assert.equal(snapshotCalls, 1, "stage parser must request the shared cycle snaps
 assert.equal(reopens, 1, "cycle parsing must not reopen the spreadsheet");
 assert.equal(reads, 1, "cycle parsing must not re-read the whole sheet");
 
+// The actual 1616A Sheet layout: stage 70 at 08:08, followed by rinses
+// recorded in the same semantic D/E columns. The 5-minute ACTION-0 parser
+// must select the last rinse without an extra Sheet fetch or Firestore read.
+const rows = Array.from({ length: 62 }, () => Array(8).fill(""));
+rows[0][6] = "תאריך:"; rows[0][7] = "08/11/2026";
+rows[3][1] = "סוג:"; rows[3][3] = "אצווה:";
+rows[3][6] = "תאריך"; rows[3][7] = "08/11/2026";
+rows[7][3] = "פעולה"; rows[7][4] = "ש. התחלה"; rows[7][5] = "ש. סיום";
+rows[23][3] = "הוצאה לבישול"; rows[23][4] = "8:08";
+for (const [i, time] of ["8:42", "9:13", "9:40", "10:13", "10:32"].entries()) {
+  rows[26 + i][3] = `שטיפה ${i + 1}`;
+  rows[26 + i][4] = time;
+}
+rows[53][1] = "סוג:"; rows[53][3] = "אצווה:"; rows[53][6] = "תאריך";
+rows[57][3] = "פעולה"; rows[57][4] = "ש. התחלה"; rows[57][5] = "ש. סיום";
+rows[60][0] = "דף תסיסה";
+sheetValues.splice(0, sheetValues.length, ...rows);
+standAlone.FC_CYCLE_CONTEXT_ = null;
+const parsed = standAlone.extractBrewStageInfo("test", { tankNumber: 6, brewDate: "08/11/2026" });
+assert.equal(parsed.currentStage?.code, 80);
+assert.equal(parsed.currentStage?.name, "שטיפה 5");
+assert.equal(standAlone.brewStageFormatHHMM_(parsed.currentStage?.startDateTime), "10:32");
+
 console.log("ACTION-0 empty-stage no-op, real rollback, and one-read stage sync passed");
