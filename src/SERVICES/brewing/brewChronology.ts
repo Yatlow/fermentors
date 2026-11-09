@@ -34,9 +34,19 @@ function brewDay(value: string): Date | null {
     ? date : null;
 }
 
+// Rinse times are stored as rinseN.time (not rinseN.start). Older imports
+// can contain a .start alias, so recognize both without changing stored data.
+function stageStartClock(fields: Record<string, string>, stage: ClockStage): string {
+  const start = String(fields[`${stage.key}.start`] ?? "").trim();
+  if (start) return start;
+  return /^rinse[1-7]$/.test(stage.key)
+    ? String(fields[`${stage.key}.time`] ?? "").trim()
+    : "";
+}
+
 function firstClock<T extends ClockStage>(fields: Record<string, string>, stages: readonly T[]): number | null {
   for (const stage of stages) {
-    const minutes = clockMinutes(fields[`${stage.key}.start`]);
+    const minutes = clockMinutes(stageStartClock(fields, stage));
     if (minutes !== null) return minutes;
   }
   return null;
@@ -76,7 +86,7 @@ export function currentRecordedBrewStage<T extends ClockStage>(
     let dayOffset = 0;
 
     stages.forEach((stage) => {
-      const start = String(fields[`${stage.key}.start`] || "").trim();
+      const start = stageStartClock(fields, stage);
       const end = String(fields[`${stage.key}.end`] || "").trim();
       for (const raw of [start, end]) {
         const minutes = clockMinutes(raw);
