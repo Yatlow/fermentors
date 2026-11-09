@@ -5171,7 +5171,7 @@ export default function BrewFormStepper({
                     void commitSugar("frPlato", value, 36, "B").finally(
                       () => clearNumericDraft(blockIndex, "frPlato", value)
                     );
-                  }
+                  }}
                 />
                   <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => openHydrometer("frPlato")} />
                 </div>
