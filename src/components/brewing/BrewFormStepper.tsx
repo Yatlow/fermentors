@@ -17,7 +17,7 @@ import {
   type BrewExecution,
 } from "../../SERVICES/brewing/brewExecution";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
-import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldPersistBrewUnmount, hasUnsavedBrewFields } from "../../SERVICES/brewing/brewSyncGuards";
+import { mergeBrewRemotePreservingLocalEdits, reconcileBrewStartupFields, equivalentBrewingFieldValue, mergeBrewSheetEditDelta, persistConfirmedBrewMaterials, shouldPersistBrewUnmount, hasUnsavedBrewFields } from "../../SERVICES/brewing/brewSyncGuards";
 import { recordedBrewPosition, reviewedStepsFromRecordedWork } from "../../SERVICES/brewing/brewValidationProgress";
 import { confidentPmClockCorrection, currentRecordedBrewStage } from "../../SERVICES/brewing/brewChronology";
 import { mashWaterFromSheetRow } from "../../SERVICES/brewing/mashWaterSheetRow";
@@ -985,6 +985,15 @@ export default function BrewFormStepper({
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null);
   const [lastPullAt, setLastPullAt] = useState<Date | null>(null);
   const [syncMismatches, setSyncMismatches] = useState<SyncMismatch[]>([]);
+  // A snapshot can resolve a previously reported conflict after the modal
+  // opens. Render only differences still present in the latest local fields.
+  const visibleSyncMismatches = useMemo(() => syncMismatches.filter((row) =>
+    !equivalentBrewingFieldValue(
+      row.key,
+      execution.blocks[String(row.blockIndex)]?.fields?.[row.key],
+      row.sheetValue
+    )
+  ), [syncMismatches, execution.blocks]);
   const [syncError, setSyncError] = useState("");
   const [validationNotice, setValidationNotice] =
     useState<ValidationNotice | null>(null);
@@ -1016,6 +1025,7 @@ export default function BrewFormStepper({
   // discover the previously committed kettle volume. Keep that value separately.
   const committedKettleVolumeRef = useRef<Record<number, number | null>>({});
   const stageTimeBeforeEditRef = useRef<Record<string, string>>({});
+  const lastPublishedProgressRef = useRef<string | null>(null);
   const initialProductionPullKey = useRef("");
   const lastHandledSheetEditRevision = useRef<number | null>(null);
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1574,7 +1584,11 @@ export default function BrewFormStepper({
     void pending
       .then(() => {
         setLastPushAt(new Date());
-        setSyncMismatches([]);
+        // A successful single-field write does not resolve unrelated Sheet
+        // differences from other blocks or fields.
+        setSyncMismatches((rows) => rows.filter((row) =>
+          row.blockIndex !== currentBlock || row.key !== key
+        ));
         setSyncError("");
       })
       .catch((error) => {
@@ -2209,16 +2223,31 @@ export default function BrewFormStepper({
       totalBlocks,
       run.brewDate || "",
     );
-    void saveBrewingProgressToFirestore(run.tankId, {
+    const progress = {
       blockCount: totalBlocks,
       blockIndex: latest?.blockIndex ?? 1,
       stageCode: latest ? stageCodeFor(latest.stage) : null,
       stageName: latest?.stage.label ?? "",
       stageStartTimeText: latest?.start || null,
       stageEndTimeText: latest?.end || null,
-    }).catch((error) =>
-      console.warn("Failed reconciling live brewing progress", error),
-    );
+    };
+    const signature = JSON.stringify([
+      progress.blockIndex, progress.stageName,
+      progress.stageStartTimeText, progress.stageEndTimeText,
+    ]);
+    const serverProgress = run.brewProgress;
+    const serverSignature = serverProgress && JSON.stringify([
+      serverProgress.blockIndex ?? 1, serverProgress.stageName ?? "",
+      serverProgress.stageStartTimeText || null, serverProgress.stageEndTimeText || null,
+    ]);
+    // Avoid an extra Firestore write when the live fermentor snapshot already
+    // agrees with the recovered Sheet/form position. Never re-read to compare.
+    if (signature === serverSignature || signature === lastPublishedProgressRef.current) return;
+    lastPublishedProgressRef.current = signature;
+    void saveBrewingProgressToFirestore(run.tankId, progress).catch((error) => {
+      if (lastPublishedProgressRef.current === signature) lastPublishedProgressRef.current = null;
+      console.warn("Failed reconciling live brewing progress", error);
+    });
   }
 
   type PlannedStageSheetWrite = {
@@ -3958,6 +3987,10 @@ export default function BrewFormStepper({
       setInitialSheetReconciled(true);
       // Persist reconciliation explicitly; do not rely on a later render/effect.
       await saveBrewingExecutionToFirestore(nextExecution);
+      // The Sheet is already in memory from this recovery read. Heal a stale
+      // dashboard progress stage without any additional Sheet/Firestore reads;
+      // publishRecordedProgress deduplicates an unchanged live snapshot.
+      if (Number(run.action) === 0) publishRecordedProgress(nextExecution);
       if (!silent) {
         setMessage("✓ הנתונים נמשכו עכשיו מה-Sheet אל האפליקציה.");
       }
@@ -4604,10 +4637,10 @@ export default function BrewFormStepper({
       )}
       {message && <div className="brewing-message">{message}</div>}
 
-      {syncMismatches.length > 0 && (
+      {visibleSyncMismatches.length > 0 && (
         <details className="brew-sync-diff" open>
           <summary>
-            פירוט {syncMismatches.length} הפערים
+            פירוט {visibleSyncMismatches.length} הפערים
           </summary>
           <div className="brew-sync-diff-scroll">
             <table>
@@ -4620,7 +4653,7 @@ export default function BrewFormStepper({
                 </tr>
               </thead>
               <tbody>
-                {syncMismatches.map((item) => (
+                {visibleSyncMismatches.map((item) => (
                   <tr key={`${item.blockIndex}-${item.key}`}>
                     <td>{(["A", "B", "C"] as const)[item.blockIndex - 1]}</td>
                     <td>{item.label}</td>
