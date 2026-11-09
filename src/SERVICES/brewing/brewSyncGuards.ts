@@ -131,8 +131,8 @@ export function recoverIncompleteBrewInput(
   if (key !== "lauterWaterTemp" && key !== "frPlato") return null;
   const app = String(appValue ?? "").trim().replace(",", ".");
   const sheet = String(sheetValue ?? "").trim().replace(",", ".");
-  if (!/^(?:0|[1-9]\\d*)(?:\\.\\d+)?$/.test(app) ||
-      !/^(?:0|[1-9]\\d*)(?:\\.\\d+)?$/.test(sheet) ||
+  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(app) ||
+      !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(sheet) ||
       !sheet.startsWith(app) || sheet.length <= app.length) return null;
   const n = Number(sheet);
   if (key === "lauterWaterTemp") {
