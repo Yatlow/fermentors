@@ -1054,6 +1054,10 @@ export default function BrewFormStepper({
   // Keep the uncommitted date visible while typing and across A/B/C navigation.
   // Only a validated ISO date belongs in brewingExecution/Firestore/Sheets.
   const [brewDateDrafts, setBrewDateDrafts] = useState<Record<number, string>>({});
+  // Do not store per-keystroke numeric prefixes in Firestore. The two inputs
+  // below previously produced "61" and "1" in brewingExecution while their
+  // validated full values ("61.9", "15") reached the Sheet on blur.
+  const [numericInputDrafts, setNumericInputDrafts] = useState<Record<string, string>>({});
 
   const currentBlock = Math.min(
     Math.max(execution.activeBlockIndex || 1, 1),
@@ -4214,6 +4218,32 @@ export default function BrewFormStepper({
     setHydrometerTarget({ batchNumber: run.batchNumber, blockIndex: currentBlock, field });
   }
 
+  function numericDraftValue(key: "lauterWaterTemp" | "frPlato"): string {
+    return numericInputDrafts[`${currentBlock}:${key}`] ?? localValue(key);
+  }
+
+  function editNumericDraft(key: "lauterWaterTemp" | "frPlato", value: string) {
+    latestLocalEditAt.current = Date.now();
+    setNumericInputDrafts((previous) => ({
+      ...previous,
+      [`${currentBlock}:${key}`]: value,
+    }));
+    // No setExecution / Firestore autosave while text is incomplete.
+    setValidationNotice((previous) =>
+      previous?.kind === "error" && previous.key === key ? null : previous
+    );
+  }
+
+  function clearNumericDraft(blockIndex: number, key: "lauterWaterTemp" | "frPlato", value: string) {
+    const id = `${blockIndex}:${key}`;
+    setNumericInputDrafts((previous) => {
+      if (previous[id] !== value) return previous;
+      const next = { ...previous };
+      delete next[id];
+      return next;
+    });
+  }
+
   function setLocal(key: string, value: string) {
     const hardError = immediateHardNumericError(key, value);
     if (hardError) {
@@ -4873,16 +4903,17 @@ export default function BrewFormStepper({
                     type="number"
                     step="0.1"
                     required
-                    value={localValue("lauterWaterTemp")}
+                    value={numericDraftValue("lauterWaterTemp")}
                     onChange={(e) =>
-                      setLocal("lauterWaterTemp", e.target.value)
+                      editNumericDraft("lauterWaterTemp", e.target.value)
                     }
-                    onBlur={(e) =>
-                      void commitWaterField(
-                        "lauterWaterTemp",
-                        e.target.value,
-                      )
-                    }
+                    onBlur={(e) => {
+                      const value = e.currentTarget.value;
+                      const blockIndex = currentBlock;
+                      void commitWaterField("lauterWaterTemp", value).finally(
+                        () => clearNumericDraft(blockIndex, "lauterWaterTemp", value)
+                      );
+                    }}
                   />
                 </label>
               </article>
@@ -5132,10 +5163,14 @@ export default function BrewFormStepper({
                   <input
                   type="number"
                   step="0.01"
-                  value={localValue("frPlato")}
-                  onChange={(e) => setLocal("frPlato", e.target.value)}
-                  onBlur={(e) =>
-                    void commitSugar("frPlato", e.target.value, 36, "B")
+                  value={numericDraftValue("frPlato")}
+                  onChange={(e) => editNumericDraft("frPlato", e.target.value)}
+                  onBlur={(e) => {
+                    const value = e.currentTarget.value;
+                    const blockIndex = currentBlock;
+                    void commitSugar("frPlato", value, 36, "B").finally(
+                      () => clearNumericDraft(blockIndex, "frPlato", value)
+                    );
                   }
                 />
                   <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => openHydrometer("frPlato")} />
