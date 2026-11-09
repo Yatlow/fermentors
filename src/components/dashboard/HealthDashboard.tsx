@@ -242,10 +242,22 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
     const [analyzing, setAnalyzing] = useState(true);
     const hasCompletedInitialAnalysis = useRef(false);
     const [measurementRefresh, setMeasurementRefresh] = useState(0);
+    // The calendar day drives only date-scoped subscriptions. The existing
+    // measurement/grace timer remains responsible for 00:00 / 04:00 analysis.
+    const [calendarDay, setCalendarDay] = useState(() => localDateKey(new Date()));
     const measurementRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
     const [completedScheduledToday, setCompletedScheduledToday] = useState<ScheduledCellarRecommendation[]>([]);
     const [ignoredRecommendations, setIgnoredRecommendations] = useState<IgnoredCellarRecommendation[]>([]);
+    // Do not show yesterday's listener snapshot while today's data loads.
+    const completedScheduledForCalendarDay = useMemo(
+        () => completedScheduledToday.filter((row) => row.status === "completed" && row.resolvedDate === calendarDay),
+        [completedScheduledToday, calendarDay]
+    );
+    const ignoredRecommendationsForCalendarDay = useMemo(
+        () => ignoredRecommendations.filter((row) => row.ignoredDate === calendarDay),
+        [ignoredRecommendations, calendarDay]
+    );
     const [ignoreSavingId, setIgnoreSavingId] = useState<string | null>(null);
     // Per-day, per-session operator opt-in. This is not a Firestore manual
     // ignore and never changes the underlying weekend recommendation rule.
@@ -260,25 +272,34 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
     });
     const autoResolvedScheduledIds = useRef(new Set<string>());
 
+    // The broad active-decisions listener is long-lived: never re-query it
+    // at midnight or 04:00 just because the daily presentation changed.
+    useEffect(() => subscribeScheduledCellarRecommendations(
+        setScheduledRecommendations,
+        (error) => console.error("Failed loading scheduled cellar recommendations for health:", error)
+    ), []);
+
+    // Only the two narrow date-scoped listeners switch their query at midnight.
+    // Cleanup and day checks protect against delayed snapshots from yesterday.
     useEffect(() => {
-        const unsubscribeActive = subscribeScheduledCellarRecommendations(
-            setScheduledRecommendations,
-            (error) => console.error("Failed loading scheduled cellar recommendations for health:", error)
-        );
+        let disposed = false;
+        const isCurrentDay = () => !disposed && calendarDay === localDateKey(new Date());
         const unsubscribeCompleted = subscribeCompletedScheduledCellarRecommendationsToday(
-            setCompletedScheduledToday,
-            (error) => console.error("Failed loading completed scheduled cellar recommendations:", error)
+            (rows) => { if (isCurrentDay()) setCompletedScheduledToday(rows); },
+            (error) => console.error("Failed loading completed scheduled cellar recommendations:", error),
+            calendarDay
         );
         const unsubscribeIgnored = subscribeIgnoredCellarRecommendationsToday(
-            setIgnoredRecommendations,
-            (error) => console.error("Failed loading ignored cellar recommendations for health:", error)
+            (rows) => { if (isCurrentDay()) setIgnoredRecommendations(rows); },
+            (error) => console.error("Failed loading ignored cellar recommendations for health:", error),
+            calendarDay
         );
         return () => {
-            unsubscribeActive();
+            disposed = true;
             unsubscribeCompleted();
             unsubscribeIgnored();
         };
-    }, []);
+    }, [calendarDay]);
 
     useEffect(() => {
         // A single report may update the cache more than once (optimistic write,
@@ -316,10 +337,19 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
             .filter((end): end is number => end !== null && end > now.getTime());
         const next = Math.min(midnight, nextGraceBoundary.getTime(),
             ...upcomingTwelveHourEnds, ...upcomingTransferCompletions);
+        const refreshCalendarDay = () => {
+            const today = localDateKey(new Date());
+            // A same-day focus or 04:00 grace reset must not restart listeners.
+            setCalendarDay((current) => current === today ? current : today);
+        };
         const timer = window.setTimeout(() => {
+            refreshCalendarDay();
             setMeasurementRefresh(current => current + 1);
         }, Math.max(1000, next - now.getTime() + 200));
-        const refreshOnFocus = () => setMeasurementRefresh(current => current + 1);
+        const refreshOnFocus = () => {
+            refreshCalendarDay();
+            setMeasurementRefresh(current => current + 1);
+        };
         const refreshOnVisible = () => { if (!document.hidden) refreshOnFocus(); };
         window.addEventListener("focus", refreshOnFocus);
         document.addEventListener("visibilitychange", refreshOnVisible);
@@ -453,7 +483,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                         const measurementRoundIgnored = Boolean(
                             tank.batchNumber &&
                             isRecommendationIgnored(
-                                ignoredRecommendations,
+                                ignoredRecommendationsForCalendarDay,
                                 String(tank.tankNumber),
                                 String(tank.batchNumber),
                                 "measurementRound"
@@ -522,7 +552,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             ignoredDate: today,
                             recommendations,
                         }).filter((row) => !isRecommendationIgnored(
-                            ignoredRecommendations,
+                            ignoredRecommendationsForCalendarDay,
                             row.tankNumber,
                             row.batchNumber,
                             row.recommendationKey,
@@ -670,7 +700,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                         // Ignored cellar recommendations must not reappear as weekly
                         // actions or remain in the daily KPI denominator.
                         const ignoredForToday = (key: string) => isRecommendationIgnored(
-                            ignoredRecommendations,
+                            ignoredRecommendationsForCalendarDay,
                             String(tank.tankNumber),
                             String(tank.batchNumber),
                             key
@@ -776,7 +806,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             }),
                         ].forEach((recommendation) => {
                             if (isRecommendationIgnored(
-                                ignoredRecommendations,
+                                ignoredRecommendationsForCalendarDay,
                                 String(tank.tankNumber),
                                 String(tank.batchNumber),
                                 recommendation.recommendationKey
@@ -829,7 +859,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                             });
                         };
 
-                        const completedScheduledForTank = completedScheduledToday.filter((row) =>
+                        const completedScheduledForTank = completedScheduledForCalendarDay.filter((row) =>
                             String(row.tankNumber) === String(tank.tankNumber) &&
                             String(row.batchNumber).replace("#", "") === String(tank.batchNumber).replace("#", "")
                         );
@@ -1025,7 +1055,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
             cancelled = true;
             clearTimeout(analysisTimer);
         };
-    }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday, ignoredRecommendations, restoredAutoIds, plannedPackagingDates]);
+    }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledForCalendarDay, ignoredRecommendationsForCalendarDay, restoredAutoIds, plannedPackagingDates]);
 
     const recommendedTankKey = useMemo(() => [...new Set(analysis.alerts
         .filter((alert) => alert.recommendationKey && alert.recommendationKey !== "measurementRound")
@@ -1105,7 +1135,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
         // after a genuine below-100 -> 100 cycle.
         const scheduledIds = [...new Set([
             ...scheduledRecommendations,
-            ...completedScheduledToday,
+            ...completedScheduledForCalendarDay,
         ].map((row) => row.id))].sort();
         try {
             const raw = window.localStorage.getItem(CELLAR_CELEBRATION_ACK_KEY);
@@ -1122,7 +1152,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
             // A ref still prevents repeated celebrations in this session.
         }
         const newScheduledWork = storedDay === today &&
-            completedScheduledToday.some((row) =>
+            completedScheduledForCalendarDay.some((row) =>
                 row.resolvedDate === today &&
                 !acknowledgedScheduledIds.includes(row.id)
             );
@@ -1167,7 +1197,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
         persistedCompletionDay,
         cellarStateTankId,
         scheduledRecommendations,
-        completedScheduledToday,
+        completedScheduledForCalendarDay,
         recommendationsOnly,
     ]);
 
@@ -1207,7 +1237,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
     }), [analysis.alerts]);
 
     const ignoredForDisplay = useMemo(() => [
-        ...ignoredRecommendations.map((row) => {
+        ...ignoredRecommendationsForCalendarDay.map((row) => {
             // Older manually ignored scheduled actions stored only a generic
             // label. Recover the exact decision type from the active schedule,
             // without modifying the ignored record or its restore identity.
@@ -1222,8 +1252,8 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                 scheduledNote: scheduled?.note,
             };
         }),
-        ...analysis.autoIgnored,
-    ], [ignoredRecommendations, analysis.autoIgnored, scheduledRecommendations]);
+        ...(analysis.analyzedDay === calendarDay ? analysis.autoIgnored : []),
+    ], [ignoredRecommendationsForCalendarDay, analysis.autoIgnored, analysis.analyzedDay, scheduledRecommendations, calendarDay]);
 
     const groupedDailyActions = useMemo(() => {
         const grouped = new Map<string, { tankNumber: string; titles: string[]; detail?: string }>();
@@ -1246,7 +1276,10 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
     }, [analysis.dailyActions]);
 
     // Presentation-only KPI groups; scoring and recommendation weights remain unchanged.
-    const actionKpis = useMemo(() => calculateActionKpis(analysis.alerts, analysis.completedActions), [analysis.alerts, analysis.completedActions]);
+    const actionKpis = useMemo(() => calculateActionKpis(
+        analysis.analyzedDay === calendarDay ? analysis.alerts : [],
+        analysis.analyzedDay === calendarDay ? analysis.completedActions : []
+    ), [analysis.alerts, analysis.completedActions, analysis.analyzedDay, calendarDay]);
 
     const scoreStyle = {
         "--health-score": `${displayedHealthScore}%`,
@@ -1399,7 +1432,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
 
             {expanded && (
                 <div className="health-dashboard-details">
-                    {analysis.completedActions.length > 0 && (
+                    {analysis.analyzedDay === calendarDay && analysis.completedActions.length > 0 && (
                         <section className="health-completed-actions" aria-label="פעולות שבוצעו היום">
                             <strong>בוצע היום</strong>
                             <div className="health-completed-actions-list">
