@@ -101,17 +101,17 @@ export function equivalentBrewingFieldValue(key: string, appValue: unknown, shee
   if (app === sheet) return true;
   if (!app || !sheet) return false;
 
-  if (/^(?:\\d{1,2}):(?:\\d{2})$/.test(app) &&
-      /^(?:\\d{1,2}):(?:\\d{2})$/.test(sheet) &&
-      /(?:\\.(?:start|end|time)|Time)$/.test(key)) {
+  if (/^(?:\d{1,2}):(?:\d{2})$/.test(app) &&
+      /^(?:\d{1,2}):(?:\d{2})$/.test(sheet) &&
+      /(?:\.(?:start|end|time)|Time)$/.test(key)) {
     const [ah, am] = app.split(":").map(Number);
     const [sh, sm] = sheet.split(":").map(Number);
     return ah < 24 && sh < 24 && am < 60 && sm < 60 && ah === sh && am === sm;
   }
 
-  if (/(?:Amount|Temp|Volume|Plato|Ph|pH|Acid85|Grams|\\.(?:temp|amount|kettle|grant|alphaOverride))$/.test(key) &&
-      /^[-+]?\\d+(?:[.,]\\d+)?$/.test(app) &&
-      /^[-+]?\\d+(?:[.,]\\d+)?$/.test(sheet)) {
+  if (/(?:Amount|Temp|Volume|Plato|Ph|pH|Acid85|Grams|\.(?:temp|amount|kettle|grant|alphaOverride))$/.test(key) &&
+      /^[-+]?\d+(?:[.,]\d+)?$/.test(app) &&
+      /^[-+]?\d+(?:[.,]\d+)?$/.test(sheet)) {
     return Number(app.replace(",", ".")) === Number(sheet.replace(",", "."));
   }
   return false;
