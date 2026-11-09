@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   mergeBrewRemotePreservingLocalEdits,
   reconcileBrewStartupFields,
+  equivalentBrewingFieldValue,
   shouldPersistBrewUnmount,
   hasUnsavedBrewFields,
   type BrewSyncExecution,
@@ -64,6 +65,34 @@ test("silent Sheet recovery fills blanks but does not overwrite recorded mash an
   assert.equal(fields["materialsConfirmed"], "yes");
   assert.equal(fields["__sheetRow.stage.mashIn"], "13");
   assert.deepEqual(conflicts.map(c => c.key).sort(), ["mashIn.start", "transferLt.start"]);
+});
+
+test("pre-entered #1616 rinse times and equivalent quantities do not create fake gaps", () => {
+  const app = {
+    "rinse1.time": "08:42", "rinse5.time": "10:32",
+    "rinse1.kettle": "420", "rinse5.kettle": "1160",
+    hltWaterTemp: "70.6", mashPh: "5.50",
+  };
+  const sheet = {
+    "rinse1.time": "8:42", "rinse5.time": "10:32",
+    "rinse1.kettle": "420.0", "rinse5.kettle": "1160.00",
+    hltWaterTemp: "70.60", mashPh: "5.5",
+  };
+  const { conflicts, fields } = reconcileBrewStartupFields(app, sheet);
+  assert.deepEqual(conflicts, []);
+  assert.equal(fields.hltWaterTemp, app.hltWaterTemp, "preserve the acknowledged app value");
+  assert.equal(fields["rinse5.time"], app["rinse5.time"]);
+  assert.equal(equivalentBrewingFieldValue("sheetRawMaterial.hop1", "001", "1"), false,
+    "never collapse text identifiers as numeric values");
+});
+
+test("real Sheet differences remain visible and separately actionable", () => {
+  const { conflicts } = reconcileBrewStartupFields(
+    { "rinse5.time": "10:32", "rinse5.temp": "84.5", mashPh: "5.50" },
+    { "rinse5.time": "10:35", "rinse5.temp": "83.5", mashPh: "5.5" },
+  );
+  assert.deepEqual(conflicts.map(c => c.key).sort(), ["rinse5.temp", "rinse5.time"]);
+  assert.equal(equivalentBrewingFieldValue("rinse5.time", "10:32", "10:35"), false);
 });
 
 test("empty legacy Firestore blocks are recovered from the Sheet without manufacturing approval", () => {
