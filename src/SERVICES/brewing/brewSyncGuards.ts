@@ -89,6 +89,34 @@ export async function persistConfirmedBrewMaterials<T extends BrewSyncExecution>
 }
 
 
+/** Only genuinely different values should produce startup sync conflicts.
+ * Google Sheets formats the same numeric/time value differently (70.60 vs
+ * 70.6, 8:42 vs 08:42); never treat formatting as missing operator work.
+ * Limit numeric normalization to known brewing quantity keys so lot IDs and
+ * other textual identifiers are never coalesced accidentally.
+ */
+export function equivalentBrewingFieldValue(key: string, appValue: unknown, sheetValue: unknown): boolean {
+  const app = String(appValue ?? "").trim();
+  const sheet = String(sheetValue ?? "").trim();
+  if (app === sheet) return true;
+  if (!app || !sheet) return false;
+
+  if (/^(?:\\d{1,2}):(?:\\d{2})$/.test(app) &&
+      /^(?:\\d{1,2}):(?:\\d{2})$/.test(sheet) &&
+      /(?:\\.(?:start|end|time)|Time)$/.test(key)) {
+    const [ah, am] = app.split(":").map(Number);
+    const [sh, sm] = sheet.split(":").map(Number);
+    return ah < 24 && sh < 24 && am < 60 && sm < 60 && ah === sh && am === sm;
+  }
+
+  if (/(?:Amount|Temp|Volume|Plato|Ph|pH|Acid85|Grams|\\.(?:temp|amount|kettle|grant|alphaOverride))$/.test(key) &&
+      /^[-+]?\\d+(?:[.,]\\d+)?$/.test(app) &&
+      /^[-+]?\\d+(?:[.,]\\d+)?$/.test(sheet)) {
+    return Number(app.replace(",", ".")) === Number(sheet.replace(",", "."));
+  }
+  return false;
+}
+
 /** Reopening a brew is a recovery read, not an instruction to overwrite a
  * populated Firestore field with a possibly stale Sheet snapshot. We still
  * import missing values and refresh semantic row addresses.
@@ -112,7 +140,7 @@ export function reconcileBrewStartupFields(
     if (!incoming.trim()) continue;
     if (!appValue.trim()) {
       fields[key] = incoming;
-    } else if (appValue.trim() !== incoming.trim()) {
+    } else if (!equivalentBrewingFieldValue(key, appValue, incoming)) {
       // A live Sheet onEdit event is the supported path for later Sheet edits.
       // Silent startup must not reverse an acknowledged application edit.
       conflicts.push({ key, appValue, sheetValue: incoming });
