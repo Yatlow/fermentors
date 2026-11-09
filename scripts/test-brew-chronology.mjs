@@ -64,6 +64,44 @@ test("B's rinse is more recent than A's finished transfer", () => {
   assert.equal(latest?.stage.key, "rinse4");
 });
 
+test("real #1616-style rinseN.time entries outrank the out-to-boil stage", () => {
+  const rinseStages = [
+    { key: "outToBoil", label: "הוצאה לבישול" },
+    ...Array.from({ length: 7 }, (_, index) =>
+      ({ key: `rinse${index + 1}`, label: `שטיפה ${index + 1}` })),
+  ];
+  const blocks = {
+    1: { fields: {
+      brewDate: "2026-11-09",
+      "outToBoil.start": "08:08",
+      "rinse1.time": "08:42",
+      "rinse2.time": "09:13",
+      "rinse3.time": "09:40",
+      "rinse4.time": "10:13",
+      "rinse5.time": "10:32",
+    } },
+  };
+  const latest = currentRecordedBrewStage(
+    blocks, rinseStages, 1, "09/11/2026", new Date(2026, 10, 9, 10, 51),
+  );
+  assert.equal(latest?.stage.key, "rinse5");
+  assert.equal(latest?.start, "10:32");
+  assert.equal(latest?.blockIndex, 1);
+
+  const beforeLastRinse = currentRecordedBrewStage(
+    blocks, rinseStages, 1, "09/11/2026", new Date(2026, 10, 9, 10, 20),
+  );
+  assert.equal(beforeLastRinse?.stage.key, "rinse4", "future rinse times are not reached");
+});
+
+test("sheet recovery can self-heal a stale brewProgress without a new query", () => {
+  const form = readFileSync(new URL("../src/components/brewing/BrewFormStepper.tsx", import.meta.url), "utf8");
+  assert.match(form, /if \(Number\(run.action\) === 0\) publishRecordedProgress\(nextExecution\)/);
+  assert.match(form, /signature === serverSignature \|\| signature === lastPublishedProgressRef.current/);
+  const publish = form.slice(form.indexOf("function publishRecordedProgress("), form.indexOf("type PlannedStageSheetWrite = "));
+  assert.doesNotMatch(publish, /getDoc\(|getDocs\(|onSnapshot\(/, "recovery reuses the sheet data already loaded");
+});
+
 test("a real overnight time crossover stays on the next calendar day", () => {
   const overnightStages = [
     { key: "mashIn", label: "מאש" },
