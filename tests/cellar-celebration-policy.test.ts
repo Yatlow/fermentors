@@ -182,7 +182,8 @@ test("a genuinely completed scheduled action permits a second 100% celebration o
 
 test("component requires a newly completed scheduled action before rearming", () => {
     const source = readFileSync("src/components/dashboard/HealthDashboard.tsx", "utf8");
-    assert.match(source, /completedScheduledToday.some/);
+    assert.match(source, /completedScheduledForCalendarDay.some/);
+    assert.match(source, /row.resolvedDate === calendarDay/);
     assert.match(source, /row.resolvedDate === today/);
     assert.ok(source.includes("!acknowledgedScheduledIds.includes(row.id)"));
     assert.match(source, /newScheduledWorkSinceAcknowledgement: newScheduledWork/);
