@@ -4224,6 +4224,10 @@ export default function BrewFormStepper({
 
   function editNumericDraft(key: "lauterWaterTemp" | "frPlato", value: string) {
     latestLocalEditAt.current = Date.now();
+    if (key === "lauterWaterTemp") {
+      const commitKey = `${currentBlock}:${key}`;
+      prepCommitVersionRef.current[commitKey] = (prepCommitVersionRef.current[commitKey] ?? 0) + 1;
+    }
     setNumericInputDrafts((previous) => ({
       ...previous,
       [`${currentBlock}:${key}`]: value,
