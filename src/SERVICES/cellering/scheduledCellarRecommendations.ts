@@ -404,8 +404,10 @@ export async function setScheduledCellarRecommendationStatus(
 export function subscribeCompletedScheduledCellarRecommendationsToday(
   callback: (rows: ScheduledCellarRecommendation[]) => void,
   onError?: (error: Error) => void,
+  // Explicit day key lets an existing mounted dashboard roll over at midnight
+  // without restarting the broader active-recommendations listener.
+  today = todayDateKey(),
 ): Unsubscribe {
-  const today = todayDateKey();
 
   if (isPullRequestPreview()) {
     const emit = () => callback(
