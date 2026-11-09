@@ -20,7 +20,7 @@ test("daily rollover changes only the narrow date-scoped listeners", () => {
     "active decision listener is mounted once and never restarted for day changes");
   assert.match(dashboard, /subscribeCompletedScheduledCellarRecommendationsToday\([\s\S]*?calendarDay\s*\)/);
   assert.match(dashboard, /subscribeIgnoredCellarRecommendationsToday\([\s\S]*?calendarDay\s*\)/);
-  assert.match(dashboard, /unsubscribeCompleted\(\);\s*unsubscribeIgnored\(\);\s*\}, \[calendarDay\]\);/,
+  assert.match(dashboard, /unsubscribeCompleted\(\);\s*unsubscribeIgnored\(\);\s*\};\s*\}, \[calendarDay\]\);/,
     "previous day's listeners are cleaned up before replacing them");
   assert.match(completed, /subscribeCompletedScheduledCellarRecommendationsToday\([\s\S]*?today = todayDateKey\(\)/);
   assert.match(ignored, /subscribeIgnoredCellarRecommendationsToday\([\s\S]*?today = todayDateKey\(\)/);
