@@ -95,6 +95,35 @@ test("real Sheet differences remain visible and separately actionable", () => {
   assert.equal(equivalentBrewingFieldValue("rinse5.time", "10:32", "10:35"), false);
 });
 
+test("a legacy partial input is repaired from the already-loaded 1616A Sheet", () => {
+  const app = { lauterWaterTemp: "61", frPlato: "1", "rinse5.time": "10:32" };
+  const sheet = { lauterWaterTemp: "61.9", frPlato: "15.00", "rinse5.time": "10:32" };
+  const { fields, conflicts } = reconcileBrewStartupFields(app, sheet);
+  assert.equal(fields.lauterWaterTemp, "61.9");
+  assert.equal(fields.frPlato, "15.00");
+  assert.equal(fields["rinse5.time"], "10:32");
+  assert.deepEqual(conflicts, []);
+});
+
+test("real changed readings and unrelated fields are not overwritten by prefix recovery", () => {
+  const app = { lauterWaterTemp: "59", frPlato: "12", hltWaterTemp: "6" };
+  const sheet = { lauterWaterTemp: "61.9", frPlato: "15.00", hltWaterTemp: "60.9" };
+  const { fields, conflicts } = reconcileBrewStartupFields(app, sheet);
+  assert.deepEqual(fields, app);
+  assert.deepEqual(conflicts.map(x => x.key).sort(), ["frPlato", "hltWaterTemp", "lauterWaterTemp"]);
+});
+
+test("partial draft inputs do not update brewing execution until the complete value is committed", () => {
+  const { readFileSync } = require("node:fs");
+  const form = readFileSync("src/components/brewing/BrewFormStepper.tsx", "utf8");
+  assert.match(form, /value=\\{numericDraftValue\\("lauterWaterTemp"\\)\\}/);
+  assert.match(form, /value=\\{numericDraftValue\\("frPlato"\\)\\}/);
+  const draft = form.slice(form.indexOf("function editNumericDraft("), form.indexOf("function clearNumericDraft("));
+  assert.doesNotMatch(draft, /setExecution\\(/);
+  assert.match(form, /void commitWaterField\\("lauterWaterTemp", value\\)/);
+  assert.match(form, /void commitSugar\\("frPlato", value, 36, "B"\\)/);
+});
+
 test("empty legacy Firestore blocks are recovered from the Sheet without manufacturing approval", () => {
   const a = reconcileBrewStartupFields({}, { "mashIn.start": "07:20", "materialsConfirmed": "yes" });
   const b = reconcileBrewStartupFields({}, { "mashIn.start": "08:53" });
