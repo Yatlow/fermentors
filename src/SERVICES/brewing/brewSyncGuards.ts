@@ -117,6 +117,34 @@ export function equivalentBrewingFieldValue(key: string, appValue: unknown, shee
   return false;
 }
 
+/** Recover only highly recognizable incomplete typing snapshots.
+ * In older forms, each keystroke was written to Firestore before onBlur. A
+ * subsequent Sheet ACK could contain the full value while Firestore retained
+ * a numeric prefix. Keep real (non-prefix) disagreements as conflicts.
+ * This helper is only used during an existing, edit-guarded startup Sheet pull.
+ */
+export function recoverIncompleteBrewInput(
+  key: string,
+  appValue: unknown,
+  sheetValue: unknown,
+): string | null {
+  if (key !== "lauterWaterTemp" && key !== "frPlato") return null;
+  const app = String(appValue ?? "").trim().replace(",", ".");
+  const sheet = String(sheetValue ?? "").trim().replace(",", ".");
+  if (!/^(?:0|[1-9]\\d*)(?:\\.\\d+)?$/.test(app) ||
+      !/^(?:0|[1-9]\\d*)(?:\\.\\d+)?$/.test(sheet) ||
+      !sheet.startsWith(app) || sheet.length <= app.length) return null;
+  const n = Number(sheet);
+  if (key === "lauterWaterTemp") {
+    // "61" -> "61.9": decimal digits were not finished in the old cache.
+    // Never replace a committed temperature with an unrelated number.
+    return sheet[app.length] === "." && n >= 0 && n <= 100 ? sheet : null;
+  }
+  // "1" -> "15": an incomplete F.R. was below the application's valid
+  // Plato range and thus could never have been a confirmed reading.
+  return Number(app) < 3 && n >= 3 && n <= 30 ? sheet : null;
+}
+
 /** Reopening a brew is a recovery read, not an instruction to overwrite a
  * populated Firestore field with a possibly stale Sheet snapshot. We still
  * import missing values and refresh semantic row addresses.
@@ -139,6 +167,10 @@ export function reconcileBrewStartupFields(
     const incoming = String(sheetValue ?? "");
     if (!incoming.trim()) continue;
     if (!appValue.trim()) {
+      fields[key] = incoming;
+    } else if (recoverIncompleteBrewInput(key, appValue, incoming) !== null) {
+      // One-time correction of a legacy partially auto-saved input, using
+      // the already-read authoritative Sheet. Never touch in-session edits.
       fields[key] = incoming;
     } else if (!equivalentBrewingFieldValue(key, appValue, incoming)) {
       // A live Sheet onEdit event is the supported path for later Sheet edits.
