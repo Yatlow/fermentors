@@ -1,20 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, FlaskConical, LoaderCircle } from "lucide-react";
 import type { Fermentor } from "../../App";
+import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getBrewsSummaryPage, type BrewSummary } from "../../SERVICES/getAndPost/getAllBrews";
 import { getMeasurementsByBatch } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import { batchWasPackaged, saveWarmFermentationTest } from "../../SERVICES/cellering/warmFermentationTestStore";
 import {
-    coolingPlatoAtRecordedCooling, normalizeWarmBatch, parseWarmPlato,
+    coolingPlatoAtRecordedCooling, getWarmFermentationGapThreshold, normalizeWarmBatch, parseWarmPlato,
     warmTestBlocksCooling, warmTestWarning,
 } from "../../SERVICES/cellering/warmFermentationTest";
 import "./WarmFermentationTest.css";
 
-type Props = { brews: Fermentor[] };
+type Props = { brews: Fermentor[]; specs: SpecChart | null };
 type BatchChoice = BrewSummary & { tankId?: string };
 const ERROR_TEXT = "לא ניתן להביא את נתוני האצווה. אפשר לנסות שוב.";
 
-export default function WarmFermentationTest({ brews }: Props) {
+export default function WarmFermentationTest({ brews, specs }: Props) {
     const active = useMemo<BatchChoice[]>(() => brews
         .filter(t => Number(t.action) === 1 && Number(t.tankNumber) !== 1 && t.batchNumber)
         .map(t => ({
@@ -46,8 +47,9 @@ export default function WarmFermentationTest({ brews }: Props) {
     const liveTank = tank ? brews.find(t => t.id === tank.tankId) : undefined;
     const isCold = liveTank?.stage?.name === "קר";
     const testPlato = parseWarmPlato(platoInput);
+    const threshold = getWarmFermentationGapThreshold(specs);
     const warning = testPlato === null ? null : warmTestWarning({
-        packaged, isCold, testPlato, coolingPlato,
+        packaged, isCold, testPlato, coolingPlato, threshold,
     });
     const currentPlato = parseWarmPlato(liveTank?.currentData?.plato);
     const blocksCooling = warmTestBlocksCooling(liveTank?.stage?.name, currentPlato, testPlato);
@@ -188,7 +190,7 @@ export default function WarmFermentationTest({ brews }: Props) {
                 disabled={!choice || saving} aria-invalid={platoInput.trim() !== "" && testPlato === null}/>
             {platoInput.trim() && testPlato === null && <small className="warm-test-error">יש להזין פלאטו מספרי בין 0 ל־40.</small>}
             {blocksCooling && <p className="warm-test-notice" role="status"><AlertTriangle size={18}/> הפלאטו במיכל ({currentPlato}°P) גבוה מהתוצאה באינקובטור ({testPlato}°P). אין המלצה לקירור עד שהמיכל יגיע לערך הבדיקה או מתחתיו.</p>}
-            {warning && <p className="warm-test-notice"><AlertTriangle size={18}/> קיים פער מול פלאטו הקירור. תוצג אזהרה לפני השמירה.</p>}
+            {warning && <p className="warm-test-notice"><AlertTriangle size={18}/> קיים פער של לפחות {threshold}°P מול פלאטו הקירור. תוצג אזהרה לפני השמירה.</p>}
             {message && <p role="status" className="warm-test-success"><CheckCircle2 size={18}/> {message}</p>}
             {error && <p role="alert" className="warm-test-error">{error}</p>}
             <button type="button" className="warm-test-submit" disabled={!canSave} onClick={beginSave}>
