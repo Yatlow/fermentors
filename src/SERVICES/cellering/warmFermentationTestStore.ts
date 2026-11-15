@@ -29,7 +29,7 @@ export async function saveWarmFermentationTest(input: SaveWarmTestInput): Promis
     const requestId = createAppsScriptRequestId("warm-fermentation");
     const payload: WarmFermentationTest = {
         batchNumber, plato: input.plato, coolingPlato: input.coolingPlato,
-        recordedAt: input.recordedAt, packaged: input.packaged,
+        recordedAt: input.recordedAt, packaged: input.packaged, inTank: Boolean(input.tankId),
         tankNumber: input.tankNumber, sheetUrl: input.sheetUrl,
     };
     // Save the isolated test and the durable Sheet outbox in ONE Firestore
