@@ -57,7 +57,7 @@ function wfrParseNote_(raw) {
     var after = section.slice(marker.index + marker[0].length);
     // "בדיקת תסיסה חמה על 2.6 p" (1612) and
     // "בדיקת תסיסה חמה, סוכר 4.1°" (1606) are both valid.
-    var platoMatch = /(?:סוכר|פלאטו|על|תוצאה)\s*[:=]?\s*(\d{1,2}(?:[.,]\d{1,3})?)/i.exec(after) ||
+    var platoMatch = /(?:סוכר|פלאטו|על|תוצאה|לאחר\s+אריזה)\s*[:=]?\s*(\d{1,2}(?:[.,]\d{1,3})?)/i.exec(after) ||
       /^\s*[:=,\-]?\s*(\d{1,2}(?:[.,]\d{1,3})?)\s*(?:°?\s*[pP]|°)/.exec(after);
     if (!platoMatch) continue; // E.g. "נלקחה בדיקת תסיסה חמה לשייקר".
     var plato = wfrNum_(platoMatch[1], 40);
