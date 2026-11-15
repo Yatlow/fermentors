@@ -714,7 +714,7 @@ function App() {
                 {selectedView === "רישום" && <>
                     {selectedWrites !== "בדיקת תסיסה חמה" && <CellaringForecast brews={brews} specs={specs} />}
                     {selectedWrites !== "בדיקת תסיסה חמה" && <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />}
-                     {selectedWrites === "בדיקת תסיסה חמה" && <WarmFermentationTest brews={brews} />}
+                     {selectedWrites === "בדיקת תסיסה חמה" && <WarmFermentationTest brews={brews} specs={specs} />}
                     {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} dailyProgress={cellarDailyProgress} graceTankIds={cellarGraceTankIds} />}
                     {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} dailyProgress={cellarDailyProgress} graceTankIds={cellarGraceTankIds} />}
                     {selectedWrites === "פעולות" && <NoteToFermentor brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} specs={specs} />}
