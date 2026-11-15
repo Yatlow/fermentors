@@ -159,7 +159,7 @@ export default function WarmFermentationTest({ brews, specs }: Props) {
         <div className="warm-test-heading">
             <FlaskConical size={24} aria-hidden="true" />
             <div><h2>בדיקת תסיסה חמה</h2>
-                <p>תוצאת פלאטו לאחר חימום דגימה באינקובטור. הבדיקה אינה מחליפה מדידת סוכר יומית.</p>
+                <p>פרוטוקול קבוע: הדגרת הדגימה ב־35°C במשך 48 שעות. מזינים את הפלאטו בסיום הבדיקה; התוצאה אינה מחליפה מדידת סוכר יומית.</p>
             </div>
         </div>
         <div className="warm-test-fields">
