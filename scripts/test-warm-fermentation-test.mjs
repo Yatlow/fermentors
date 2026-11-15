@@ -11,11 +11,13 @@ const compile = (source) => ts.transpileModule(source, {
 const dataModule = (source) => "data:text/javascript;base64," + Buffer.from(compile(source)).toString("base64");
 
 const coolingModule = dataModule(read("../src/SERVICES/cellering/neglectAfterCooling.ts"));
+const fermentationEndModule = dataModule(read("../src/SERVICES/cellering/fermentationEndPlato.ts"));
 const source = read("../src/SERVICES/cellering/warmFermentationTest.ts")
-    .replace('from "./neglectAfterCooling"', 'from "' + coolingModule + '"');
+    .replace('from "./neglectAfterCooling"', 'from "' + coolingModule + '"')
+    .replace('from "./fermentationEndPlato"', 'from "' + fermentationEndModule + '"');
 const {
     parseWarmPlato, coolingPlatoAtRecordedCooling,
-    warmPlatoDifference, warmTestWarning, warmTestBlocksCooling, normalizeWarmBatch
+    warmPlatoDifference, warmTestWarning, warmTestBlocksCooling, normalizeWarmBatch, getWarmFermentationGapThreshold
 } = await import(dataModule(source));
 
 test("incubator result is numeric, bounded and supports local decimal commas", () => {
@@ -45,6 +47,25 @@ test("warnings are advisory, stage-specific and never compute a carbonation setp
     assert.equal(warmTestWarning({ packaged: false, isCold: false, testPlato: 3, coolingPlato: 3 }), null);
     assert.match(warmTestWarning({ packaged: true, isCold: false, testPlato: 2.8, coolingPlato: 3.1 }), /כבר נארזה/);
     assert.match(warmTestWarning({ packaged: false, isCold: true, testPlato: 2.8, coolingPlato: 3.1 }), /יעד הגיזוז/);
+});
+
+test("default 0.1 Plato gap is inclusive, adjustable via cellar specs and is independent of cooling", async () => {
+    assert.equal(getWarmFermentationGapThreshold(null), 0.1);
+    assert.equal(getWarmFermentationGapThreshold({ tolorances: {} }), 0.1);
+    assert.equal(getWarmFermentationGapThreshold({ tolorances: { warmFermentationPlatoDelta: 0.2 } }), 0.2);
+    assert.equal(getWarmFermentationGapThreshold({ tolorances: { warmFermentationPlatoDelta: -1 } }), 0.1);
+    const params = { packaged: false, isCold: true, coolingPlato: 3.0 };
+    assert.equal(warmTestWarning({ ...params, testPlato: 2.91, threshold: 0.1 }), null, "0.09P should be below threshold");
+    assert.match(warmTestWarning({ ...params, testPlato: 2.9, threshold: 0.1 }), /יעד הגיזוז/, "0.10P is at threshold");
+    assert.equal(warmTestWarning({ ...params, testPlato: 2.8, threshold: 0.3 }), null, "updated spec applies");
+    assert.match(warmTestWarning({ ...params, testPlato: 2.8, threshold: 0.2 }), /יעד הגיזוז/);
+    const specModule = await import(fermentationEndModule);
+    assert.equal(specModule.withCellarSpecDefaults({}).tolorances.warmFermentationPlatoDelta, 0.1);
+    assert.equal(specModule.withCellarSpecDefaults({ tolorances: { warmFermentationPlatoDelta: 0.15 } }).tolorances.warmFermentationPlatoDelta, 0.15);
+    const UI = read("../src/components/tools/EditSpecs.tsx");
+    assert.match(UI, /warmFermentationPlatoDelta:"סף פער בבדיקת תסיסה חמה/);
+    const store = read("../src/SERVICES/cellering/warmFermentationTestStore.ts");
+    assert.doesNotMatch(store, /recordedBy:/, "No dedicated tester attribution should be stored");
 });
 
 test("hot-tank cooling requires actual tank Plato at or below the incubator value", () => {
