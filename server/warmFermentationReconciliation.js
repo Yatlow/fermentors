@@ -324,6 +324,11 @@ function wfrRecentSheetsMaintenance_(projectId, fermentors, now) {
     var revision = String(new Date(file.modifiedTime).getTime());
     var key = WFR_SHEET_REVISION_PREFIX_ + file.id;
     if (props.getProperty(key) === revision) continue;
+    // Never stamp a newer Drive revision against an older in-memory Sheet
+    // snapshot taken earlier in this same cycle. The next active cycle will
+    // read it fresh (without another Firestore GET).
+    if (FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.sheets &&
+        FC_CYCLE_CONTEXT_.sheets.has(file.id)) continue;
     try {
       var snap = fcSheetSnapshot_(file.id);
       var batch = String((snap.values[0] || [])[5] || "").replace(/^#/, "").trim();
