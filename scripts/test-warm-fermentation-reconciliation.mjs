@@ -134,6 +134,42 @@ test("historical discovery runs once hourly using Drive metadata and writes only
   assert.equal(commits.length,2);
 });
 
+test("two incubator reports appended to one day's notes remain distinct, timestamped and reversible", () => {
+  const {scope,commits}=context();
+  const sheet=scope.WFR_TEST_VALUES.s1612;
+  const id1="warm-fermentation-test-one";
+  const id2="warm-fermentation-test-two";
+  sheet.push(["15/11/2026","08:00",null,null,null,null,null,
+    "בדיקת תסיסה חמה 2.8°P, pH 4.20 [בדיקת-תסיסה:" + id1 + "] (בשעה 09:10)" +
+    " | בדיקת תסיסה חמה 2.6°P, pH 4.30 [בדיקת-תסיסה:" + id2 + "] (בשעה 12:40)"]);
+  const events=scope.wfrSheetEvents_(sheet,"s1612","1612");
+  assert.equal(events.length,3);
+  const one=events.find(e=>e.eventId===id1);
+  const two=events.find(e=>e.eventId===id2);
+  assert.equal(one.plato,2.8);
+  assert.equal(two.pH,4.3);
+  assert.equal(one.recordedTime,"09:10");
+  assert.equal(two.recordedTime,"12:40");
+  scope.wfrRememberWrittenTest_("s1612",id1);
+  scope.wfrRememberWrittenTest_("s1612",id2);
+  const active={
+    id:"tank18",updateTime:"2026-11-15T13:00:00Z",
+    data:{action:1,batchNumber:"1612",warmFermentationTest:{
+      requestId:id2,recordedAt:"2026-11-15T12:40:00.000Z",plato:2.6,batchNumber:"1612"}}
+  };
+  scope.wfrReconcileSheet_("demo","s1612","1612",active,"multi-1");
+  assert.equal(commits.length,1, "only historic 1612 result needs importing");
+  // Remove ONLY second report; first report must survive.
+  sheet.at(-1)[7]=sheet.at(-1)[7].split(" | ")[0];
+  active.updateTime="2026-11-15T13:01:00Z";
+  const removed=scope.wfrReconcileSheet_("demo","s1612","1612",active,"multi-2");
+  assert.equal(removed.removed,1);
+  assert.equal(commits.at(-1).writes.length,2);
+  assert.match(commits.at(-1).writes[0].delete,/warm-fermentation-test-two$/);
+  assert.equal(active.data.warmFermentationTest.requestId,id1);
+  assert.equal(active.data.warmFermentationTest.plato,2.8);
+});
+
 test("later app test replaces active value; deleting Sheet note restores previous test", () => {
   const {scope,commits} = context();
   const active = {
