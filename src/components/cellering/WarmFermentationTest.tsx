@@ -61,7 +61,7 @@ export default function WarmFermentationTest({ brews }: Props) {
             // A page always contains 50 PREVIOUS batches, not 50 mixed with
             // batches already visible from the existing fermentors listener.
             while (collected.length < 50 && more) {
-                const page = await getBrewsSummaryPage(next, 50);
+                const page = await getBrewsSummaryPage(next, 50 - collected.length);
                 collected.push(...page.rows.filter(row => !activeIds.has(normalizeWarmBatch(row.batchNumber))));
                 next = page.nextCursor;
                 more = page.hasMore && next !== null;
