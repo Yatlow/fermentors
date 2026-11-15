@@ -234,6 +234,19 @@ function runFermentorCycle() {
       Logger.log("HOURLY BREW SHEET RECONCILIATION FAILED (will retry): " +
         brewReconcileError.message);
     }
+    // Historical batches (including already packaged beers) can be edited
+    // outside the active fermentor set. Check recent Drive modifications once
+    // hourly; re-use any Sheets read above and write Firestore ONLY for newly
+    // discovered incubator notes.
+    let warmHistory = { due: false };
+    try {
+      warmHistory = fcTimed_("warm fermentation history", function () {
+        return wfrRecentSheetsMaintenance_(projectId, fermentors, new Date());
+      });
+    } catch (warmHistoryError) {
+      Logger.log("Warm test historical reconciliation deferred: " +
+        warmHistoryError.message);
+    }
     // Low-cost time gate on every cycle; Firestore is touched only Saturday
     // evening and only until that target week successfully reconciles.
     try {
