@@ -60,8 +60,22 @@ function wfrCoolingPlato_(values, from, through) {
   return atCooling;
 }
 
+function wfrFermentationHeader_(values) {
+  for (var i = 0; i < values.length; i++) {
+    var row = values[i] || [];
+    var a = String(row[0] || "").trim();
+    var b = String(row[1] || "").trim();
+    var c = String(row[2] || "").trim();
+    var d = String(row[3] || "").trim();
+    // The fermentation log is distinct from earlier brewing tables.
+    if (a === "תאריך" && b === "שעה" && c.indexOf("סוכר") !== -1 &&
+        d.indexOf("טמפרטורה") !== -1) return i;
+  }
+  return -1;
+}
+
 function wfrSheetEvents_(values, sheetId, batchNumber) {
-  var headerRow = findRowContaining(values, "טמפרטורה");
+  var headerRow = wfrFermentationHeader_(values);
   if (headerRow < 0) return [];
   var events = [];
   for (var i = headerRow + 1; i < values.length; i++) {
