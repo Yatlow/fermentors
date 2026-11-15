@@ -51,7 +51,6 @@ export async function saveWarmFermentationTest(input: SaveWarmTestInput): Promis
         tx.set(doc(db, "brews", batchNumber, "warmFermentationTests", requestId), {
             ...payload,
             requestId,
-            recordedBy: user.email,
             createdAt: serverTimestamp(),
         });
         tx.set(doc(db, "sheetSyncJobs", requestId), {
