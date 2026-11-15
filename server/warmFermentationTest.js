@@ -28,7 +28,9 @@ function appendWarmFermentationTest_(test, requestId) {
   var ss = SpreadsheetApp.openById(spreadsheetId);
   var sheet = ss.getSheets()[0];
   if (!sheet) throw new Error("Warm test fermentation sheet unavailable");
-  if (test.packaged !== true) {
+  if (test.inTank === true && test.packaged !== true &&
+      dateText === Utilities.formatDate(new Date(), timezone, "dd/MM/yyyy")) {
+    note += " (בשעה " + timeText + ")";
     // A batch still in a tank uses the existing safe same-day notes writer;
     // appending an extra today's row could become the latest cellar
     // measurement and accidentally hide actual daily Plato / pressure.
