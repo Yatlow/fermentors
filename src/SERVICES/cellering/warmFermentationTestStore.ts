@@ -31,7 +31,7 @@ export async function saveWarmFermentationTest(input: SaveWarmTestInput): Promis
     }
     const requestId = createAppsScriptRequestId("warm-fermentation");
     const payload: WarmFermentationTest = {
-        batchNumber, plato: input.plato, pH: input.pH ?? null, coolingPlato: input.coolingPlato,
+        batchNumber, requestId, plato: input.plato, pH: input.pH ?? null, coolingPlato: input.coolingPlato,
         recordedAt: input.recordedAt, packaged: input.packaged, inTank: Boolean(input.tankId),
         tankNumber: input.tankNumber, sheetUrl: input.sheetUrl,
     };
