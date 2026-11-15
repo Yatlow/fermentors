@@ -28,7 +28,15 @@ function appendWarmFermentationTest_(test, requestId) {
   var timeText = Utilities.formatDate(recordedAt, timezone, "HH:mm");
   var note = "בדיקת תסיסה חמה " + (test.packaged === true ? "לאחר אריזה " : "") +
     String(value) + "°P" + (test.pH === null || test.pH === undefined || String(test.pH).trim() === ""
-      ? "" : ", pH " + String(Number(test.pH))) + " [דיווח מערכת]";
+      ? "" : ", pH " + String(Number(test.pH)));
+  // A visible, stable marker ties this Sheet note to its immutable batch
+  // record. Removing the note later allows maintenance to reverse THAT test.
+  if (requestId) {
+    if (!/^[a-zA-Z0-9_-]{8,120}$/.test(String(requestId))) {
+      throw new Error("Invalid warm test requestId");
+    }
+    note += " [בדיקת-תסיסה:" + String(requestId) + "]";
+  }
   var spreadsheetId = extractSpreadsheetId(test.sheetUrl);
   var ss = SpreadsheetApp.openById(spreadsheetId);
   var sheet = ss.getSheets()[0];
@@ -40,6 +48,7 @@ function appendWarmFermentationTest_(test, requestId) {
     // appending an extra today's row could become the latest cellar
     // measurement and accidentally hide actual daily Plato / pressure.
     var inTankResult = addFermentationNoteFast_(ss, sheet, spreadsheetId, note, Date.now());
+    if (requestId) wfrRememberWrittenTest_(spreadsheetId, requestId);
     return {
       success: true, batchNumber: String(test.batchNumber),
       row: inTankResult.row, date: inTankResult.date, time: inTankResult.time,
@@ -62,6 +71,7 @@ function appendWarmFermentationTest_(test, requestId) {
       // Repeating the same request after an interrupted response must not
       // insert a second note line. Legitimate later tests have a new timestamp.
       if (date === dateText && time === timeText && existingNote === note) {
+        if (requestId) wfrRememberWrittenTest_(spreadsheetId, requestId);
         return { success: true, row: headerRow + i + 1, date: dateText,
           time: timeText, notes: note, duplicate: true };
       }
@@ -84,6 +94,7 @@ function appendWarmFermentationTest_(test, requestId) {
       dateText, timeText, "", "", "", "", "", note
     ]]);
     sheet.getRange(targetRow, 1, 1, 2).setNumberFormats([["dd/MM/yyyy", "HH:mm"]]);
+    if (requestId) wfrRememberWrittenTest_(spreadsheetId, requestId);
     return {
       success: true, batchNumber: String(test.batchNumber), row: targetRow,
       date: dateText, time: timeText, notes: note, requestId: String(requestId || "")
