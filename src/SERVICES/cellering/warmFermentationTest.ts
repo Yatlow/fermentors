@@ -1,5 +1,6 @@
 import type { Measurement } from "./calculateCelleringRecomendations";
 import { hasActualCooling } from "./neglectAfterCooling";
+import { DEFAULT_WARM_FERMENTATION_PLATO_DELTA } from "./fermentationEndPlato";
 
 export type WarmFermentationTest = {
     batchNumber: string;
@@ -45,14 +46,22 @@ export function warmPlatoDifference(test: number, cooling: number | null): numbe
     return delta === 0 ? null : delta;
 }
 
+export function getWarmFermentationGapThreshold(specs?: { tolorances?: Record<string, number> } | null): number {
+    const configured = specs?.tolorances?.warmFermentationPlatoDelta;
+    return typeof configured === "number" && Number.isFinite(configured) && configured >= 0
+        ? configured : DEFAULT_WARM_FERMENTATION_PLATO_DELTA;
+}
+
 export function warmTestWarning(params: {
     packaged: boolean;
     isCold: boolean;
     testPlato: number;
     coolingPlato: number | null;
+    threshold?: number;
 }): string | null {
     const delta = warmPlatoDifference(params.testPlato, params.coolingPlato);
-    if (delta === null) return null;
+    const threshold = params.threshold ?? DEFAULT_WARM_FERMENTATION_PLATO_DELTA;
+    if (delta === null || Math.abs(delta) + 1e-9 < threshold) return null;
     const direction = delta > 0 ? "נמוכה" : "גבוהה";
     const lead = `בדיקת התסיסה החמה (${params.testPlato}°P) ${direction} מפלאטו הקירור (${params.coolingPlato}°P) בהפרש של ${Math.abs(delta)}°P.`;
     if (params.packaged) return `${lead} האצווה כבר נארזה. מומלץ לבחון את הפער ולתעד החלטת איכות; לא משנים בדיעבד את נתוני האצווה.`;
