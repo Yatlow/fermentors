@@ -280,6 +280,16 @@ function wfrReconcileSheet_(projectId, sheetUrl, batchNumber, activeEntry, known
     wfrCommitEvents_(projectId, pending, activeEntry, deleted, events, sheetBatch);
   }
   // The manifest and revision move forward ONLY after Firestore succeeded.
+  // Another operator may have written a Sheet note concurrently, AFTER this
+  // cycle's Sheet snapshot. Preserve any newly registered request IDs until
+  // the next changed-revision scan rather than accidentally forgetting them.
+  var refreshed = wfrReadManifest_(props, sheetId);
+  Object.keys(refreshed).forEach(function (id) {
+    if (!Object.prototype.hasOwnProperty.call(manifest, id) &&
+        !Object.prototype.hasOwnProperty.call(current, id)) {
+      current[id] = refreshed[id];
+    }
+  });
   if (Object.keys(current).length) props.setProperty(WFR_MANIFEST_PREFIX_ + sheetId, JSON.stringify(current));
   else props.deleteProperty(WFR_MANIFEST_PREFIX_ + sheetId);
   props.setProperty(key, revision);
