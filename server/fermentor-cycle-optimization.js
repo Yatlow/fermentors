@@ -352,6 +352,16 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
           return extractBrew(sheetUrl);
         });
         if (!brew || !brew.tankNumber) { stats.skipped++; return; }
+        // This Sheet snapshot is ALREADY in memory. Detect manual warm-test
+        // comments without an additional Sheet read or a Firestore read.
+        try {
+          wfrReconcileSheet_(projectId, sheetUrl, brew.batchNumber, entry, revisionState.revision);
+        } catch (warmError) {
+          tankSyncHadError = true;
+          stats.warmTestErrors = (stats.warmTestErrors || 0) + 1;
+          Logger.log("Warm test reconciliation deferred for tank " + entry.id +
+            ": " + warmError.message);
+        }
         // Reuse this cycle's one in-memory Sheet snapshot. The end time of
         // the final A/B/C transfer is separate from the ACTION 0 -> 1 timer.
         // Reading it on Sheet revision also picks up late or corrected entries.
