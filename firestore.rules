@@ -74,7 +74,9 @@ service cloud.firestore {
           && request.resource.data.batchNumber == batchId
           && request.resource.data.plato is number
           && request.resource.data.plato >= 0
-          && request.resource.data.plato <= 40;
+          && request.resource.data.plato <= 40
+          && (request.resource.data.get('pH', null) == null ||
+              (request.resource.data.pH is number && request.resource.data.pH >= 0 && request.resource.data.pH <= 14));
         allow update, delete: if false;
       }
     }
