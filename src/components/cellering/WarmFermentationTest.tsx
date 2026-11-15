@@ -38,11 +38,13 @@ export default function WarmFermentationTest({ brews }: Props) {
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState("");
     const [error, setError] = useState("");
-    const choice = useMemo(() => [...active, ...history].find(t => t.batchNumber === selected), [active, history, selected]);
+    const choice = useMemo<BatchChoice | undefined>(() => {
+        const choices: BatchChoice[] = [...active, ...history];
+        return choices.find(t => t.batchNumber === selected);
+    }, [active, history, selected]);
     const tank = active.find(t => t.batchNumber === selected);
     const liveTank = tank ? brews.find(t => t.id === tank.tankId) : undefined;
     const isCold = liveTank?.stage?.name === "קר";
-    const isHot = liveTank?.stage?.name === "בתסיסה";
     const testPlato = parseWarmPlato(platoInput);
     const warning = testPlato === null ? null : warmTestWarning({
         packaged, isCold, testPlato, coolingPlato,
