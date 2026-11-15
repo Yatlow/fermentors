@@ -126,7 +126,7 @@ export default function WarmFermentationTest({ brews }: Props) {
             const result = await saveWarmFermentationTest({
                 batchNumber: choice.batchNumber, sheetUrl: choice.sheetUrl,
                 plato: testPlato, coolingPlato, recordedAt: new Date().toISOString(),
-                packaged, tankNumber: choice.tankNumber || null, tankId: choice.tankId ?? null,
+                packaged, inTank: Boolean(choice.tankId), tankNumber: choice.tankNumber || null, tankId: choice.tankId ?? null,
             });
             setMessage(result.sheetSynced
                 ? `בדיקת תסיסה חמה לאצווה #${choice.batchNumber} נשמרה בגיליון ובמערכת.`
