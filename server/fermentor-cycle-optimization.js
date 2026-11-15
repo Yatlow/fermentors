@@ -234,6 +234,19 @@ function runFermentorCycle() {
       Logger.log("HOURLY BREW SHEET RECONCILIATION FAILED (will retry): " +
         brewReconcileError.message);
     }
+    // Historical batches (including already packaged beers) can be edited
+    // outside the active fermentor set. Check recent Drive modifications once
+    // hourly; re-use any Sheets read above and write Firestore ONLY for newly
+    // discovered incubator notes.
+    let warmHistory = { due: false };
+    try {
+      warmHistory = fcTimed_("warm fermentation history", function () {
+        return wfrRecentSheetsMaintenance_(projectId, fermentors, new Date());
+      });
+    } catch (warmHistoryError) {
+      Logger.log("Warm test historical reconciliation deferred: " +
+        warmHistoryError.message);
+    }
     // Low-cost time gate on every cycle; Firestore is touched only Saturday
     // evening and only until that target week successfully reconciles.
     try {
@@ -266,7 +279,8 @@ function runFermentorCycle() {
     return { durationSeconds: duration, fermentorsCount: fermentors.length,
       sheetReads: FC_CYCLE_CONTEXT_.sheetReads,
       firestoreIo: FC_CYCLE_CONTEXT_.io,
-      sync: syncStats, action: actionStats, brewSheetReconcile: brewSheetReconcileStats };
+      sync: syncStats, action: actionStats, brewSheetReconcile: brewSheetReconcileStats,
+      warmFermentationReconcile: warmHistory };
   } finally {
     FC_CYCLE_CONTEXT_ = null;
     fcReleaseCycleLease_(leaseToken);
@@ -342,6 +356,21 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
         });
         stats.revisionChecks++;
         if (!revisionState.changed) {
+          // First release/backfill: the ordinary cellar revision cache may
+          // already consider a Sheet unchanged. Seed ONLY the warm-test cache
+          // once, reusing the existing fermentor snapshot and no Firestore GET.
+          const warmRevision = PropertiesService.getScriptProperties().getProperty(
+            WFR_SHEET_REVISION_PREFIX_ + revisionState.id);
+          if (warmRevision !== revisionState.revision) {
+            try {
+              wfrReconcileSheet_(projectId, sheetUrl, entry.data.batchNumber, entry,
+                revisionState.revision);
+            } catch (warmError) {
+              stats.warmTestErrors = (stats.warmTestErrors || 0) + 1;
+              Logger.log("Warm test initial backfill deferred for tank " +
+                entry.id + ": " + warmError.message);
+            }
+          }
           stats.unchangedSheets++;
           stats.skipped++;
           return;
@@ -352,6 +381,16 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
           return extractBrew(sheetUrl);
         });
         if (!brew || !brew.tankNumber) { stats.skipped++; return; }
+        // This Sheet snapshot is ALREADY in memory. Detect manual warm-test
+        // comments without an additional Sheet read or a Firestore read.
+        try {
+          wfrReconcileSheet_(projectId, sheetUrl, brew.batchNumber, entry, revisionState.revision);
+        } catch (warmError) {
+          tankSyncHadError = true;
+          stats.warmTestErrors = (stats.warmTestErrors || 0) + 1;
+          Logger.log("Warm test reconciliation deferred for tank " + entry.id +
+            ": " + warmError.message);
+        }
         // Reuse this cycle's one in-memory Sheet snapshot. The end time of
         // the final A/B/C transfer is separate from the ACTION 0 -> 1 timer.
         // Reading it on Sheet revision also picks up late or corrected entries.

@@ -55,7 +55,7 @@ export async function getBrewsSummaryPage(
   cursor: string | null = null,
   pageSize = 60,
 ): Promise<BrewSummaryPage> {
-  const safeSize = Math.max(10, Math.min(100, Math.round(pageSize)));
+  const safeSize = Math.max(1, Math.min(100, Math.round(pageSize)));
   const key = `${cursor ?? "first"}:${safeSize}`;
   const cached = pageCache.get(key);
 

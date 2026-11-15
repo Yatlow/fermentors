@@ -11,6 +11,7 @@ import { evaluateColdTankNeglect, hasActualCooling } from "./neglectAfterCooling
 import { completedCarbonationPressureAdjustmentOnDate, hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestTestPressureContext, shouldRecommendCarbonationRetestOnDate } from "./carbonationRetestPolicy";
 import { getCoolingPlatoStabilityEvidence } from "./coolingPlatoStability";
+import { normalizeWarmBatch, parseWarmPlato, warmTestBlocksCooling } from "./warmFermentationTest";
 import { carbonationSpecKey, getFermentationEndPlatoLimit } from "./fermentationEndPlato";
 import { isCompletedYeastDrop, yeastDropAllowsCooling } from "./coolingYeastTiming";
 import { autoIgnoreYeastCompletionOnWeekend } from "./autoIgnoredCellarRecommendations";
@@ -1165,12 +1166,32 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const coolingCandidate = stabilityEvidence !== null &&
         stage.name === "בתסיסה" &&
         coolingYeastReady;
+    // Warm-incubator Plato is persisted separately from daily readings, on the
+    // current fermentor snapshot. It must never bleed into another batch after
+    // a tank is refilled.
+    const liveTank = brews.find(tank =>
+        Number(tank.tankNumber) === Number(tankNumber) &&
+        Number(tank.action) === 1
+    );
+    const warmTest = liveTank?.warmFermentationTest as
+        | { batchNumber?: unknown; plato?: string | number | null } | undefined;
+    const warmTestPlato = warmTest &&
+        normalizeWarmBatch(warmTest.batchNumber) === normalizeWarmBatch(liveTank?.batchNumber)
+        ? parseWarmPlato(warmTest.plato) : null;
+    const warmTestCoolingBlocked = warmTestBlocksCooling(stage.name, todayPlato, warmTestPlato);
+    const warmTestReviewOnly = coolingCandidate && warmTestCoolingBlocked && !CooldDate;
     const coolingReviewOnly = coolingCandidate && platoAboveFermentationEnd && !CooldDate;
-    const readyToCoolDown = coolingCandidate && !platoAboveFermentationEnd;
+    const readyToCoolDown = coolingCandidate && !platoAboveFermentationEnd && !warmTestCoolingBlocked;
     let readyToCoolDownText = "";
     let coolDownDisplay = readyToCoolDown;
     let dispCoolDownGenerallRec = false;
-    if (coolingReviewOnly) {
+    if (warmTestReviewOnly) {
+        readyToCoolDownText =
+            `הפלאטו במיכל (${todayPlato}°P) גבוה מפלאטו בדיקת התסיסה החמה (${warmTestPlato}°P). ` +
+            "אין המלצה להתחיל קירור עד שהפלאטו במיכל יגיע לערך בדיקת התסיסה החמה או מתחתיו.";
+        coolDownDisplay = true;
+        dispCoolDownGenerallRec = true;
+    } else if (coolingReviewOnly) {
         const matchingSamples = stabilityEvidence?.sampleCount ?? 0;
         const repeatText = matchingSamples >= 3
             ? `הבדיקה חזרה על עצמה ${matchingSamples} פעמים ללא שינוי בפלאטו`
@@ -1200,7 +1221,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         req: coolDownDisplay,
         reason: readyToCoolDownText,
         importance: readyToCoolDown ? 1 : 0,
-        reviewOnly: coolingReviewOnly,
+        reviewOnly: coolingReviewOnly || warmTestReviewOnly,
     };
 
     const pressureSpecs: Record<string, number> = givenSpecs.pressure;

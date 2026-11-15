@@ -44,6 +44,7 @@ import { PLANNING_TABS, type PlanningTab } from "./components/planning/planningT
 import { BREWING_TABS, type BrewingTab } from "./components/brewing/brewingTabs";
 
 const BatchReportsView = lazy(() => import("./components/reports/BatchReportsView"));
+const WarmFermentationTest = lazy(() => import("./components/cellering/WarmFermentationTest"));
 const PackagingReportsView = lazy(() => import("./components/reports/PackagingReportsView"));
 const EditSpecs = lazy(() => import("./components/tools/EditSpecs"));
 const BrewCalc = lazy(() => import("./components/tools/BrewerCalc"));
@@ -236,7 +237,7 @@ function App() {
     }, []);
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["הכל"]);
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
-    const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
+    const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה" | "בדיקת תסיסה חמה">("לחץ");
     const [selectedReports, setSelectedReports] = useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר" | "חיבורי_משתמשים" | "עקיבות">("אריזה");
     const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails" | "packagingSheet" | "catalog">("calculator");
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
@@ -680,6 +681,7 @@ function App() {
                     {selectedView === "רישום" && <div className="status-filter">
                         <button type="button" className={`status-filter-button ${selectedWrites === "לחץ" ? "active" : ""}`} onClick={() => { setSelectedWrites("לחץ"); setNewReadings({}); }}><span>טמפ׳ ולחץ</span>{cellarPending("לחץ") > 0 && <span className="nav-badge">{cellarPending("לחץ")}</span>}</button>
                         <button type="button" className={`status-filter-button ${selectedWrites === "חם" ? "active" : ""}`} onClick={() => { setSelectedWrites("חם"); setNewReadings({}); }}><span>סוכר ו־pH</span>{cellarPending("חם") > 0 && <span className="nav-badge">{cellarPending("חם")}</span>}</button>
+                        <button type="button" className={`status-filter-button ${selectedWrites === "בדיקת תסיסה חמה" ? "active" : ""}`} onClick={() => { setSelectedWrites("בדיקת תסיסה חמה"); setNewReadings({}); }} aria-pressed={selectedWrites === "בדיקת תסיסה חמה"}><span>בדיקת תסיסה חמה</span></button>
                         <button type="button" hidden aria-hidden="true" className={`status-filter-button ${selectedWrites === "פעולות" ? "active" : ""}`} onClick={() => { setSelectedWrites("פעולות"); setNewReadings({}); }}><span>דיווח פעולות סלרינג</span></button>
                         <button type="button" hidden aria-hidden="true" className={`status-filter-button ${selectedWrites === "אריזה" ? "active" : ""}`} onClick={() => { setSelectedWrites("אריזה"); setNewReadings({}); }}><span>דיווח אריזה</span></button>
                     </div>}
@@ -710,8 +712,9 @@ function App() {
                 {selectedView === "דאשבורד" && <Dashboard onlyWithCellarRecommendations={onlyWithCellarRecommendations} recommendedTankNumbers={recommendedTankNumbers} onRecommendedTanksChange={setRecommendedTankNumbers} onOpenRecommendationCountChange={setOpenCellarRecommendationCount} onPendingMeasurementTanksChange={setDashboardPendingMeasurementTanks} sortMode={sortByAge} healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
                 {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onPendingDailyWorkChange={setPendingPlanningWork} onOpenCoolerMap={() => { setMobileMoreOpen(false); setSelectedView("מקרר"); }} />}
                 {selectedView === "רישום" && <>
-                    <CellaringForecast brews={brews} specs={specs} />
-                    <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
+                    {selectedWrites !== "בדיקת תסיסה חמה" && <CellaringForecast brews={brews} specs={specs} />}
+                    {selectedWrites !== "בדיקת תסיסה חמה" && <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />}
+                     {selectedWrites === "בדיקת תסיסה חמה" && <WarmFermentationTest brews={brews} specs={specs} />}
                     {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} dailyProgress={cellarDailyProgress} graceTankIds={cellarGraceTankIds} />}
                     {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} dailyProgress={cellarDailyProgress} graceTankIds={cellarGraceTankIds} />}
                     {selectedWrites === "פעולות" && <NoteToFermentor brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} specs={specs} />}

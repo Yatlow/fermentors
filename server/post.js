@@ -110,6 +110,7 @@ const POST_IDEMPOTENCY_POLL_MS = 250;
 const POST_MUTATION_ACTIONS = {
   logPackagingToMasterSheet: true,
   addFermentationMeasurements: true,
+  addWarmFermentationTest: true,
   AssignAndRefreshTank: true,
   ApplyManualStatus: true,
   updateTankStatus: true,
@@ -433,6 +434,12 @@ function executePostAction_(data) {
   if (data.action === "logPackagingToMasterSheet") {
     const result = logPackagingToMasterSheet(data);
     return { success: true, result: result };
+  }
+
+  if (data.action === "addWarmFermentationTest") {
+    if (!data.test || typeof data.test !== "object") throw new Error("Missing warm fermentation test");
+    return { success: true, action: "addWarmFermentationTest",
+      result: appendWarmFermentationTest_(data.test, data.requestId) };
   }
 
   if (data.action === "addFermentationMeasurements") {
