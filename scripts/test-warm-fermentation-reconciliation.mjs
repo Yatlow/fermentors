@@ -26,6 +26,7 @@ function context() {
   const propsData = new Map();
   const commits = [];
   const filesRead = [];
+  const snapshots = new Map();
   const propertyStore = {
     getProperty: k => propsData.get(k) ?? null,
     setProperty: (k,v) => {propsData.set(k, String(v));},
@@ -40,7 +41,7 @@ function context() {
     console, Date, String, Number, Boolean, Array, Object, Math, JSON, Error, isFinite, encodeURIComponent,
     BREW_FOLDER_ID: "root-brew-folder", FIREBASE_PROJECT_ID: "demo",
     WFR_TEST_VALUES: valuesById,
-    FC_CYCLE_CONTEXT_: { io: {firestoreWrites: 0} },
+    FC_CYCLE_CONTEXT_: { io: {firestoreWrites: 0}, sheets: snapshots },
     PropertiesService: {getScriptProperties: () => propertyStore},
     Utilities: {
       DigestAlgorithm: {SHA_256: "sha256"}, Charset: {UTF_8:"UTF8"},
@@ -62,8 +63,11 @@ function context() {
       return {getResponseCode:()=>200, getContentText:()=>""};
     } },
     fcSheetSnapshot_: id => {
+      if (snapshots.has(id)) return snapshots.get(id);
       filesRead.push(id);
-      return {values: valuesById[id]};
+      const snapshot={values:valuesById[id]};
+      snapshots.set(id,snapshot);
+      return snapshot;
     },
     DriveApp: {getFileById: () => ({getLastUpdated:()=>new Date("2026-11-15T10:00:00Z")})},
     Drive: {Files: {list: () => ({
@@ -119,7 +123,7 @@ test("reconcile uses fixed source-based ID, never reads Firestore and is idempot
   assert.equal(scope.wfrReconcileSheet_("demo","s1612","1612",active,"111").skipped,true);
   assert.equal(scope.wfrReconcileSheet_("demo","s1612","1612",active,"222").wrote,0);
   assert.equal(commits.length,1);
-  assert.equal(filesRead.length,2, "one in-memory Sheet access per changed revision; no extra Firebase reads");
+  assert.equal(filesRead.length,1, "same maintenance context reuses the one in-memory Sheet snapshot");
 });
 
 test("historical discovery runs once hourly using Drive metadata and writes only real events", () => {
