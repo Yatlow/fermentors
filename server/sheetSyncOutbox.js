@@ -206,6 +206,21 @@ function sheetSyncPackagingPayload_(jobDocument, requestId) {
   };
 }
 
+function sheetSyncWarmTestPayload_(jobDocument, requestId) {
+  var json = String(sheetSyncField_(jobDocument, "payloadJson") || "");
+  var test = JSON.parse(json);
+  var batch = String(sheetSyncField_(jobDocument, "batchNumber") || "").replace(/^#/, "");
+  if (!test || String(test.batchNumber).replace(/^#/, "") !== batch ||
+      !/^https:\/\//.test(String(test.sheetUrl || "")) ||
+      !isFinite(Number(test.plato)) ||
+      Number(test.plato) < 0 || Number(test.plato) > 40) {
+    var invalid = new Error("Invalid warm fermentation test outbox payload");
+    invalid.sheetSyncTerminal = true;
+    throw invalid;
+  }
+  return { action: "addWarmFermentationTest", requestId: requestId, test: test };
+}
+
 function sheetSyncResponseSucceeded_(response) {
   if (!response || response.success === false) return false;
   if (!Array.isArray(response.results)) return true;
@@ -406,7 +421,7 @@ function processPendingSheetSyncJobs_() {
 
     try {
       const action = String(sheetSyncField_(jobDocument, "action") || "").trim();
-      if (action !== "addFermentationMeasurements" && action !== "logPackagingToMasterSheet") {
+      if (action !== "addFermentationMeasurements" && action !== "logPackagingToMasterSheet" && action !== "addWarmFermentationTest") {
         const unsupported = new Error("Unsupported Sheet sync action: " + action);
         unsupported.sheetSyncTerminal = true;
         throw unsupported;
@@ -440,7 +455,9 @@ function processPendingSheetSyncJobs_() {
             requestId: requestId,
             readings: sheetSyncSanitizedReadings_(jobDocument)
           }
-        : sheetSyncPackagingPayload_(jobDocument, requestId);
+        : action === "addWarmFermentationTest"
+          ? sheetSyncWarmTestPayload_(jobDocument, requestId)
+          : sheetSyncPackagingPayload_(jobDocument, requestId);
 
       const result = runPostActionIdempotently_(payload);
 
