@@ -29,6 +29,7 @@ function context() {
   const propertyStore = {
     getProperty: k => propsData.get(k) ?? null,
     setProperty: (k,v) => {propsData.set(k, String(v));},
+    deleteProperty: k => {propsData.delete(k);},
   };
   const dateFmt = (date, _zone, fmt) => {
     const p = v => String(v).padStart(2, "0");
@@ -101,7 +102,7 @@ test("1612: incubator 2.6P is recognized; routine pH 4.39 is NOT misattributed",
   assert.equal(events[0].packaged,false);
   assert.equal(events[0].recordedTime,"09:07");
   assert.equal(scope.wfrParseNote_("נלקחה בדיקת תסיסה חמה לשייקר"),null);
-  assert.equal(scope.wfrParseNote_("בדיקת תסיסה חמה 2.6°P, pH 4.39 [דיווח מערכת]"),null);
+  assert.equal(scope.wfrParseNote_("בדיקת תסיסה חמה 2.6°P, pH 4.39 [בדיקת-תסיסה:warm-test-123]").receiptId,"warm-test-123");
 });
 
 test("reconcile uses fixed source-based ID, never reads Firestore and is idempotent across sheet changes", () => {
@@ -133,13 +134,77 @@ test("historical discovery runs once hourly using Drive metadata and writes only
   assert.equal(commits.length,2);
 });
 
+test("later app test replaces active value; deleting Sheet note restores previous test", () => {
+  const {scope,commits} = context();
+  const active = {
+    id:"tank18", updateTime:"2026-11-15T08:00:00Z",
+    data:{action:1,batchNumber:"1612"}
+  };
+  // First import the legacy handwritten result (2.6 P).
+  scope.wfrReconcileSheet_("demo","s1612","1612",active,"rev1");
+  const oldId = active.data.warmFermentationTest.eventId;
+  assert.equal(active.data.warmFermentationTest.plato,2.6);
+  assert.equal(commits.length,1);
+
+  // The app writes a newer result and the Sheet note is tagged with the
+  // SAME requestId as the existing Firestore document.
+  const testId = "warm-fermentation-test-123";
+  scope.wfrRememberWrittenTest_("s1612",testId);
+  const sheet = scope.WFR_TEST_VALUES.s1612;
+  const note = "בדיקת תסיסה חמה 2.5°P, pH 4.44 [בדיקת-תסיסה:" + testId + "]";
+  sheet.push(["15/11/2026","12:00",null,null,null,null,null,note]);
+  active.data.warmFermentationTest = {requestId:testId,recordedAt:"2026-11-15T12:00:29.000Z",plato:2.5,pH:4.44,batchNumber:"1612"};
+  active.updateTime="2026-11-15T12:00:30.000Z";
+  const append = scope.wfrReconcileSheet_("demo","s1612","1612",active,"rev2");
+  assert.equal(append.wrote,0, "same tagged app test must not create duplicate Firestore record");
+  assert.equal(commits.length,1);
+
+  // The operator removes that note from the Sheet. Next changed-revision
+  // maintenance deletes the app document AND restores the old test (2.6).
+  sheet.pop();
+  active.updateTime="2026-11-15T12:05:00.000Z";
+  const removed=scope.wfrReconcileSheet_("demo","s1612","1612",active,"rev3");
+  assert.equal(removed.removed,1);
+  const last=commits.at(-1).writes;
+  assert.equal(last.length,2);
+  assert.match(last[0].delete,new RegExp("warmFermentationTests/" + testId + "$"));
+  assert.equal(active.data.warmFermentationTest.plato,2.6);
+  assert.equal(active.data.warmFermentationTest.eventId,oldId);
+
+  // After deleting the remaining manual test, no result should influence
+  // cooling. The field is deleted with an updateTime precondition.
+  sheet[3][7]="";
+  active.updateTime="2026-11-15T12:08:00.000Z";
+  const final=scope.wfrReconcileSheet_("demo","s1612","1612",active,"rev4");
+  assert.equal(final.removed,1);
+  assert.equal(active.data.warmFermentationTest,undefined);
+  const clear=commits.at(-1).writes.at(-1);
+  assert.deepEqual(Array.from(clear.updateMask.fieldPaths),["warmFermentationTest","warmFermentationTestUpdatedAt"]);
+  assert.equal(clear.currentDocument.updateTime,"2026-11-15T12:08:00.000Z");
+});
+
+test("immediate delete before the first maintenance pass still clears app result", () => {
+  const {scope,commits}=context();
+  const id="warm-fermentation-test-quick";
+  scope.wfrRememberWrittenTest_("s1612",id);
+  const active={
+    id:"tank18",updateTime:"2026-11-15T13:00:00.000Z",
+    data:{action:1,batchNumber:"1612",
+      warmFermentationTest:{requestId:id,batchNumber:"1612",plato:1.2,recordedAt:"2026-11-15T12:59:00.000Z"}}
+  };
+  const result=scope.wfrReconcileSheet_("demo","s1612","1612",active,"revA");
+  assert.equal(result.removed,1);
+  assert.equal(commits.length,1);
+  assert.equal(active.data.warmFermentationTest.plato,2.6);
+});
+
 test("optional pH remains separate from currentData and Sheet daily pH column", () => {
   const ui = read("../src/components/cellering/WarmFermentationTest.tsx");
   assert.match(ui,/pH לאחר הדגרה \(לא חובה\)/);
   assert.match(ui,/pH: testPH/);
   const script = read("../server/warmFermentationTest.js");
   assert.match(script,/test\.pH/);
-  assert.match(script,/\[דיווח מערכת\]/);
+  assert.match(script,/\[בדיקת-תסיסה:/);
   const store = read("../src/SERVICES/cellering/warmFermentationTestStore.ts");
   assert.match(store,/pH: input\.pH \?\? null/);
   assert.doesNotMatch(store,/currentData\.pH\s*=/);
