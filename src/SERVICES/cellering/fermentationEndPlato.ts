@@ -12,6 +12,7 @@ export const DEFAULT_FERMENTATION_END_PLATO: Record<string, number> = {
 };
 
 export const WINTER_CARBONATION_TARGET = 2.3;
+export const DEFAULT_WARM_FERMENTATION_PLATO_DELTA = 0.1;
 
 /** Hoppy lager shares the lager's finish threshold; winter has no defined threshold. */
 export function fermentationEndStyleKey(beerStyle: string | number | null | undefined): string | null {
@@ -51,6 +52,10 @@ export function carbonationSpecKey(beerStyle: string | number | null | undefined
 export function withCellarSpecDefaults(specs: SpecChart): SpecChart {
     return {
         ...specs,
+        tolorances: {
+            warmFermentationPlatoDelta: DEFAULT_WARM_FERMENTATION_PLATO_DELTA,
+            ...(specs.tolorances || {}),
+        },
         fermentationEndPlato: {
             ...DEFAULT_FERMENTATION_END_PLATO,
             ...(specs.fermentationEndPlato || {}),
