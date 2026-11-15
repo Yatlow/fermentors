@@ -5,6 +5,7 @@ import { DEFAULT_WARM_FERMENTATION_PLATO_DELTA } from "./fermentationEndPlato";
 export type WarmFermentationTest = {
     batchNumber: string;
     plato: number;
+    pH?: number | null;
     coolingPlato: number | null;
     recordedAt: string;
     packaged: boolean;
