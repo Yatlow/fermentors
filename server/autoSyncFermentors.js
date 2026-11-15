@@ -461,6 +461,11 @@ function getAllFermentorsFromFirestore(
           id:
             fermentorId,
 
+          // Already included in the same Firestore list response; no extra
+          // GET is needed to guard incubator reconciliation against races.
+          updateTime:
+            document.updateTime || null,
+
           data:
             normalized
         });
