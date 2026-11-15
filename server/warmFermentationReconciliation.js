@@ -109,41 +109,54 @@ function wfrSheetEvents_(values, sheetId, batchNumber) {
   var events = [];
   for (var i = headerRow + 1; i < values.length; i++) {
     var row = values[i] || [];
-    var date = parseIsraeliDate(String(row[0] || "").trim());
-    if (!date || isNaN(date.getTime())) continue;
-    var test = wfrParseNote_(row[7]);
-    if (!test) continue;
-    var clockMatch = /^(\d{1,2}):(\d{2})$/.exec(String(row[1] || "").trim());
-    var hour = clockMatch ? Number(clockMatch[1]) : 12;
-    var minute = clockMatch ? Number(clockMatch[2]) : 0;
-    if (hour > 23 || minute > 59) continue;
-    date.setHours(hour, minute, 0, 0);
-    var dateText = Utilities.formatDate(date, "Asia/Jerusalem", "dd/MM/yyyy");
-    var timeText = clockMatch ? (String(hour).padStart(2, "0") + ":" + clockMatch[2]) : null;
-    var identity = sheetId + "|" + dateText + "|" + (timeText || "") + "|" + test.note;
-    var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, identity, Utilities.Charset.UTF_8);
-    var hex = digest.map(function (b) { return ("0" + ((b + 256) % 256).toString(16)).slice(-2); }).join("");
-    var eventId = test.receiptId || ("sheet-" + hex.slice(0, 32));
-    var previouslyPackaged = values.slice(headerRow + 1, i).some(function (candidate) {
-      return /הורדת\s+[\d.,]+[^|\n]*(?:בקבוקים|חביות)/.test(String((candidate || [])[7] || ""));
-    });
-    events.push({
-      eventId: eventId,
-      requestId: test.receiptId || null,
-      plato: test.plato,
-      pH: test.pH,
-      coolingPlato: wfrCoolingPlato_(values, headerRow + 1, i),
-      recordedAt: date.toISOString(),
-      recordedDate: dateText,
-      recordedTime: timeText,
-      source: test.receiptId ? "app-sheet" : "sheet-reconciliation",
-      sheetRow: i + 1,
-      packaged: test.explicitlyPackaged || previouslyPackaged,
-      batchNumber: String(batchNumber),
-      sheetUrl: "https://docs.google.com/spreadsheets/d/" + sheetId + "/edit",
-      tankNumber: String((values[0] || [])[3] || "") || null,
-      inTank: false
-    });
+    var rowDate = parseIsraeliDate(String(row[0] || "").trim());
+    if (!rowDate || isNaN(rowDate.getTime())) continue;
+    // Several incubator tests can be appended to ONE day's notes cell.
+    // They must remain separate records so deleting the second restores
+    // the first, rather than deleting both.
+    var sections = String(row[7] || "").split(/[|\n]/);
+    for (var j = 0; j < sections.length; j++) {
+      var test = wfrParseNote_(sections[j]);
+      if (!test) continue;
+      var clock = /\(בשעה\s*(\d{1,2}):(\d{2})\)/.exec(test.note) ||
+        /^(\d{1,2}):(\d{2})$/.exec(String(row[1] || "").trim());
+      var hour = clock ? Number(clock[1]) : 12;
+      var minute = clock ? Number(clock[2]) : 0;
+      if (hour > 23 || minute > 59) continue;
+      var date = new Date(rowDate.getTime());
+      date.setHours(hour, minute, 0, 0);
+      var dateText = Utilities.formatDate(date, "Asia/Jerusalem", "dd/MM/yyyy");
+      var timeText = clock ? (String(hour).padStart(2, "0") + ":" + String(minute).padStart(2, "0")) : null;
+      var identity = sheetId + "|" + dateText + "|" + (timeText || "") + "|" + test.note;
+      var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, identity, Utilities.Charset.UTF_8);
+      var hex = digest.map(function (b) {
+        return ("0" + ((b + 256) % 256).toString(16)).slice(-2);
+      }).join("");
+      var eventId = test.receiptId || ("sheet-" + hex.slice(0, 32));
+      var earlierRowsPackaged = values.slice(headerRow + 1, i).some(function (candidate) {
+        return /הורדת\s+[\d.,]+[^|\n]*(?:בקבוקים|חביות)/.test(String((candidate || [])[7] || ""));
+      });
+      var sameRowPackaged = sections.slice(0, j).some(function (section) {
+        return /הורדת\s+[\d.,]+[^|\n]*(?:בקבוקים|חביות)/.test(section);
+      });
+      events.push({
+        eventId: eventId,
+        requestId: test.receiptId || null,
+        plato: test.plato,
+        pH: test.pH,
+        coolingPlato: wfrCoolingPlato_(values, headerRow + 1, i),
+        recordedAt: date.toISOString(),
+        recordedDate: dateText,
+        recordedTime: timeText,
+        source: test.receiptId ? "app-sheet" : "sheet-reconciliation",
+        sheetRow: i + 1,
+        packaged: test.explicitlyPackaged || earlierRowsPackaged || sameRowPackaged,
+        batchNumber: String(batchNumber),
+        sheetUrl: "https://docs.google.com/spreadsheets/d/" + sheetId + "/edit",
+        tankNumber: String((values[0] || [])[3] || "") || null,
+        inTank: false
+      });
+    }
   }
   return events;
 }
