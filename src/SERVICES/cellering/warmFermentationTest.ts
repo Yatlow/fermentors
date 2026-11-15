@@ -7,6 +7,7 @@ export type WarmFermentationTest = {
     coolingPlato: number | null;
     recordedAt: string;
     packaged: boolean;
+    inTank: boolean;
     tankNumber: string | null;
     sheetUrl: string;
 };
