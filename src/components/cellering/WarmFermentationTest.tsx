@@ -101,7 +101,7 @@ export default function WarmFermentationTest({ brews, specs }: Props) {
             try {
                 const [measurements, wasPackaged] = await Promise.all([
                     getMeasurementsByBatch(choice.batchNumber),
-                    choice.tankId ? Promise.resolve(false) : batchWasPackaged(choice.batchNumber),
+                    batchWasPackaged(choice.batchNumber),
                 ]);
                 if (cancelled) return;
                 setCoolingPlato(coolingPlatoAtRecordedCooling(measurements));
