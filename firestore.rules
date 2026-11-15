@@ -65,6 +65,18 @@ service cloud.firestore {
         allow read: if isApprovedUser();
         allow write: if isApprovedUser();
       }
+      // Incubator results are immutable, batch-scoped quality records. They
+      // must not be written as routine daily Plato measurements.
+      match /warmFermentationTests/{testId} {
+        allow read: if isApprovedUser();
+        allow create: if isApprovedUser()
+          && request.resource.data.requestId == testId
+          && request.resource.data.batchNumber == batchId
+          && request.resource.data.plato is number
+          && request.resource.data.plato >= 0
+          && request.resource.data.plato <= 40;
+        allow update, delete: if false;
+      }
     }
 
     match /specs/{document} {
@@ -258,6 +270,12 @@ service cloud.firestore {
           ||
           (
             request.resource.data.action == 'logPackagingToMasterSheet'
+            && request.resource.data.get('payloadJson', '') is string
+            && request.resource.data.get('payloadJson', '').size() <= 10000
+          )
+          ||
+          (
+            request.resource.data.action == 'addWarmFermentationTest'
             && request.resource.data.get('payloadJson', '') is string
             && request.resource.data.get('payloadJson', '').size() <= 10000
           )
