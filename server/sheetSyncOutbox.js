@@ -213,7 +213,8 @@ function sheetSyncWarmTestPayload_(jobDocument, requestId) {
   if (!test || String(test.batchNumber).replace(/^#/, "") !== batch ||
       !/^https:\/\//.test(String(test.sheetUrl || "")) ||
       !isFinite(Number(test.plato)) ||
-      Number(test.plato) < 0 || Number(test.plato) > 40) {
+      Number(test.plato) < 0 || Number(test.plato) > 40 ||
+      (test.pH != null && (!isFinite(Number(test.pH)) || Number(test.pH) < 0 || Number(test.pH) > 14))) {
     var invalid = new Error("Invalid warm fermentation test outbox payload");
     invalid.sheetSyncTerminal = true;
     throw invalid;
