@@ -356,6 +356,21 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
         });
         stats.revisionChecks++;
         if (!revisionState.changed) {
+          // First release/backfill: the ordinary cellar revision cache may
+          // already consider a Sheet unchanged. Seed ONLY the warm-test cache
+          // once, reusing the existing fermentor snapshot and no Firestore GET.
+          const warmRevision = PropertiesService.getScriptProperties().getProperty(
+            WFR_SHEET_REVISION_PREFIX_ + revisionState.id);
+          if (warmRevision !== revisionState.revision) {
+            try {
+              wfrReconcileSheet_(projectId, sheetUrl, entry.data.batchNumber, entry,
+                revisionState.revision);
+            } catch (warmError) {
+              stats.warmTestErrors = (stats.warmTestErrors || 0) + 1;
+              Logger.log("Warm test initial backfill deferred for tank " +
+                entry.id + ": " + warmError.message);
+            }
+          }
           stats.unchangedSheets++;
           stats.skipped++;
           return;
