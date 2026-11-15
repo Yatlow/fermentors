@@ -110,6 +110,7 @@ test("packaged test adds its own dated row without populating the daily sugar fi
         getCachedFermentationHeaderRow_: () => 1,
         parseIsraeliDate: (v) => /^\d\d\/\d\d\/\d{4}$/.test(v),
         addFermentationNoteFast_: () => { throw Error("Must not use fast note merge after packaging"); },
+        wfrRememberWrittenTest_: (sheetId, id) => { assert.equal(sheetId, "sheet1"); assert.equal(id, "same-request"); },
     };
     runInNewContext(read("../server/warmFermentationTest.js"), ctx);
     const input = {
@@ -120,7 +121,7 @@ test("packaged test adds its own dated row without populating the daily sugar fi
     assert.equal(first.row, 3);
     assert.equal(rows[1][2], 3.4);
     assert.deepEqual(rows[2].slice(0, 3), ["15/11/2026", "10:12", ""]);
-    assert.equal(rows[2][7], "בדיקת תסיסה חמה לאחר אריזה 2.7°P");
+    assert.equal(rows[2][7], "בדיקת תסיסה חמה לאחר אריזה 2.7°P [בדיקת-תסיסה:same-request]");
     const duplicate = ctx.appendWarmFermentationTest_(input, "same-request");
     assert.equal(duplicate.duplicate, true);
     assert.equal(rows[3][0], "סיכום");
