@@ -14,6 +14,10 @@ function appendWarmFermentationTest_(test, requestId) {
   if (!isFinite(value) || value < 0 || value > 40) {
     throw new Error("Warm test Plato out of range");
   }
+  if (test.pH !== null && test.pH !== undefined && String(test.pH).trim() !== "" &&
+      (!isFinite(Number(test.pH)) || Number(test.pH) < 0 || Number(test.pH) > 14)) {
+    throw new Error("Warm test pH out of range");
+  }
   if (!/^https:\/\//.test(String(test.sheetUrl || ""))) {
     throw new Error("Warm test missing Sheet URL");
   }
@@ -23,7 +27,8 @@ function appendWarmFermentationTest_(test, requestId) {
   var dateText = Utilities.formatDate(recordedAt, timezone, "dd/MM/yyyy");
   var timeText = Utilities.formatDate(recordedAt, timezone, "HH:mm");
   var note = "בדיקת תסיסה חמה " + (test.packaged === true ? "לאחר אריזה " : "") +
-    String(value) + "°P";
+    String(value) + "°P" + (test.pH === null || test.pH === undefined || String(test.pH).trim() === ""
+      ? "" : ", pH " + String(Number(test.pH))) + " [דיווח מערכת]";
   var spreadsheetId = extractSpreadsheetId(test.sheetUrl);
   var ss = SpreadsheetApp.openById(spreadsheetId);
   var sheet = ss.getSheets()[0];
