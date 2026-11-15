@@ -31,6 +31,7 @@ export default function WarmFermentationTest({ brews, specs }: Props) {
     const [loadingMore, setLoadingMore] = useState(false);
     const [selected, setSelected] = useState("");
     const [platoInput, setPlatoInput] = useState("");
+    const [phInput, setPhInput] = useState("");
     const [coolingPlato, setCoolingPlato] = useState<number | null>(null);
     const [packaged, setPackaged] = useState(false);
     const [loadingDetails, setLoadingDetails] = useState(false);
@@ -47,6 +48,8 @@ export default function WarmFermentationTest({ brews, specs }: Props) {
     const liveTank = tank ? brews.find(t => t.id === tank.tankId) : undefined;
     const isCold = liveTank?.stage?.name === "קר";
     const testPlato = parseWarmPlato(platoInput);
+    const testPH = phInput.trim() ? Number(phInput.trim().replace(",", ".")) : null;
+    const validPH = testPH === null || (Number.isFinite(testPH) && testPH >= 0 && testPH <= 14);
     const threshold = getWarmFermentationGapThreshold(specs);
     const warning = testPlato === null ? null : warmTestWarning({
         packaged, isCold, testPlato, coolingPlato, threshold,
@@ -118,18 +121,18 @@ export default function WarmFermentationTest({ brews, specs }: Props) {
     }, [selected, choice?.id, choice?.sheetUrl, choice?.tankId]);
 
     function chooseBatch(value: string) {
-        setSelected(value); setPlatoInput(""); setMessage(""); setError(""); setShowWarning(false);
+        setSelected(value); setPlatoInput(""); setPhInput(""); setMessage(""); setError(""); setShowWarning(false);
     }
 
     async function submit() {
-        if (!choice || testPlato === null || saving || loadingDetails || detailsError) return;
+        if (!choice || testPlato === null || !validPH || saving || loadingDetails || detailsError) return;
         if (!choice.sheetUrl) { setError("לא נמצא גיליון בישול מקושר לאצווה"); return; }
         setSaving(true);
         setError("");
         try {
             const result = await saveWarmFermentationTest({
                 batchNumber: choice.batchNumber, sheetUrl: choice.sheetUrl,
-                plato: testPlato, coolingPlato, recordedAt: new Date().toISOString(),
+                plato: testPlato, pH: testPH, coolingPlato, recordedAt: new Date().toISOString(),
                 packaged, inTank: Boolean(choice.tankId), tankNumber: choice.tankNumber || null, tankId: choice.tankId ?? null,
             });
             setMessage(result.sheetSynced
@@ -137,6 +140,7 @@ export default function WarmFermentationTest({ brews, specs }: Props) {
                 : `בדיקת תסיסה חמה לאצווה #${choice.batchNumber} נשמרה במערכת. הסנכרון לגיליון ממתין לניסיון חוזר אוטומטי.`);
             setShowWarning(false);
             setPlatoInput("");
+            setPhInput("");
             window.dispatchEvent(new CustomEvent("warm-fermentation-test-saved", { detail: { batchNumber: choice.batchNumber } }));
         } catch (e) {
             console.error("Warm test save failed", e);
@@ -153,7 +157,7 @@ export default function WarmFermentationTest({ brews, specs }: Props) {
         else void submit();
     }
 
-    const canSave = !!choice && !!choice.sheetUrl && testPlato !== null && !saving && !loadingDetails && !detailsError;
+    const canSave = !!choice && !!choice.sheetUrl && testPlato !== null && validPH && !saving && !loadingDetails && !detailsError;
 
     return <section className="warm-test" dir="rtl" aria-label="בדיקת תסיסה חמה">
         <div className="warm-test-heading">
@@ -189,6 +193,11 @@ export default function WarmFermentationTest({ brews, specs }: Props) {
                 placeholder="לדוגמה: 2.6" onChange={e => setPlatoInput(e.target.value)}
                 disabled={!choice || saving} aria-invalid={platoInput.trim() !== "" && testPlato === null}/>
             {platoInput.trim() && testPlato === null && <small className="warm-test-error">יש להזין פלאטו מספרי בין 0 ל־40.</small>}
+            <label htmlFor="warm-test-ph">pH לאחר הדגרה (לא חובה)</label>
+            <input id="warm-test-ph" inputMode="decimal" type="text" value={phInput}
+                placeholder="לדוגמה: 4.41" onChange={e => setPhInput(e.target.value)}
+                disabled={!choice || saving} aria-invalid={!validPH}/>
+            {!validPH && <small className="warm-test-error">יש להזין pH מספרי בין 0 ל־14 או להשאיר ריק.</small>}
             {blocksCooling && <p className="warm-test-notice" role="status"><AlertTriangle size={18}/> הפלאטו במיכל ({currentPlato}°P) גבוה מהתוצאה באינקובטור ({testPlato}°P). אין המלצה לקירור עד שהמיכל יגיע לערך הבדיקה או מתחתיו.</p>}
             {warning && <p className="warm-test-notice"><AlertTriangle size={18}/> קיים פער של לפחות {threshold}°P מול פלאטו הקירור. תוצג אזהרה לפני השמירה.</p>}
             {message && <p role="status" className="warm-test-success"><CheckCircle2 size={18}/> {message}</p>}
