@@ -279,7 +279,8 @@ function runFermentorCycle() {
     return { durationSeconds: duration, fermentorsCount: fermentors.length,
       sheetReads: FC_CYCLE_CONTEXT_.sheetReads,
       firestoreIo: FC_CYCLE_CONTEXT_.io,
-      sync: syncStats, action: actionStats, brewSheetReconcile: brewSheetReconcileStats };
+      sync: syncStats, action: actionStats, brewSheetReconcile: brewSheetReconcileStats,
+      warmFermentationReconcile: warmHistory };
   } finally {
     FC_CYCLE_CONTEXT_ = null;
     fcReleaseCycleLease_(leaseToken);
