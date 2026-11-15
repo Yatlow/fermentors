@@ -5,7 +5,34 @@
  * then opened only when their modification revision changes.
  */
 var WFR_SHEET_REVISION_PREFIX_ = "wfr_sheet_revision_v1:";
-var WFR_EVENT_PREFIX_ = "wfr_event_v1:";
+var WFR_MANIFEST_PREFIX_ = "wfr_sheet_events_v2:";
+
+function wfrReadManifest_(props, sheetId) {
+  try {
+    var parsed = JSON.parse(props.getProperty(WFR_MANIFEST_PREFIX_ + sheetId) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    throw new Error("Warm test manifest is invalid; cannot safely reconcile deletions");
+  }
+}
+
+function wfrRememberWrittenTest_(sheetId, requestId) {
+  // Called only AFTER a successful Sheet write. Register the same test ID
+  // already persisted by the browser; a later Sheet deletion can reverse it
+  // even if the first maintenance pass never happened.
+  if (!requestId) return;
+  var props = PropertiesService.getScriptProperties();
+  var manifest = wfrReadManifest_(props, sheetId);
+  if (!Object.prototype.hasOwnProperty.call(manifest, requestId)) {
+    manifest[requestId] = null; // Unknown Sheet fingerprint until first scan.
+    props.setProperty(WFR_MANIFEST_PREFIX_ + sheetId, JSON.stringify(manifest));
+  }
+}
+
+function wfrFingerprint_(event) {
+  return JSON.stringify([event.plato, event.pH, event.recordedAt,
+    event.packaged, event.coolingPlato, event.source]);
+}
 var WFR_LAST_DISCOVERY_KEY_ = "wfr_recent_sheet_discovery_v1";
 var WFR_DISCOVERY_INTERVAL_MS_ = 60 * 60 * 1000;
 var WFR_DISCOVERY_LOOKBACK_DAYS_ = 14;
@@ -19,7 +46,7 @@ function wfrNum_(raw, max) {
 
 function wfrParseNote_(raw) {
   var note = String(raw || "").trim();
-  if (!note || note.indexOf("[דיווח מערכת]") !== -1) return null;
+  if (!note) return null;
   // One physical Sheet row can contain several independent cellar actions.
   // Keep pH tied to the SAME note segment as the warm-incubator result.
   var sections = note.split(/[|\n]/);
@@ -37,8 +64,10 @@ function wfrParseNote_(raw) {
     if (plato === null) continue;
     var phMatch = /\bp\s*h\s*[:=]?\s*(\d{1,2}(?:[.,]\d{1,3})?)/i.exec(section);
     var ph = phMatch ? wfrNum_(phMatch[1], 14) : null;
+    var receipt = /\[בדיקת-תסיסה:([a-zA-Z0-9_-]{8,120})\]/.exec(section);
     return {
       plato: plato, pH: ph, note: section,
+      receiptId: receipt ? receipt[1] : null,
       explicitlyPackaged: /לאחר\s+אריזה/.test(section)
     };
   }
@@ -94,19 +123,20 @@ function wfrSheetEvents_(values, sheetId, batchNumber) {
     var identity = sheetId + "|" + dateText + "|" + (timeText || "") + "|" + test.note;
     var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, identity, Utilities.Charset.UTF_8);
     var hex = digest.map(function (b) { return ("0" + ((b + 256) % 256).toString(16)).slice(-2); }).join("");
-    var eventId = "sheet-" + hex.slice(0, 32);
+    var eventId = test.receiptId || ("sheet-" + hex.slice(0, 32));
     var previouslyPackaged = values.slice(headerRow + 1, i).some(function (candidate) {
       return /הורדת\s+[\d.,]+[^|\n]*(?:בקבוקים|חביות)/.test(String((candidate || [])[7] || ""));
     });
     events.push({
       eventId: eventId,
+      requestId: test.receiptId || null,
       plato: test.plato,
       pH: test.pH,
       coolingPlato: wfrCoolingPlato_(values, headerRow + 1, i),
       recordedAt: date.toISOString(),
       recordedDate: dateText,
       recordedTime: timeText,
-      source: "sheet-reconciliation",
+      source: test.receiptId ? "app-sheet" : "sheet-reconciliation",
       sheetRow: i + 1,
       packaged: test.explicitlyPackaged || previouslyPackaged,
       batchNumber: String(batchNumber),
@@ -118,40 +148,68 @@ function wfrSheetEvents_(values, sheetId, batchNumber) {
   return events;
 }
 
-function wfrCommitEvents_(projectId, events, activeEntry) {
-  if (!events.length) return 0;
+function wfrCommitEvents_(projectId, changedEvents, activeEntry, deletedIds, visibleEvents, batchNumber) {
+  deletedIds = deletedIds || [];
+  visibleEvents = visibleEvents || changedEvents;
+  if (!changedEvents.length && !deletedIds.length) return 0;
+  var batch = String(batchNumber || (changedEvents[0] || visibleEvents[0] || {}).batchNumber || "");
+  if (!/^\d+$/.test(batch)) throw new Error("Warm test reconciliation batch missing");
   var root = "projects/" + projectId + "/databases/(default)/documents/";
-  var writes = events.map(function (event) {
+  var writes = changedEvents.map(function (event) {
     return {
       update: {
         name: root + "brews/" + encodeURIComponent(event.batchNumber) +
-          "/warmFermentationTests/" + event.eventId,
+          "/warmFermentationTests/" + encodeURIComponent(event.eventId),
         fields: toFirestoreFields(event)
       },
       updateMask: { fieldPaths: Object.keys(event) }
     };
   });
-  // The currently active tank gets ONLY the newest result, and only if it
-  // belongs to the same batch. This is already in the fermentor cycle's one
-  // Firestore list result: no additional point reads are required.
-  var active = activeEntry && Number(activeEntry.data.action) === 1 &&
-    String(activeEntry.data.batchNumber || "").replace(/^#/, "") === events[0].batchNumber;
-  var latest = events.slice().sort(function (a, b) { return a.recordedAt.localeCompare(b.recordedAt); }).pop();
-  var former = active && activeEntry.data.warmFermentationTest;
-  var isNewer = !former || !former.recordedAt || latest.recordedAt > String(former.recordedAt);
-  if (active && isNewer && activeEntry.updateTime) {
-    var doc = {
-      warmFermentationTest: latest,
-      warmFermentationTestUpdatedAt: new Date()
-    };
+  deletedIds.forEach(function (id) {
     writes.push({
-      update: {
-        name: root + "fermentors/" + encodeURIComponent(activeEntry.id),
-        fields: toFirestoreFields(doc)
-      },
-      updateMask: { fieldPaths: Object.keys(doc) },
-      currentDocument: { updateTime: activeEntry.updateTime }
+      delete: root + "brews/" + encodeURIComponent(batch) +
+        "/warmFermentationTests/" + encodeURIComponent(id)
     });
+  });
+
+  var active = activeEntry && Number(activeEntry.data.action) === 1 &&
+    String(activeEntry.data.batchNumber || "").replace(/^#/, "") === batch;
+  var latest = visibleEvents.slice().sort(function (a, b) {
+    return a.recordedAt.localeCompare(b.recordedAt);
+  }).pop() || null;
+  var former = active ? activeEntry.data.warmFermentationTest : null;
+  var formerId = former ? String(former.requestId || former.eventId || "") : "";
+  var removedCurrent = formerId && deletedIds.indexOf(formerId) !== -1;
+  var changedCurrent = formerId && changedEvents.some(function (event) {
+    return event.eventId === formerId;
+  });
+  // A newer in-app test may not have reached Sheets yet: never overwrite it
+  // with an older Sheet snapshot unless THAT specific test was removed.
+  var isNewer = latest && (!former || !former.recordedAt ||
+    latest.recordedAt > String(former.recordedAt));
+  var useLatest = latest && (removedCurrent || isNewer ||
+    (changedCurrent && latest.eventId === formerId));
+  var clearCurrent = removedCurrent && !latest;
+  var updateActive = active && activeEntry.updateTime && (useLatest || clearCurrent);
+  if (updateActive) {
+    var docName = root + "fermentors/" + encodeURIComponent(activeEntry.id);
+    if (useLatest) {
+      var patch = {
+        warmFermentationTest: latest,
+        warmFermentationTestUpdatedAt: new Date()
+      };
+      writes.push({
+        update: {name: docName, fields: toFirestoreFields(patch)},
+        updateMask: {fieldPaths: Object.keys(patch)},
+        currentDocument: {updateTime: activeEntry.updateTime}
+      });
+    } else {
+      writes.push({
+        update: {name: docName, fields: {}},
+        updateMask: {fieldPaths: ["warmFermentationTest", "warmFermentationTestUpdatedAt"]},
+        currentDocument: {updateTime: activeEntry.updateTime}
+      });
+    }
   }
   var response = UrlFetchApp.fetch(
     "https://firestore.googleapis.com/v1/projects/" + projectId +
@@ -165,9 +223,9 @@ function wfrCommitEvents_(projectId, events, activeEntry) {
     throw new Error("Warm fermentation reconciliation commit HTTP " + status +
       " " + response.getContentText().slice(0, 250));
   }
-  if (active && isNewer && activeEntry.updateTime) {
-    activeEntry.data.warmFermentationTest = latest;
-    // A newer ferm. update is now in flight. Do not reuse stale preconditions.
+  if (updateActive) {
+    if (useLatest) activeEntry.data.warmFermentationTest = latest;
+    else delete activeEntry.data.warmFermentationTest;
     activeEntry.updateTime = null;
   }
   if (FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.io) {
@@ -186,21 +244,33 @@ function wfrReconcileSheet_(projectId, sheetUrl, batchNumber, activeEntry, known
   if (props.getProperty(key) === revision) return { skipped: true, reason: "revision_unchanged" };
   var snapshot = fcSheetSnapshot_(sheetUrl);
   var sheetBatch = String(((snapshot.values[0] || [])[5]) || "").replace(/^#/, "").trim();
-  // Never attach another batch's Sheet to the current tank.
   if (!/^\d+$/.test(sheetBatch) || (batchNumber && sheetBatch !== String(batchNumber).replace(/^#/, ""))) {
     throw new Error("Warm test Sheet batch/header mismatch " + sheetId);
   }
   var events = wfrSheetEvents_(snapshot.values, sheetId, sheetBatch);
-  var pending = events.filter(function (event) {
-    return props.getProperty(WFR_EVENT_PREFIX_ + event.eventId) !== "done";
-  }).slice(0, 100);
-  if (pending.length) wfrCommitEvents_(projectId, pending, activeEntry);
-  pending.forEach(function (event) {
-    props.setProperty(WFR_EVENT_PREFIX_ + event.eventId, "done");
+  var manifest = wfrReadManifest_(props, sheetId);
+  var current = {};
+  events.forEach(function (event) {
+    current[event.eventId] = wfrFingerprint_(event);
   });
-  // If a very old sheet contains 100+ historical tests, retry the remainder.
-  if (events.length <= 100 || pending.length < 100) props.setProperty(key, revision);
-  return { seen: events.length, wrote: pending.length, skipped: false };
+  var deleted = Object.keys(manifest).filter(function (id) {
+    return !Object.prototype.hasOwnProperty.call(current, id);
+  });
+  var pending = events.filter(function (event) {
+    var old = manifest[event.eventId];
+    return !Object.prototype.hasOwnProperty.call(manifest, event.eventId) ||
+      (old !== null && old !== current[event.eventId]);
+  });
+  // The commit contains additions, edits, deletions and an active snapshot
+  // correction atomically. Never write an empty batch or read Firestore here.
+  if (pending.length || deleted.length) {
+    wfrCommitEvents_(projectId, pending, activeEntry, deleted, events, sheetBatch);
+  }
+  // The manifest and revision move forward ONLY after Firestore succeeded.
+  if (Object.keys(current).length) props.setProperty(WFR_MANIFEST_PREFIX_ + sheetId, JSON.stringify(current));
+  else props.deleteProperty(WFR_MANIFEST_PREFIX_ + sheetId);
+  props.setProperty(key, revision);
+  return { seen: events.length, wrote: pending.length, removed: deleted.length, skipped: false };
 }
 
 function wfrRecentSheetsMaintenance_(projectId, fermentors, now) {
