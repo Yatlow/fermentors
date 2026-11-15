@@ -26,9 +26,12 @@ export async function saveWarmFermentationTest(input: SaveWarmTestInput): Promis
     if (!Number.isFinite(input.plato) || input.plato < 0 || input.plato > 40) {
         throw new Error("יש להזין תוצאת פלאטו תקינה בין 0 ל־40");
     }
+    if (input.pH !== undefined && input.pH !== null && (!Number.isFinite(input.pH) || input.pH < 0 || input.pH > 14)) {
+        throw new Error("ערך pH חייב להיות בין 0 ל־14");
+    }
     const requestId = createAppsScriptRequestId("warm-fermentation");
     const payload: WarmFermentationTest = {
-        batchNumber, plato: input.plato, coolingPlato: input.coolingPlato,
+        batchNumber, plato: input.plato, pH: input.pH ?? null, coolingPlato: input.coolingPlato,
         recordedAt: input.recordedAt, packaged: input.packaged, inTank: Boolean(input.tankId),
         tankNumber: input.tankNumber, sheetUrl: input.sheetUrl,
     };
