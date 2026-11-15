@@ -28,6 +28,17 @@ function appendWarmFermentationTest_(test, requestId) {
   var ss = SpreadsheetApp.openById(spreadsheetId);
   var sheet = ss.getSheets()[0];
   if (!sheet) throw new Error("Warm test fermentation sheet unavailable");
+  if (test.packaged !== true) {
+    // A batch still in a tank uses the existing safe same-day notes writer;
+    // appending an extra today's row could become the latest cellar
+    // measurement and accidentally hide actual daily Plato / pressure.
+    var inTankResult = addFermentationNoteFast_(ss, sheet, spreadsheetId, note, Date.now());
+    return {
+      success: true, batchNumber: String(test.batchNumber),
+      row: inTankResult.row, date: inTankResult.date, time: inTankResult.time,
+      notes: inTankResult.notes, sheetUrl: ss.getUrl(), requestId: String(requestId || "")
+    };
+  }
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
