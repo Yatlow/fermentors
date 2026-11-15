@@ -126,6 +126,16 @@ test("packaged test adds its own dated row without populating the daily sugar fi
     assert.equal(rows[3][0], "סיכום");
 });
 
+test("active partially packaged batches are checked against packaging logs", () => {
+    const ui = read("../src/components/cellering/WarmFermentationTest.tsx");
+    assert.match(ui, /batchWasPackaged\(choice\.batchNumber\)/);
+    assert.doesNotMatch(ui, /choice\.tankId\s*\?\s*Promise\.resolve\(false\)/,
+        "An active tank can have already packaged a portion of its beer");
+    const script = read("../server/warmFermentationTest.js");
+    assert.match(script, /test\.inTank === true && test\.packaged !== true/,
+        "Packaged batches must append a distinct Sheet row even when the tank remains active");
+});
+
 test("app, Firestore, retry worker and recording entrypoint all support the same new action", () => {
     const app = read("../src/App.tsx");
     assert.match(app, /<WarmFermentationTest brews=\{brews\}/);
