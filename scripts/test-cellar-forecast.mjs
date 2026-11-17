@@ -28,7 +28,7 @@ const { projectCarbonationRetest, projectNonHoppyWarmYeast } =
     await import(moduleDataUrl(resolve(dir, "actionForecast.ts")));
 const { forecastRoutinesForDate, anticipatedColdTanksForSunday } =
     await import(moduleDataUrl(resolve(dir, "forecastRoutines.ts")));
-const { summarizeCellaringForecastDay, conditionalForecastKind, conciseForecastTitle } =
+const { summarizeCellaringForecastDay, conditionalForecastKind, conciseForecastTitle, conciseForecastExplanation } =
     await import(moduleDataUrl(resolve(dir, "forecastPresentation.ts")));
 const { projectKnownYeastCompletions } =
     await import(moduleDataUrl(resolve(dir, "yeastCompletionForecast.ts")));
@@ -115,7 +115,7 @@ test("Wednesday/Thursday packaging routines retain their tank and stage filters"
         coldTankNumbers: ["11"], nextWeekPackagingTankNumbers: ["11", "19"], scheduled: [], conditional: [] };
     assert.deepEqual(forecastRoutinesForDate(input).map((row) => row.tankNumber), ["11"]);
     const thursday = forecastRoutinesForDate({ ...input, weekday: 4 });
-    assert.deepEqual(thursday.map((row) => row.tankNumber), ["11", "19"]);
+    assert.deepEqual(thursday.map((row) => row.tankNumber), ["11"], "warm tanks cannot receive cold-yeast packaging routine");
 });
 
 test("non-hoppy warm yeast check requires tank closure, fresh Plato and brewing age", () => {
@@ -206,7 +206,7 @@ test("Sunday also includes warm tanks with committed cooling before Sunday as co
         ["sunday", "sunday"]);
 });
 
-test("cooling readiness can suggest Sunday work but does not claim that cooling occurred", () => {
+test("a possible cooling-readiness check never invents Sunday cold work", () => {
     const conditional = [{
         id: "17:cooling-readiness:2026-11-07",
         tankNumber: "17", dueDate: "2026-11-07", title: "צפי לבדיקת מוכנות לקירור", basis: "",
@@ -216,7 +216,7 @@ test("cooling readiness can suggest Sunday work but does not claim that cooling 
         tanks: [{ tankNumber: 17, batchNumber: "1617", stage: { name: "בתסיסה" } }],
         scheduled: [], conditional,
     });
-    assert.deepEqual(projected, ["17"]);
+    assert.deepEqual(projected, [], "a forecast check is not evidence of future cooling");
     assert.deepEqual(anticipatedColdTanksForSunday({
         today: "2026-11-04", sunday: "2026-11-08",
         tanks: [{ tankNumber: 17, batchNumber: "1617", stage: { name: "בתסיסה" } }],
@@ -286,6 +286,10 @@ test("daily executive summary groups the exact forecast rows by action, not by b
 
 test("forecast categories keep tests, dry-hop projections and carbonating from below separate", () => {
     assert.equal(conditionalForecastKind({ id: "a", title: "צפי לדרייהופ — בדיקת תנאים" }), "dryHop");
+    assert.equal(conditionalForecastKind({ id: "yeast:1", title: "הורדת שמרים אחרי דרייהופ" }), "yeastDrop");
+    assert.equal(conditionalForecastKind({ id: "yeast:2", title: "השלמת הורדת שמרים אחרי דרייהופ" }), "yeastDrop");
+    assert.equal(conciseForecastExplanation({ id: "t:cooling-readiness:2026-11-11", title: "צפי לבדיקת מוכנות לקירור", basis: "עקומת ממוצע סגנון; סף 3.6" }).includes("3.6"), false);
+    assert.match(conciseForecastExplanation({ id: "t:cooling-readiness:2026-11-11", title: "צפי לבדיקת מוכנות לקירור", basis: "" }), /מדידות בפועל/);
     assert.equal(conditionalForecastKind({ id: "b", title: "בדיקת גיזוז חוזרת" }), "carbTest");
     assert.equal(conditionalForecastKind({ id: "c", title: "מנוחת דיאצטיל" }), "diacetyl");
     assert.equal(conditionalForecastKind({ id: "d", title: "גיזוז מלמטה" }), "bottomCarbonation");
@@ -306,4 +310,18 @@ test("forecast accordion defaults to concise daily rows while retaining explanat
     assert.match(source, /cellar-forecast-scheduled-note/);
     assert.match(source, /item\.basis/);
     assert.match(source, /מותנה בקירור/);
+});
+
+test("a note recommending yeast removal does not count as a completed warm yeast drop", async () => {
+    const { projectYeastAfterDryHop } =
+        await import(moduleDataUrl(resolve(dir, "coldCellarForecast.ts")));
+    const rows = [
+        { id: "2026-11-01_0800", notes: "הוספת כשות" },
+        { id: "2026-11-02_0800", notes: "המלצה להורדת שמרים אחרי דרייהופ" },
+    ];
+    const tank = { id: "8", tankNumber: "8", beerStyle: "IPA", stage: { name: "בתסיסה" } };
+    assert.equal(projectYeastAfterDryHop(tank, rows, "2026-11-02")[0]?.dueDate, "2026-11-06");
+    assert.deepEqual(projectYeastAfterDryHop(tank, [
+        ...rows, { id: "2026-11-03_0800", notes: "הורדת שמרים 8 דליים" },
+    ], "2026-11-03"), []);
 });
