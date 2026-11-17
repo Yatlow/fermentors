@@ -40,7 +40,7 @@ export function buildWeekStartProjection(args: {
   const currentWeek = weekStart(today);
   // Never project a stock snapshot backwards into the current week.
   // For the active week, forecast from today; future weeks still use their Monday opening.
-  const projectionDate = week === currentWeek && today > week ? today : week;
+  const projectionDate = week <= currentWeek ? today : week;
   const open = openRuns(plans, settings.products, actuals);
   const currentTempo = settingsAfterActualShipments(
     settings, args.actualShipments ?? [], today,
@@ -103,7 +103,7 @@ export function buildWeekStartProjection(args: {
         // not by the optimistic planned manifest. Respect arrival/transit.
         const consumed = dispatchForecastPallets(
           physicalLots, event.qty, unitsPerPallet, event.date, event.pallets, reservedIds);
-        if (event.arrivalDate <= projectionDate) {
+        if (event.arrivalDate < projectionDate) {
           forecastReceipts.push({
             date: event.arrivalDate,
             quantity: Math.min(event.qty, consumed.shippedPhysical),
