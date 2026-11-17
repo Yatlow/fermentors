@@ -907,7 +907,7 @@ test("shipment already included in same-day Tempo snapshot is not counted twice"
     actualShipments: [{
       id: "already-counted", date: "2026-11-17",
       occurredAt: "2026-11-17T09:00:00.000Z",
-      totals: [{ style: "IPA", type: "crates", quantity: 84 }],
+      totals: [{ beerStyle: "IPA", itemType: "crates", totalQuantity: 84 }],
     } as any],
   }).get(current.id)!;
   assert.equal(projected.tempoUnits, 237);
