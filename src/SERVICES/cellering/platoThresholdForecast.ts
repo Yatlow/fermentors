@@ -2,7 +2,14 @@ import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshol
 import { hasActualCooling } from "./neglectAfterCooling";
 import { isCompletedYeastDrop } from "./coolingYeastTiming";
 import { getFermentationEndPlatoLimit } from "./fermentationEndPlato";
-import { normalizeWarmBatch, parseWarmPlato } from "./warmFermentationTest";
+// Keep the forecast pure: importing warmFermentationTest also pulls the
+// dashboard's TSX types into the standalone forecast test compiler.
+const normalizeWarmBatch = (value: unknown) => String(value ?? "").replace(/^#/, "").trim();
+const parseWarmPlato = (value: unknown): number | null => {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const num = Number(String(value).trim().replace(",", "."));
+  return Number.isFinite(num) && num >= 0 && num <= 40 ? num : null;
+};
 type SpecChart = Record<string, Record<string, number>>;
 export type PlatoForecastTank = BatchDryHopSettings & { id: string; tankNumber?: unknown; beerStyle?: unknown; stage?: { name?: string } | null };
 export type PlatoForecastReading = { id?: string | number | null; plato?: string | number | null; notes?: string | number | null };
