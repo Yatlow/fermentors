@@ -3,7 +3,7 @@ import type { ForecastRoutine } from "./forecastRoutines";
 import type { ScheduledCellarRecommendation, ScheduledCellarActionType } from "./scheduledCellarRecommendations";
 
 export type ForecastSummaryKind =
-    | "carbTest" | "yeastDrop" | "dryHop" | "coolDown"
+    | "carbTest" | "yeastDrop" | "dryHop" | "coolDown" | "coolingCheck"
     | "bottomCarbonation" | "pressureChange" | "diacetyl"
     | "fermentationCheck" | "other";
 
@@ -24,6 +24,7 @@ const LABELS: Record<ForecastSummaryKind, string> = {
     yeastDrop: "הורדות שמרים",
     dryHop: "דרייהופ",
     coolDown: "קירור",
+    coolingCheck: "בדיקות לקראת קירור",
     bottomCarbonation: "גיזוז מלמטה",
     pressureChange: "שינויי לחץ",
     diacetyl: "מנוחות דיאצטיל",
@@ -43,6 +44,8 @@ function scheduledKind(type: ScheduledCellarActionType): ForecastSummaryKind {
  * conditional dry-hop readiness check is never treated as executed dry hop. */
 export function conditionalForecastKind(item: Pick<ConditionalForecast, "title" | "id">): ForecastSummaryKind {
     const title = item.title;
+    // A readiness check is not an actual cooling action.
+    if (/:cooling-(?:readiness|conditions):/.test(item.id)) return "coolingCheck";
     // The action is yeast removal even when its trigger was dry-hop.
     if (/שמרים/.test(title)) return "yeastDrop";
     if (/דרייהופ|דרי[ -]?הופ|כשות/.test(title)) return "dryHop";
