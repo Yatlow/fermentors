@@ -21,8 +21,9 @@ const batchKey = (value: unknown) => String(value ?? "").replace(/^#/, "").trim(
 
 /**
  * A tank still fermenting today is only a CONDITIONAL Sunday cold-tank candidate.
- * Require an actual future cooling decision or a fresh cooling-readiness forecast
- * dated BEFORE Sunday. A readiness check is not proof that cooling happened.
+ * Only a committed cooling decision can add a conditional Sunday cold routine.
+ * A calculated readiness check is never proof the tank will actually be cooled
+ * and must not cascade into invented carbonation or yeast actions.
  */
 export function anticipatedColdTanksForSunday(input: {
     today: string;
@@ -31,7 +32,7 @@ export function anticipatedColdTanksForSunday(input: {
     scheduled: ScheduledCooling[];
     conditional: ConditionalForecast[];
 }): string[] {
-    const { today, sunday, tanks, scheduled, conditional } = input;
+    const { today, sunday, tanks, scheduled } = input;
     return tanks.flatMap((tank) => {
         if (tank.stage?.name !== "בתסיסה" || tank.tankNumber == null || !tank.batchNumber) return [];
         const tankNumber = String(tank.tankNumber);
@@ -41,12 +42,7 @@ export function anticipatedColdTanksForSunday(input: {
             item.actionType === "coolDown" &&
             item.dueDate >= today && item.dueDate < sunday
         );
-        const projectedReadiness = conditional.some((item) =>
-            item.tankNumber === tankNumber &&
-            item.id.includes(":cooling-readiness:") &&
-            item.dueDate >= today && item.dueDate < sunday
-        );
-        return plannedCooling || projectedReadiness ? [tankNumber] : [];
+        return plannedCooling ? [tankNumber] : [];
     });
 }
 
@@ -93,7 +89,9 @@ export function forecastRoutinesForDate(input: {
         }
     } else if (weekday === 4) {
         for (const tank of new Set(input.nextWeekPackagingTankNumbers)) {
-            add(tank, "yeastDrop", "packaging");
+            // Packaging preparation is cold-cellar work; a warm tank is not
+            // automatically ready for a cold-yeast drop on Thursday.
+            if (cold.has(tank)) add(tank, "yeastDrop", "packaging");
         }
     }
 
