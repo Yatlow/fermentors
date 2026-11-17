@@ -874,3 +874,41 @@ test("packaging on another canonical batch never drains current physical tank 4"
     "a future or different batch's packaging cannot deplete the live physical cycle");
   assert.equal(tankReleases([source], [tank], [brewWeek, packedWeek45], localSettings, [], "2026-10-22")[0].date, null);
 });
+
+
+test("week 47 uses the November 17 Tempo snapshot rather than projecting back to Sunday", () => {
+  const current = { ...product, tempo: 237, tempoDate: "2026-11-17", monthly: 252 };
+  const projected = buildWeekStartProjection({
+    settings: { ...settings, products: [current] },
+    pallets: [pallet("week47-physical", 230)],
+    plans: [],
+    actuals: [],
+    today: "2026-11-17",
+    week: "2026-11-15",
+  }).get(current.id)!;
+  assert.equal(projected.tempoUnits, 237);
+  assert.equal(projected.breweryUnits, 230);
+  assert.ok(projected.tempoCover !== null);
+  assert.ok(projected.totalCover !== null);
+});
+
+test("shipment already included in same-day Tempo snapshot is not counted twice", () => {
+  const current = {
+    ...product, tempo: 237, tempoDate: "2026-11-17",
+    tempoSnapshotAt: "2026-11-17T10:00:00.000Z",
+  };
+  const projected = buildWeekStartProjection({
+    settings: { ...settings, products: [current] },
+    pallets: [],
+    plans: [],
+    actuals: [],
+    today: "2026-11-17",
+    week: "2026-11-15",
+    actualShipments: [{
+      id: "already-counted", date: "2026-11-17",
+      occurredAt: "2026-11-17T09:00:00.000Z",
+      totals: [{ style: "IPA", type: "crates", quantity: 84 }],
+    } as any],
+  }).get(current.id)!;
+  assert.equal(projected.tempoUnits, 237);
+});
