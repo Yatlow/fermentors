@@ -16,7 +16,7 @@ import { projectKnownYeastCompletions } from "../../SERVICES/cellering/yeastComp
 import { projectCarbonationRetest, projectNonHoppyWarmYeast } from "../../SERVICES/cellering/actionForecast";
 import { anticipatedColdTanksForSunday, forecastRoutinesForDate, type ForecastRoutine } from "../../SERVICES/cellering/forecastRoutines";
 import { localDateKey } from "../../SERVICES/dashboard/healthModel";
-import { summarizeCellaringForecastDay, conciseForecastTitle } from "../../SERVICES/cellering/forecastPresentation";
+import { summarizeCellaringForecastDay, conciseForecastTitle, conciseForecastExplanation } from "../../SERVICES/cellering/forecastPresentation";
 import "./CellaringForecast.css";
 
 export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]; specs: SpecChart | null }) {
@@ -244,7 +244,7 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                                 </div>
                                 {item.basis?.trim() && <details className="cellar-forecast-explanation">
                                     <summary>למה?</summary>
-                                    <p>{item.basis}</p>
+                                    <p>{conciseForecastExplanation(item)}</p>
                                 </details>}
                             </div>
                         </div>)}
