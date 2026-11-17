@@ -43,10 +43,11 @@ function scheduledKind(type: ScheduledCellarActionType): ForecastSummaryKind {
  * conditional dry-hop readiness check is never treated as executed dry hop. */
 export function conditionalForecastKind(item: Pick<ConditionalForecast, "title" | "id">): ForecastSummaryKind {
     const title = item.title;
+    // The action is yeast removal even when its trigger was dry-hop.
+    if (/שמרים/.test(title)) return "yeastDrop";
     if (/דרייהופ|דרי[ -]?הופ|כשות/.test(title)) return "dryHop";
     if (/גיזוז מלמטה/.test(title)) return "bottomCarbonation";
     if (/גיזוז/.test(title)) return "carbTest";
-    if (/שמרים/.test(title)) return "yeastDrop";
     if (/דיאצטיל|דיאציטיל/.test(title)) return "diacetyl";
     if (/קירור/.test(title)) return "coolDown";
     if (/לחץ/.test(title)) return "pressureChange";
@@ -86,4 +87,36 @@ export function conciseForecastTitle(title: string): string {
     return title.trim()
         .replace(/^צפי ל(.+?) — בדיקת תנאים$/, "בדיקת תנאים: $1")
         .replace(/^בדיקת תנאים ל/, "בדיקת תנאים: ");
+}
+
+/** Clear, operator-facing explanations. Detailed projection math remains in
+ * the original basis for diagnostics, but the UI shows the actionable reason.
+ * This is purely presentational and uses no additional reads. */
+export function conciseForecastExplanation(item: Pick<ConditionalForecast, "id" | "title" | "basis">): string {
+    const id = item.id;
+    if (id.includes(":cooling-readiness:"))
+        return "הסוכר צפוי להתייצב. זה מועד לבדיקת מוכנות בלבד: לפני קירור צריך לוודא יציבות במדידות בפועל, סיום תסיסה והורדת שמרים.";
+    if (id.includes(":cooling-conditions:"))
+        return "התסיסה צפויה להתקרב לסיום. לפני קירור צריך להוריד שמרים ולוודא שהסוכר התייצב במדידות בפועל.";
+    if (id.includes(":plato-recheck:"))
+        return /דרייהופ/.test(item.title)
+            ? "לפי קצב ירידת הסוכר כדאי לבדוק אם הגיע הזמן לדרייהופ. יש למדוד סוכר, לחץ וטמפרטורה לפני ביצוע."
+            : "לפי קצב ירידת הסוכר כדאי לבדוק אם אפשר לסגור את המיכל. יש למדוד סוכר, לחץ וטמפרטורה לפני ביצוע.";
+    if (id.includes(":diacetyl-plato-recheck:"))
+        return "הסוכר צפוי להגיע לטווח המתאים. יש לבדוק גם טמפרטורה לפני מנוחת דיאצטיל.";
+    if (id.includes(":diacetyl-ready:"))
+        return "הסוכר והטמפרטורה האחרונים מתאימים. יש לוודא שהם עדיין מתאימים לפני ביצוע.";
+    if (id.includes(":warm-yeast-after-dry-hop:"))
+        return "הורדת השמרים מתוכננת לחמישה ימים אחרי הדרייהופ, אם לא בוצעה כבר.";
+    if (id.includes(":non-hoppy-warm-yeast:"))
+        return "כדאי לבדוק שהסוכר נמוך וירידתו האטה, ושעברו לפחות חמישה ימים מהבישול.";
+    if (id.includes(":yeast-completion-"))
+        return "כבר הורדו שמרים, אבל פחות מהכמות המתוכננת. יש לבדוק אם נדרשת השלמה.";
+    if (id.includes(":carb-retest:"))
+        return "בדיקת הגיזוז האחרונה לא הייתה תקינה. זה המועד לבדיקה חוזרת לאחר זמן ההמתנה.";
+    if (id.includes(":first-carb:"))
+        return "בדיקת גיזוז ראשונה ביום שאחרי הקירור, אם לא בוצעה כבר.";
+    if (id.includes(":first-yeast:"))
+        return "הורדת שמרים יומיים אחרי הקירור, אם לא בוצעה כבר.";
+    return item.basis.trim();
 }
