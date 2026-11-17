@@ -279,7 +279,7 @@ test("daily executive summary groups the exact forecast rows by action, not by b
     assert.equal(day.conditionalCount, 4, "predicted cold Sunday work is conditional too");
     assert.deepEqual(day.groups.map((g) => [g.kind, g.count]), [
         ["carbTest", 3], ["yeastDrop", 2], ["dryHop", 1],
-        ["coolDown", 1], ["other", 1],
+        ["coolingCheck", 1], ["other", 1],
     ]);
     assert.equal(day.groups[0].label, "בדיקות גיזוז");
 });
@@ -288,6 +288,7 @@ test("forecast categories keep tests, dry-hop projections and carbonating from b
     assert.equal(conditionalForecastKind({ id: "a", title: "צפי לדרייהופ — בדיקת תנאים" }), "dryHop");
     assert.equal(conditionalForecastKind({ id: "yeast:1", title: "הורדת שמרים אחרי דרייהופ" }), "yeastDrop");
     assert.equal(conditionalForecastKind({ id: "yeast:2", title: "השלמת הורדת שמרים אחרי דרייהופ" }), "yeastDrop");
+    assert.equal(conditionalForecastKind({ id: "11:cooling-readiness:2026-11-20", title: "צפי לבדיקת מוכנות לקירור" }), "coolingCheck");
     assert.equal(conciseForecastExplanation({ id: "t:cooling-readiness:2026-11-11", title: "צפי לבדיקת מוכנות לקירור", basis: "עקומת ממוצע סגנון; סף 3.6" }).includes("3.6"), false);
     assert.match(conciseForecastExplanation({ id: "t:cooling-readiness:2026-11-11", title: "צפי לבדיקת מוכנות לקירור", basis: "" }), /מדידות בפועל/);
     assert.equal(conditionalForecastKind({ id: "b", title: "בדיקת גיזוז חוזרת" }), "carbTest");
