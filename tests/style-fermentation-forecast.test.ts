@@ -57,13 +57,13 @@ test("cooling check uses actual warm yeast drop, expected style final-Plato and 
   ];
   const result = projectHybridFermentationMilestones(tank("IPA"), rows, "2026-11-02", specs, curve("IPA"));
   const cooling = result.find((row) => row.id.includes(":cooling-readiness:"));
-  assert.equal(cooling?.dueDate, "2026-11-09");
+  assert.equal(cooling?.dueDate, "2026-11-11", "two extra days are needed to verify stable Plato");
   assert.match(cooling?.basis ?? "", /יציבות בפועל/);
   const withoutYeast = rows.map((row) => ({ ...row, notes: undefined }));
   const conditional = projectHybridFermentationMilestones(tank("IPA"), withoutYeast,
     "2026-11-02", specs, curve("IPA"));
   assert.equal(conditional.some((row) => row.id.includes(":cooling-readiness:")), false);
-  assert.equal(conditional.find((row) => row.id.includes(":cooling-conditions:"))?.dueDate, "2026-11-09");
+  assert.equal(conditional.find((row) => row.id.includes(":cooling-conditions:"))?.dueDate, "2026-11-11");
   assert.match(conditional.find((row) => row.id.includes(":cooling-conditions:"))?.basis ?? "",
     /מותנה בהורדת שמרים חמה/);
   assert.equal(projectHybridFermentationMilestones(tank("IPA"), [...rows, {
@@ -78,7 +78,7 @@ test("an early threshold crossing on a steep curve is NOT itself a cooling forec
   const rows = [{ id: "2026-11-02_0800", notes: "הורדת שמרים 4 דליים" }];
   const result = projectHybridFermentationMilestones(tank("IPA"), rows, "2026-11-02", specs, fast);
   const cooling = result.find((row) => row.id.includes(":cooling-readiness:"));
-  assert.equal(cooling?.dueDate, "2026-11-09", "the first stable portion follows the steep segment");
+  assert.equal(cooling?.dueDate, "2026-11-11", "curve flattening still needs a validation window");
 });
 
 test("batch-day sample size is mandatory: global batchCount and total sampleCount do not suffice", () => {
@@ -115,4 +115,31 @@ test("blank temperature in active fermentation must require Plato and pH", () =>
   assert.equal(requiresFermentationPlatoPh({ ...base, currentData: { temp: 9 } }), false);
   assert.equal(requiresFermentationPlatoPh({ ...base, currentData: { temp: 20 } }), true);
   assert.equal(requiresFermentationPlatoPh({ stage: { name: "קר" }, currentData: { temp: null } }), false);
+});
+
+test("a new real Plato drop today cannot be treated as stable cooling tomorrow", () => {
+  const rows = [
+    { id: "2026-11-06_0800", plato: 4.2, notes: "הורדת שמרים 8 דליים" },
+    { id: "2026-11-07_0800", plato: 3.9 },
+    { id: "2026-11-08_0800", plato: 3.7 },
+  ];
+  const result = projectHybridFermentationMilestones(tank("IPA"), rows,
+    "2026-11-08", specs, curve("IPA"));
+  const cooling = result.find(row => row.id.includes(":cooling-readiness:"));
+  assert.ok(cooling, "there is enough curve evidence to schedule a future check");
+  assert.ok(cooling!.dueDate >= "2026-11-10", "the most recent measured drop resets cooling stability");
+});
+
+test("a batch-matched warm test blocks an otherwise optimistic cooling curve", () => {
+  const rows = [{ id: "2026-11-02_0800", notes: "הורדת שמרים 8 דליים" }];
+  const current = tank("IPA", {
+    batchNumber: "1617", warmFermentationTest: { batchNumber: "#1617", plato: 2.5 },
+  });
+  const blocked = projectHybridFermentationMilestones(current, rows, "2026-11-02", specs, curve("IPA"));
+  assert.equal(blocked.some(row => row.id.includes(":cooling-readiness:")), false);
+  const otherBatch = tank("IPA", {
+    batchNumber: "1617", warmFermentationTest: { batchNumber: "1616", plato: 2.5 },
+  });
+  const unrelated = projectHybridFermentationMilestones(otherBatch, rows, "2026-11-02", specs, curve("IPA"));
+  assert.equal(unrelated.find(row => row.id.includes(":cooling-readiness:"))?.dueDate, "2026-11-11");
 });
