@@ -38,6 +38,9 @@ export function buildWeekStartProjection(args: {
   const { settings, pallets, plans, actuals, today, week } = args;
   const pendingPlans = forecastablePlansAfterActualShipments(plans, args.actualShipments ?? [], settings.products, today);
   const currentWeek = weekStart(today);
+  // Never project a stock snapshot backwards into the current week.
+  // For the active week, forecast from today; future weeks still use their Monday opening.
+  const projectionDate = week === currentWeek && today > week ? today : week;
   const open = openRuns(plans, settings.products, actuals);
   const currentTempo = settingsAfterActualShipments(
     settings, args.actualShipments ?? [], today,
@@ -70,12 +73,12 @@ export function buildWeekStartProjection(args: {
       // Do not invent a Thursday and promise those units to a later shipment.
       .filter((run) => !!run.date)
       .map((run) => ({ date: run.date!, kind: "pack" as const, qty: run.remaining }))
-      .filter((event) => event.date >= today && event.date < week);
+      .filter((event) => event.date >= today && event.date < projectionDate);
     const shipmentEvents = pendingPlans
       .flatMap((plan) => plan.deliveries ?? [])
       .filter((delivery) => delivery.productId === product.id &&
         delivery.quantity > 0 && delivery.dispatchDate >= today &&
-        delivery.dispatchDate < week)
+        delivery.dispatchDate < projectionDate)
       .map((delivery) => ({ date: delivery.dispatchDate, kind: "ship" as const,
         qty: delivery.quantity, arrivalDate: delivery.arrivalDate,
         pallets: delivery.pallets }));
@@ -100,7 +103,7 @@ export function buildWeekStartProjection(args: {
         // not by the optimistic planned manifest. Respect arrival/transit.
         const consumed = dispatchForecastPallets(
           physicalLots, event.qty, unitsPerPallet, event.date, event.pallets, reservedIds);
-        if (event.arrivalDate < week) {
+        if (event.arrivalDate <= projectionDate) {
           forecastReceipts.push({
             date: event.arrivalDate,
             quantity: Math.min(event.qty, consumed.shippedPhysical),
@@ -110,9 +113,9 @@ export function buildWeekStartProjection(args: {
       }
     });
     const tempoUnits = tempoInventoryAt(
-      openingProduct, week, forecastReceipts,
+      openingProduct, projectionDate, forecastReceipts,
     );
-    const breweryUnits = physicalLots.filter((lot) => lot.expiry >= week)
+    const breweryUnits = physicalLots.filter((lot) => lot.expiry >= projectionDate)
       .reduce((sum, lot) => sum + lot.quantity, 0);
     result.set(product.id, {
       product,
