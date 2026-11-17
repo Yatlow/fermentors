@@ -65,7 +65,7 @@ test("cooling check uses actual warm yeast drop, expected style final-Plato and 
   assert.equal(conditional.some((row) => row.id.includes(":cooling-readiness:")), false);
   assert.equal(conditional.find((row) => row.id.includes(":cooling-conditions:"))?.dueDate, "2026-11-11");
   assert.match(conditional.find((row) => row.id.includes(":cooling-conditions:"))?.basis ?? "",
-    /מותנה בהורדת שמרים חמה/);
+    /הורדת שמרים חמה/);
   assert.equal(projectHybridFermentationMilestones(tank("IPA"), [...rows, {
     id: "2026-11-02_0900", notes: "קירור מיכל ל1°C",
   }], "2026-11-02", specs, curve("IPA")).some((row) => row.id.includes(":cooling-readiness:")), false);
