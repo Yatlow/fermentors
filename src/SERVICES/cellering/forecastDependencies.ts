@@ -46,10 +46,12 @@ export function validateForecastDependencies(
     const predictedDryHop = !actualDryHop && isHoppy
         ? forecasts.find(row => row.id.includes(":plato-recheck:") && /דרייהופ/.test(row.title))?.dueDate ?? null
         : null;
-    const actualDrop = actualDrops.filter(date => !isHoppy || !actualDryHop || date >= actualDryHop).at(-1) ?? null;
+    const dryHopAnchor = actualDryHop ?? predictedDryHop;
+    const actualDrop = actualDrops.filter(date => !isHoppy || !dryHopAnchor || date >= dryHopAnchor).at(-1) ?? null;
     const upcomingYeast = !actualDrop && isHoppy
         ? (actualDryHop ?? predictedDryHop)
-            ? nextWorkday(addDays((actualDryHop ?? predictedDryHop)!, 5)) : null
+            ? nextWorkday(addDays((actualDryHop ?? predictedDryHop)!, 5) < today
+                ? today : addDays((actualDryHop ?? predictedDryHop)!, 5)) : null
         : !actualDrop
             ? nonHoppyYeast.filter(row => row.dueDate >= today)
                 .map(row => nextWorkday(row.dueDate)).sort().at(0) ?? null
