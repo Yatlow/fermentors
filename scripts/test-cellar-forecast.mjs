@@ -290,7 +290,9 @@ test("forecast categories keep tests, dry-hop projections and carbonating from b
     assert.equal(conditionalForecastKind({ id: "yeast:2", title: "השלמת הורדת שמרים אחרי דרייהופ" }), "yeastDrop");
     assert.equal(conditionalForecastKind({ id: "11:cooling-readiness:2026-11-20", title: "צפי לבדיקת מוכנות לקירור" }), "coolingCheck");
     assert.equal(conciseForecastExplanation({ id: "t:cooling-readiness:2026-11-11", title: "צפי לבדיקת מוכנות לקירור", basis: "עקומת ממוצע סגנון; סף 3.6" }).includes("3.6"), false);
-    assert.match(conciseForecastExplanation({ id: "t:cooling-readiness:2026-11-11", title: "צפי לבדיקת מוכנות לקירור", basis: "" }), /מדידות בפועל/);
+    assert.equal(conciseForecastExplanation({ id: "t:cooling-readiness:2026-11-11", title: "צפי לבדיקת מוכנות לקירור", basis: "" }), "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להיות מוכן לקירור.");
+    assert.equal(conciseForecastExplanation({ id: "t:plato-recheck:2026-11-19", title: "צפי לדרייהופ — בדיקת תנאים", basis: "" }), "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להיות מוכן לדרייהופ.");
+    assert.equal(conciseForecastExplanation({ id: "t:plato-recheck:2026-11-19", title: "צפי לסגירת מיכל — בדיקת תנאים", basis: "" }), "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להיות מוכן לסגירת מיכל.");
     assert.equal(conditionalForecastKind({ id: "b", title: "בדיקת גיזוז חוזרת" }), "carbTest");
     assert.equal(conditionalForecastKind({ id: "c", title: "מנוחת דיאצטיל" }), "diacetyl");
     assert.equal(conditionalForecastKind({ id: "d", title: "גיזוז מלמטה" }), "bottomCarbonation");
