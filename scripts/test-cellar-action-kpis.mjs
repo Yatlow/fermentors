@@ -591,10 +591,17 @@ test("packaging pressure is not independently credited to the cellar KPI (tank 6
         "Actual cellar pressure actions still count normally");
     assert.equal(isCellarPressureActionNote("העלאת לחץ ל: 1.6 bar"), true);
     assert.equal(isCellarPressureActionNote("הורדת לחץ ל: 0.8 bar"), true);
+    // Ordinary pressure work can still be reported, but yesterday's carbonation
+    // must NEVER be used as evidence for a carbonation-triggered action today.
     assert.equal(completedCarbonationPressureAdjustmentOnDate([
         previousCarb,
         { id: "2026-11-04_0607", notes: "הורדת לחץ ל: 0.8 bar" },
-    ], today), 2.3);
+    ], today), null);
+    assert.equal(completedCarbonationPressureAdjustmentOnDate([
+        previousCarb,
+        { id: "2026-11-04_0550", carbonation: 2.44 },
+        { id: "2026-11-04_0607", notes: "הורדת לחץ ל: 0.8 bar" },
+    ], today), 2.44);
     for (const note of [
         "הורדת 40 בקבוקים | הורדת לחץ ל-0.7",
         'הורדת 20 חביות, סה"כ 400.00 ליטר | הורדת לחץ ל-0.8 bar',
