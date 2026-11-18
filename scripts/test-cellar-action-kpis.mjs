@@ -474,7 +474,7 @@ test("manager snapshot and tank/dashboard completion gates use numeric pressure 
 });
 
 
-test("carbonation pressure credit requires a preceding numeric test in this batch", async () => {
+test("carbonation pressure credit uses same-row test or the last preceding numeric test in this batch", async () => {
     const source = readFileSync(new URL("../src/SERVICES/cellering/cellarActionState.ts", import.meta.url), "utf8");
     const js = ts.transpileModule(source, {
         compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
@@ -541,16 +541,17 @@ test("carbonation pressure credit requires a preceding numeric test in this batc
         { id: "2026-11-04_0900", notes: "השארת לחץ ללא שינוי לאחר בדיקת גיזוז" },
     ], today), null);
 
-    // Same timestamp/row provides no reliable before/after evidence.
+    // The Quick Report appends actual actions to the same reading row,
+    // so its own numeric carbonation must take precedence over older tests.
     assert.equal(completed([{
         id: "2026-11-04_0900", carbonation: 2.2,
         notes: "העלאת לחץ ל: 1.6 bar",
-    }], today), null);
-    // An earlier test *does* establish order for a later combined row.
+    }], today), 2.2);
+    // The new in-range result is the cause, not an older invalid reading.
     assert.equal(completed([
         carbonation("2026-11-04_0730", 2.3),
         { id: "2026-11-04_0900", carbonation: 2.45, notes: "הורדת לחץ ל: 1.2 bar" },
-    ], today), 2.3);
+    ], today), 2.45);
 });
 
 test("one physical pressure action earns one entry and does not rewrite journal notes", () => {
@@ -558,7 +559,7 @@ test("one physical pressure action earns one entry and does not rewrite journal 
     const quickReport = readFileSync(new URL("../src/components/dashboard/QuickTankReportBox.tsx", import.meta.url), "utf8");
     const engine = readFileSync(new URL("../src/SERVICES/cellering/calculateCelleringRecomendations.ts", import.meta.url), "utf8");
     const info = readFileSync(new URL("../src/components/dashboard/FermentorInfoBox.tsx", import.meta.url), "utf8");
-    assert.match(engine, /completedCarbonationPressureAdjustmentOnDate\(/);
+    assert.match(engine, /carbonationPressureAdjustmentEvidenceOnDate\(/);
     assert.doesNotMatch(engine, /fromFailedCarbonation/);
     assert.match(dashboard, /completedScheduledPressure \|\| recommendations\?\.pressureAdjustmentHandledToday\?\.completed/);
     assert.doesNotMatch(dashboard, /pressureTreatmentContext/);
