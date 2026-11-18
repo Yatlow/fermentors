@@ -15,7 +15,7 @@ import {
 import { projectKnownYeastCompletions } from "../../SERVICES/cellering/yeastCompletionForecast";
 import { projectCarbonationRetest, projectNonHoppyWarmYeast } from "../../SERVICES/cellering/actionForecast";
 import { validateForecastDependencies } from "../../SERVICES/cellering/forecastDependencies";
-import { anticipatedColdTanksForSunday, forecastRoutinesForDate, type ForecastRoutine } from "../../SERVICES/cellering/forecastRoutines";
+import { anticipatedColdTanksForSunday, forecastRoutinesForDate, groupSundayRoutines, type ForecastRoutine } from "../../SERVICES/cellering/forecastRoutines";
 import { localDateKey } from "../../SERVICES/dashboard/healthModel";
 import { summarizeCellaringForecastDay, conciseForecastTitle, conciseForecastExplanation } from "../../SERVICES/cellering/forecastPresentation";
 import "./CellaringForecast.css";
@@ -193,6 +193,7 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
         {expanded && <div className="cellar-forecast-content">
             {days.filter((day) => day.total > 0).map((day) => {
                 const summary = summarizeCellaringForecastDay(day);
+                const { groups: sundayRoutineGroups, otherRows: individualRoutines } = groupSundayRoutines(day.routines);
                 const isDayExpanded = expandedDays.has(day.date);
                 const detailsId = "cellar-forecast-details-" + day.date;
                 return <section className="cellar-forecast-day" key={day.date}>
@@ -252,7 +253,22 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                                 </details>}
                             </div>
                         </div>)}
-                        {day.routines.map((item) => <div className="cellar-forecast-item" key={item.id}>
+                        {sundayRoutineGroups.map((group) => <div className="cellar-forecast-item" key={"sunday-" + day.date + "-" + group.actionType}>
+                            <span className="cellar-forecast-type cellar-forecast-routine">שגרת ראשון</span>
+                            <div className="cellar-forecast-item-copy">
+                                <div className="cellar-forecast-item-title">
+                                    <strong>{group.title}</strong>
+                                    <span> · {group.tankNumbers.length + group.conditionalTankNumbers.length} מיכלים</span>
+                                </div>
+                                {group.tankNumbers.length > 0 && <div className="cellar-forecast-routine-tanks">
+                                    מיכלים: {group.tankNumbers.join(", ")}
+                                </div>}
+                                {group.conditionalTankNumbers.length > 0 && <div className="cellar-forecast-routine-tanks cellar-forecast-routine-conditional">
+                                    מותנים בקירור: {group.conditionalTankNumbers.join(", ")}
+                                </div>}
+                            </div>
+                        </div>)}
+                        {individualRoutines.map((item) => <div className="cellar-forecast-item" key={item.id}>
                             <span className={"cellar-forecast-type " + (item.source === "sunday-predicted-cold" ? "cellar-forecast-conditional" : "cellar-forecast-routine")}>
                                 {item.source === "sunday" ? "שגרת ראשון" : item.source === "sunday-predicted-cold" ? "מותנה בקירור" : "לפי תכנון"}
                             </span>
