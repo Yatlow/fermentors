@@ -944,7 +944,9 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                 `pressure-adjust-${tank.id}`,
                                 recommendations.pressureAdjustmentHandledToday.outOfSpec
                                     ? "שינוי לחץ לאחר בדיקת גיזוז לא תקינה"
-                                    : "שינוי לחץ לאחר בדיקת גיזוז",
+                                    : recommendations.pressureAdjustmentHandledToday.firstInRange
+                                        ? "שינוי לחץ בעקבות הגעה לגיזוז תקין"
+                                        : "שינוי לחץ לאחר בדיקת גיזוז תקינה",
                                 importance,
                                 recommendations.pressureAdjustmentHandledToday.reason
                             );
