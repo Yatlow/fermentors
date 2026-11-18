@@ -38,13 +38,11 @@ export function isCellarPressureActionNote(notes: unknown): boolean {
 }
 
 /**
- * Associate a physical pressure change with the latest carbonation test at
- * that action, including a reading on the SAME measurement row. The brew sheet
- * keeps the morning reading immutable while actions are appended to its note,
- * so requiring a preceding document misses legitimate adjustments.
- * The latest completed action wins if several adjustments occurred today.
- * No fabricated measurement, note rewrite, or extra Firestore read is needed.
- * The caller supplies measurements for only the current batch.
+ * A carbonation-driven pressure adjustment is a SAME-DAY workflow.
+ * Test and action can share a journal row or be stored on different rows
+ * without reliable ordering. Never attribute today's action to an old
+ * carbonation result, even if that was the last preceding row.
+ * The current-batch measurements are already loaded by the caller.
  */
 type CarbonationPressureMeasurement = CellarActionMeasurement & {
     carbonation?: string | number | null;
@@ -61,9 +59,11 @@ export type CarbonationPressureAdjustmentEvidence = {
     firstInRange: boolean;
 };
 
-/** Resolve the actual test that the most recent physical pressure action
- * follows. Same-row carbonation is read before classifying the action because
- * the UI may append actions to an existing morning measurement row. */
+/** One completed pressure action per tank/day, associated with the latest
+ * actual carbonation measured on THAT day (not the preceding journal row).
+ * In-spec history from prior days is only used to identify whether today
+ * represents the first arrival in range for this batch.
+ */
 export function carbonationPressureAdjustmentEvidenceOnDate(
     measurements: CarbonationPressureMeasurement[],
     date: string,
@@ -71,45 +71,33 @@ export function carbonationPressureAdjustmentEvidenceOnDate(
 ): CarbonationPressureAdjustmentEvidence | null {
     const ordered = measurements
         .map((measurement) => ({ measurement, order: chronologicalKey(measurement.id) }))
-        .filter((row): row is { measurement: CarbonationPressureMeasurement; order: string } => row.order !== null)
+        .filter((row): row is { measurement: CarbonationPressureMeasurement; order: string } => row.order !== null && row.order.slice(0, 10) <= date)
         .sort((a, b) => a.order.localeCompare(b.order));
 
-    let previousCarbonation: number | null = null;
-    let previousWasFirstInRange = false;
-    let hasEverBeenInRange = false;
-    let latestAction: CarbonationPressureAdjustmentEvidence | null = null;
+    const todayRows = ordered.filter((row) => row.order.slice(0, 10) === date);
+    // A real adjustment report is needed; pressure measurements or packaging
+    // pressure notes are not cellar pressure actions.
+    if (!todayRows.some((row) => isCellarPressureActionNote(row.measurement.notes))) return null;
 
-    for (const { measurement, order } of ordered) {
-        const day = order.slice(0, 10);
-        if (day > date) break;
+    const validCarbonation = (raw: unknown): number | null => {
+        if (raw === null || raw === undefined || String(raw).trim() === "") return null;
+        const value = Number(String(raw).trim().replace(",", "."));
+        return Number.isFinite(value) ? value : null;
+    };
+    const todayTests = todayRows
+        .map((row) => validCarbonation(row.measurement.carbonation))
+        .filter((value): value is number => value !== null);
+    if (!todayTests.length) return null;
 
-        const raw = measurement.carbonation;
-        const parsed = raw === null || raw === undefined || String(raw).trim() === ""
-            ? null : Number(String(raw).replace(",", "."));
-        const sameRowCarbonation = parsed !== null && Number.isFinite(parsed)
-            ? parsed : null;
-        const sameRowFirstInRange = sameRowCarbonation !== null &&
-            isInRange(sameRowCarbonation) && !hasEverBeenInRange;
-
-        if (day === date && isCellarPressureActionNote(measurement.notes)) {
-            const relevantCarbonation = sameRowCarbonation ?? previousCarbonation;
-            if (relevantCarbonation !== null) {
-                // Prefer a test on the row that owns the action, not an older
-                // test (for example: 2.36 yesterday, 2.44 today and lower pressure).
-                latestAction = {
-                    carbonation: relevantCarbonation,
-                    firstInRange: sameRowCarbonation !== null
-                        ? sameRowFirstInRange : previousWasFirstInRange,
-                };
-            }
-        }
-        if (sameRowCarbonation !== null) {
-            previousCarbonation = sameRowCarbonation;
-            previousWasFirstInRange = sameRowFirstInRange;
-            if (isInRange(sameRowCarbonation)) hasEverBeenInRange = true;
-        }
-    }
-    return latestAction;
+    const latestToday = todayTests[todayTests.length - 1];
+    const inRangeOnEarlierDay = ordered.some((row) =>
+        row.order.slice(0, 10) < date &&
+        ((value) => value !== null && isInRange(value))(validCarbonation(row.measurement.carbonation))
+    );
+    return {
+        carbonation: latestToday,
+        firstInRange: isInRange(latestToday) && !inRangeOnEarlierDay,
+    };
 }
 
 /** Backward-compatible numeric helper for existing callers. */
