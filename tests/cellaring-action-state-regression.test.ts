@@ -96,3 +96,47 @@ test("later valid carbonation following an already-valid test is not a second fi
         history, "2026-11-18", inRange,
     ), { carbonation: 2.45, firstInRange: false });
 });
+
+test("same-day matching never needs a preceding row or timestamp", () => {
+    const history = [
+        { id: "2026-11-17_1100", carbonation: 2.35 },
+        { id: "2026-11-18_0710", notes: "הורדת לחץ ל: 0.8 bar" },
+        { id: "2026-11-18_0630", carbonation: 2.44 },
+    ];
+    assert.deepEqual(carbonationPressureAdjustmentEvidenceOnDate(history, "2026-11-18", inRange),
+        { carbonation: 2.44, firstInRange: true });
+    assert.deepEqual(carbonationPressureAdjustmentEvidenceOnDate(
+        [history[0], history[1], { id: "2026-11-18_1200", carbonation: 2.44 }],
+        "2026-11-18", inRange),
+        { carbonation: 2.44, firstInRange: true },
+        "journal storage order is not a prerequisite for same-day operational attribution");
+});
+
+test("older valid or invalid carbonation never qualifies today's pressure without today's test", () => {
+    const history = [
+        { id: "2026-11-16_0800", carbonation: 2.36 },
+        { id: "2026-11-17_0800", carbonation: 2.44 },
+        { id: "2026-11-18_0720", notes: "הורדת לחץ ל: 0.8 bar" },
+    ];
+    assert.equal(carbonationPressureAdjustmentEvidenceOnDate(history, "2026-11-18", inRange), null);
+    assert.equal(completedCarbonationPressureAdjustmentOnDate(history, "2026-11-18"), null);
+    // The earlier in-range milestone only affects today's FIRST-in-range label;
+    // it cannot supply today's test result by itself.
+    assert.deepEqual(carbonationPressureAdjustmentEvidenceOnDate([
+        ...history, { id: "2026-11-18_0630", carbonation: 2.45 },
+    ], "2026-11-18", inRange), { carbonation: 2.45, firstInRange: false });
+});
+
+test("only latest valid carbonation from today controls classification, even with shuffled input", () => {
+    const history = [
+        { id: "2026-11-18_0740", carbonation: 2.44 },
+        { id: "2026-11-18_0610", carbonation: 2.36 },
+        { id: "2026-11-18_0900", notes: "הורדת לחץ ל: 0.8 bar" },
+        { id: "2026-11-17_1210", carbonation: 2.3 },
+    ];
+    assert.deepEqual(carbonationPressureAdjustmentEvidenceOnDate(history, "2026-11-18", inRange),
+        { carbonation: 2.44, firstInRange: true });
+    assert.deepEqual(carbonationPressureAdjustmentEvidenceOnDate([
+        ...history, { id: "2026-11-18_1100", carbonation: 2.55 },
+    ], "2026-11-18", inRange), { carbonation: 2.55, firstInRange: false });
+});
