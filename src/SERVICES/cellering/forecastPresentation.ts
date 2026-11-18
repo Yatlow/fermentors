@@ -97,29 +97,29 @@ export function conciseForecastTitle(title: string): string {
  * This is purely presentational and uses no additional reads. */
 export function conciseForecastExplanation(item: Pick<ConditionalForecast, "id" | "title" | "basis">): string {
     const id = item.id;
-    if (id.includes(":cooling-readiness:"))
-        return "הסוכר צפוי להתייצב. זה מועד לבדיקת מוכנות בלבד: לפני קירור צריך לוודא יציבות במדידות בפועל, סיום תסיסה והורדת שמרים.";
-    if (id.includes(":cooling-conditions:"))
-        return "התסיסה צפויה להתקרב לסיום. לפני קירור צריך להוריד שמרים ולוודא שהסוכר התייצב במדידות בפועל.";
+    if (id.includes(":cooling-readiness:") || id.includes(":cooling-conditions:"))
+        return "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להיות מוכן לקירור.";
     if (id.includes(":plato-recheck:"))
         return /דרייהופ/.test(item.title)
-            ? "לפי קצב ירידת הסוכר כדאי לבדוק אם הגיע הזמן לדרייהופ. יש למדוד סוכר, לחץ וטמפרטורה לפני ביצוע."
-            : "לפי קצב ירידת הסוכר כדאי לבדוק אם אפשר לסגור את המיכל. יש למדוד סוכר, לחץ וטמפרטורה לפני ביצוע.";
+            ? "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להיות מוכן לדרייהופ."
+            : "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להיות מוכן לסגירת מיכל.";
     if (id.includes(":diacetyl-plato-recheck:"))
-        return "הסוכר צפוי להגיע לטווח המתאים. יש לבדוק גם טמפרטורה לפני מנוחת דיאצטיל.";
+        return "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להתאים למנוחת דיאצטיל.";
     if (id.includes(":diacetyl-ready:"))
-        return "הסוכר והטמפרטורה האחרונים מתאימים. יש לוודא שהם עדיין מתאימים לפני ביצוע.";
+        return "המדידות האחרונות מתאימות למנוחת דיאצטיל. יש לוודא זאת לפני הביצוע.";
+    if (id.includes(":warm-yeast-after-projected-dry-hop:"))
+        return "אם הדרייהופ יבוצע במועד הצפוי, הורדת השמרים צפויה חמישה ימים אחריו.";
     if (id.includes(":warm-yeast-after-dry-hop:"))
-        return "הורדת השמרים מתוכננת לחמישה ימים אחרי הדרייהופ, אם לא בוצעה כבר.";
+        return "הדרייהופ בוצע. הורדת השמרים צפויה כעבור חמישה ימים.";
     if (id.includes(":non-hoppy-warm-yeast:"))
-        return "כדאי לבדוק שהסוכר נמוך וירידתו האטה, ושעברו לפחות חמישה ימים מהבישול.";
+        return "לפי בדיקות הסוכר האחרונות המיכל צפוי להיות מוכן להורדת שמרים.";
     if (id.includes(":yeast-completion-"))
-        return "כבר הורדו שמרים, אבל פחות מהכמות המתוכננת. יש לבדוק אם נדרשת השלמה.";
+        return "לפי ההורדות שדווחו, נדרשת השלמת שמרים.";
     if (id.includes(":carb-retest:"))
-        return "בדיקת הגיזוז האחרונה לא הייתה תקינה. זה המועד לבדיקה חוזרת לאחר זמן ההמתנה.";
+        return "בדיקת הגיזוז האחרונה לא הייתה תקינה ונדרשת בדיקה חוזרת.";
     if (id.includes(":first-carb:"))
-        return "בדיקת גיזוז ראשונה ביום שאחרי הקירור, אם לא בוצעה כבר.";
+        return "בדיקת גיזוז ראשונה ביום שאחרי הקירור.";
     if (id.includes(":first-yeast:"))
-        return "הורדת שמרים יומיים אחרי הקירור, אם לא בוצעה כבר.";
+        return "הורדת שמרים יומיים אחרי הקירור.";
     return item.basis.trim();
 }
