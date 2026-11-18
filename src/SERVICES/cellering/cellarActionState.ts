@@ -55,17 +55,30 @@ function chronologicalKey(id: CellarActionMeasurement["id"]): string | null {
     return match ? `${match[1]}_${(match[2] ?? "0000").padStart(4, "0")}` : null;
 }
 
-export function completedCarbonationPressureAdjustmentOnDate(
+export type CarbonationPressureAdjustmentEvidence = {
+    carbonation: number;
+    /** This action followed the first actual in-spec test in this batch. */
+    firstInRange: boolean;
+};
+
+/** Resolve the actual test that the most recent physical pressure action
+ * follows. Same-row carbonation is read before classifying the action because
+ * the UI may append actions to an existing morning measurement row. */
+export function carbonationPressureAdjustmentEvidenceOnDate(
     measurements: CarbonationPressureMeasurement[],
     date: string,
-): number | null {
+    isInRange: (carbonation: number) => boolean,
+): CarbonationPressureAdjustmentEvidence | null {
     const ordered = measurements
         .map((measurement) => ({ measurement, order: chronologicalKey(measurement.id) }))
         .filter((row): row is { measurement: CarbonationPressureMeasurement; order: string } => row.order !== null)
         .sort((a, b) => a.order.localeCompare(b.order));
 
     let previousCarbonation: number | null = null;
-    let latestActionCarbonation: number | null = null;
+    let previousWasFirstInRange = false;
+    let hasEverBeenInRange = false;
+    let latestAction: CarbonationPressureAdjustmentEvidence | null = null;
+
     for (const { measurement, order } of ordered) {
         const day = order.slice(0, 10);
         if (day > date) break;
@@ -75,16 +88,34 @@ export function completedCarbonationPressureAdjustmentOnDate(
             ? null : Number(String(raw).replace(",", "."));
         const sameRowCarbonation = parsed !== null && Number.isFinite(parsed)
             ? parsed : null;
+        const sameRowFirstInRange = sameRowCarbonation !== null &&
+            isInRange(sameRowCarbonation) && !hasEverBeenInRange;
 
-        // Quick reports can append a pressure adjustment to the very same
-        // row as the test it follows. In that case the row's actual test takes
-        // precedence over yesterday's / an earlier test (e.g. 2.36 -> 2.44).
         if (day === date && isCellarPressureActionNote(measurement.notes)) {
             const relevantCarbonation = sameRowCarbonation ?? previousCarbonation;
-            if (relevantCarbonation !== null) latestActionCarbonation = relevantCarbonation;
+            if (relevantCarbonation !== null) {
+                // Prefer a test on the row that owns the action, not an older
+                // test (for example: 2.36 yesterday, 2.44 today and lower pressure).
+                latestAction = {
+                    carbonation: relevantCarbonation,
+                    firstInRange: sameRowCarbonation !== null
+                        ? sameRowFirstInRange : previousWasFirstInRange,
+                };
+            }
         }
-
-        if (sameRowCarbonation !== null) previousCarbonation = sameRowCarbonation;
+        if (sameRowCarbonation !== null) {
+            previousCarbonation = sameRowCarbonation;
+            previousWasFirstInRange = sameRowFirstInRange;
+            if (isInRange(sameRowCarbonation)) hasEverBeenInRange = true;
+        }
     }
-    return latestActionCarbonation;
+    return latestAction;
+}
+
+/** Backward-compatible numeric helper for existing callers. */
+export function completedCarbonationPressureAdjustmentOnDate(
+    measurements: CarbonationPressureMeasurement[],
+    date: string,
+): number | null {
+    return carbonationPressureAdjustmentEvidenceOnDate(measurements, date, () => false)?.carbonation ?? null;
 }
