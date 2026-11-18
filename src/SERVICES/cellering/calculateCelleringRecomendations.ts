@@ -8,7 +8,7 @@ import { findOpenBottomCarbonation } from "./bottomCarbonation";
 import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshold";
 import { shouldShowNeglectedTank } from "./neglectWeekday";
 import { evaluateColdTankNeglect, hasActualCooling } from "./neglectAfterCooling";
-import { completedCarbonationPressureAdjustmentOnDate, hasCellarActionOnDate } from "./cellarActionState";
+import { carbonationPressureAdjustmentEvidenceOnDate, hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy, carbonationRetestTestPressureContext, shouldRecommendCarbonationRetestOnDate } from "./carbonationRetestPolicy";
 import { getCoolingPlatoStabilityEvidence } from "./coolingPlatoStability";
 import { normalizeWarmBatch, parseWarmPlato, warmTestBlocksCooling } from "./warmFermentationTest";
@@ -808,12 +808,15 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
 
     const carbRes = lastMeasurement.carbonation;
-    // Match a real pressure change only when a batch carbonation reading precedes it.
-    // Ordinary pressure reports without a prior carbonation test earn regular credit.
-    const completedCarbonationPressure = completedCarbonationPressureAdjustmentOnDate(
+    // Quick reports may append an actual pressure action to the same row
+    // as its carbonation test. Resolve the newest linked test, including the
+    // first in-spec result, without opening a second Firestore query.
+    const pressureAdjustmentEvidence = carbonationPressureAdjustmentEvidenceOnDate(
         sortedMeasurements,
         todayDate,
+        (value) => !isCarbonationOutOfRange(value, style, givenSpecs).outOfSpec,
     );
+    const completedCarbonationPressure = pressureAdjustmentEvidence?.carbonation ?? null;
     const pressureHandledToday = completedCarbonationPressure !== null ||
         hasCellarActionOnDate(
             sortedMeasurements,
@@ -1366,8 +1369,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const pressureAdjustmentHandledToday = {
         completed: stage.name === "קר" && completedCarbonationPressure !== null,
         outOfSpec: completedCarbonationPressureSpec?.outOfSpec === true,
+        firstInRange: pressureAdjustmentEvidence?.firstInRange === true,
         reason: completedCarbonationPressure !== null
-            ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז ${completedCarbonationPressureSpec?.outOfSpec ? "לא תקינה" : "תקינה"} (${completedCarbonationPressure})`
+            ? pressureAdjustmentEvidence?.firstInRange
+                ? `בוצע היום שינוי לחץ בעקבות הגעה ראשונה לגיזוז תקין (${completedCarbonationPressure})`
+                : `בוצע היום שינוי לחץ לאחר בדיקת גיזוז ${completedCarbonationPressureSpec?.outOfSpec ? "לא תקינה" : "תקינה"} (${completedCarbonationPressure})`
             : "",
         importance: completedCarbonationPressureSpec?.importance ?? 1,
     };

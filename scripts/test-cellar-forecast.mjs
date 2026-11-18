@@ -26,9 +26,9 @@ function moduleDataUrl(file) {
 const dir = resolve("src/SERVICES/cellering");
 const { projectCarbonationRetest, projectNonHoppyWarmYeast } =
     await import(moduleDataUrl(resolve(dir, "actionForecast.ts")));
-const { forecastRoutinesForDate, anticipatedColdTanksForSunday } =
+const { forecastRoutinesForDate, anticipatedColdTanksForSunday, groupSundayRoutines } =
     await import(moduleDataUrl(resolve(dir, "forecastRoutines.ts")));
-const { summarizeCellaringForecastDay, conditionalForecastKind, conciseForecastTitle } =
+const { summarizeCellaringForecastDay, conditionalForecastKind, conciseForecastTitle, conciseForecastExplanation } =
     await import(moduleDataUrl(resolve(dir, "forecastPresentation.ts")));
 const { projectKnownYeastCompletions } =
     await import(moduleDataUrl(resolve(dir, "yeastCompletionForecast.ts")));
@@ -100,6 +100,46 @@ test("Sunday routines are two explicit actions per cold tank, never CLT or warm 
     assert.ok(rows.every((item) => item.source === "sunday"));
 });
 
+test("Sunday routines render as two compact groups while retaining all distinct tank actions", () => {
+    const generated = forecastRoutinesForDate({
+        date: "2026-11-22", weekday: 0,
+        coldTankNumbers: ["12", "2", "9", "7", "4"],
+        anticipatedColdTankNumbers: ["18"],
+        nextWeekPackagingTankNumbers: [], scheduled: [], conditional: [],
+    });
+    const { groups, otherRows } = groupSundayRoutines(generated);
+    assert.deepEqual(otherRows, []);
+    assert.equal(generated.length, 12, "data remains per-tank and per-action");
+    assert.deepEqual(groups.map(group => [group.actionType, group.title]), [
+        ["carbTest", "בדיקות גיזוז"], ["yeastDrop", "הורדות שמרים"],
+    ]);
+    assert.deepEqual(groups[0].tankNumbers, ["2", "4", "7", "9", "12"]);
+    assert.deepEqual(groups[1].tankNumbers, ["2", "4", "7", "9", "12"]);
+    assert.deepEqual(groups[0].conditionalTankNumbers, ["18"]);
+    assert.deepEqual(groups[1].conditionalTankNumbers, ["18"]);
+    const summary = summarizeCellaringForecastDay({
+        scheduledRows: [], conditionalRows: [], routines: generated,
+    });
+    assert.equal(summary.total, 12, "header still counts underlying actions, not display rows");
+    assert.equal(summary.conditionalCount, 2);
+});
+
+test("Sunday grouping does not swallow scheduled actions or other-day packaging routines", () => {
+    const routines = [
+        { id: "s:2:carbTest", tankNumber: "2", actionType: "carbTest", title: "בדיקת גיזוז", source: "sunday" },
+        { id: "s:4:yeastDrop", tankNumber: "4", actionType: "yeastDrop", title: "הורדת שמרים", source: "sunday" },
+        { id: "w:6:carbTest", tankNumber: "6", actionType: "carbTest", title: "בדיקת גיזוז", source: "packaging" },
+    ];
+    const grouped = groupSundayRoutines(routines);
+    assert.deepEqual(grouped.groups.map(group => group.actionType), ["carbTest", "yeastDrop"]);
+    assert.deepEqual(grouped.otherRows.map(row => row.id), ["w:6:carbTest"]);
+    assert.deepEqual(groupSundayRoutines(routines.slice(2)).groups, []);
+    const ui = readFileSync(resolve("src/components/cellering/CellaringForecast.tsx"), "utf8");
+    assert.match(ui, /sundayRoutineGroups\.map/);
+    assert.match(ui, /group\.conditionalTankNumbers\.join/);
+    assert.match(ui, /individualRoutines\.map/);
+});
+
 test("Sunday does not duplicate explicitly scheduled or already predicted actions", () => {
     const rows = forecastRoutinesForDate({
         date: "2026-11-08", weekday: 0, coldTankNumbers: ["11"], nextWeekPackagingTankNumbers: [],
@@ -115,7 +155,7 @@ test("Wednesday/Thursday packaging routines retain their tank and stage filters"
         coldTankNumbers: ["11"], nextWeekPackagingTankNumbers: ["11", "19"], scheduled: [], conditional: [] };
     assert.deepEqual(forecastRoutinesForDate(input).map((row) => row.tankNumber), ["11"]);
     const thursday = forecastRoutinesForDate({ ...input, weekday: 4 });
-    assert.deepEqual(thursday.map((row) => row.tankNumber), ["11", "19"]);
+    assert.deepEqual(thursday.map((row) => row.tankNumber), ["11"], "warm tanks cannot receive cold-yeast packaging routine");
 });
 
 test("non-hoppy warm yeast check requires tank closure, fresh Plato and brewing age", () => {
@@ -206,7 +246,7 @@ test("Sunday also includes warm tanks with committed cooling before Sunday as co
         ["sunday", "sunday"]);
 });
 
-test("cooling readiness can suggest Sunday work but does not claim that cooling occurred", () => {
+test("a possible cooling-readiness check never invents Sunday cold work", () => {
     const conditional = [{
         id: "17:cooling-readiness:2026-11-07",
         tankNumber: "17", dueDate: "2026-11-07", title: "צפי לבדיקת מוכנות לקירור", basis: "",
@@ -216,7 +256,7 @@ test("cooling readiness can suggest Sunday work but does not claim that cooling 
         tanks: [{ tankNumber: 17, batchNumber: "1617", stage: { name: "בתסיסה" } }],
         scheduled: [], conditional,
     });
-    assert.deepEqual(projected, ["17"]);
+    assert.deepEqual(projected, [], "a forecast check is not evidence of future cooling");
     assert.deepEqual(anticipatedColdTanksForSunday({
         today: "2026-11-04", sunday: "2026-11-08",
         tanks: [{ tankNumber: 17, batchNumber: "1617", stage: { name: "בתסיסה" } }],
@@ -279,13 +319,20 @@ test("daily executive summary groups the exact forecast rows by action, not by b
     assert.equal(day.conditionalCount, 4, "predicted cold Sunday work is conditional too");
     assert.deepEqual(day.groups.map((g) => [g.kind, g.count]), [
         ["carbTest", 3], ["yeastDrop", 2], ["dryHop", 1],
-        ["coolDown", 1], ["other", 1],
+        ["coolingCheck", 1], ["other", 1],
     ]);
     assert.equal(day.groups[0].label, "בדיקות גיזוז");
 });
 
 test("forecast categories keep tests, dry-hop projections and carbonating from below separate", () => {
     assert.equal(conditionalForecastKind({ id: "a", title: "צפי לדרייהופ — בדיקת תנאים" }), "dryHop");
+    assert.equal(conditionalForecastKind({ id: "yeast:1", title: "הורדת שמרים אחרי דרייהופ" }), "yeastDrop");
+    assert.equal(conditionalForecastKind({ id: "yeast:2", title: "השלמת הורדת שמרים אחרי דרייהופ" }), "yeastDrop");
+    assert.equal(conditionalForecastKind({ id: "11:cooling-readiness:2026-11-20", title: "צפי לבדיקת מוכנות לקירור" }), "coolingCheck");
+    assert.equal(conciseForecastExplanation({ id: "t:cooling-readiness:2026-11-11", title: "צפי לבדיקת מוכנות לקירור", basis: "עקומת ממוצע סגנון; סף 3.6" }).includes("3.6"), false);
+    assert.equal(conciseForecastExplanation({ id: "t:cooling-readiness:2026-11-11", title: "צפי לבדיקת מוכנות לקירור", basis: "" }), "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להיות מוכן לקירור.");
+    assert.equal(conciseForecastExplanation({ id: "t:plato-recheck:2026-11-19", title: "צפי לדרייהופ — בדיקת תנאים", basis: "" }), "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להיות מוכן לדרייהופ.");
+    assert.equal(conciseForecastExplanation({ id: "t:plato-recheck:2026-11-19", title: "צפי לסגירת מיכל — בדיקת תנאים", basis: "" }), "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להיות מוכן לסגירת מיכל.");
     assert.equal(conditionalForecastKind({ id: "b", title: "בדיקת גיזוז חוזרת" }), "carbTest");
     assert.equal(conditionalForecastKind({ id: "c", title: "מנוחת דיאצטיל" }), "diacetyl");
     assert.equal(conditionalForecastKind({ id: "d", title: "גיזוז מלמטה" }), "bottomCarbonation");
@@ -306,4 +353,18 @@ test("forecast accordion defaults to concise daily rows while retaining explanat
     assert.match(source, /cellar-forecast-scheduled-note/);
     assert.match(source, /item\.basis/);
     assert.match(source, /מותנה בקירור/);
+});
+
+test("a note recommending yeast removal does not count as a completed warm yeast drop", async () => {
+    const { projectYeastAfterDryHop } =
+        await import(moduleDataUrl(resolve(dir, "coldCellarForecast.ts")));
+    const rows = [
+        { id: "2026-11-01_0800", notes: "הוספת כשות" },
+        { id: "2026-11-02_0800", notes: "המלצה להורדת שמרים אחרי דרייהופ" },
+    ];
+    const tank = { id: "8", tankNumber: "8", beerStyle: "IPA", stage: { name: "בתסיסה" } };
+    assert.equal(projectYeastAfterDryHop(tank, rows, "2026-11-02")[0]?.dueDate, "2026-11-06");
+    assert.deepEqual(projectYeastAfterDryHop(tank, [
+        ...rows, { id: "2026-11-03_0800", notes: "הורדת שמרים 8 דליים" },
+    ], "2026-11-03"), []);
 });

@@ -28,6 +28,13 @@ test("out-of-spec pressure recommendation preserves explicit bad-test context in
   assert.match(titleFormatter, /המלצה לשינוי לחץ לאחר בדיקת גיזוז לא תקינה/);
 });
 
+test("completed first valid carbonation pressure adjustment is labeled as reaching a valid range", () => {
+  assert.match(engine, /carbonationPressureAdjustmentEvidenceOnDate\(/);
+  assert.match(engine, /pressureAdjustmentEvidence\?\.firstInRange/);
+  assert.match(dashboard, /שינוי לחץ בעקבות הגעה לגיזוז תקין/);
+  assert.match(dashboard, /שינוי לחץ לאחר בדיקת גיזוז לא תקינה/);
+});
+
 test("pressure hold retains its exact original appearance, label and action", () => {
   assert.match(dashboard, /<Gauge size=\{16\} aria-hidden="true" \/>השארת לחץ ללא שינוי/);
   assert.match(dashboard, /noteType: "השארת לחץ"/);

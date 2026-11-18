@@ -2,15 +2,14 @@
 export type ForecastStyleDay = { plato: number | null; platoBatchCount?: number };
 export type ForecastStyleAverages = { style: string; days: Record<string, ForecastStyleDay>; batchCount?: number; sampleCount?: number; updatedAt?: string };
 import { batchDryHopThreshold } from "./dryHopThreshold";
-import { getFermentationEndPlatoLimit } from "./fermentationEndPlato";
+
 import { isCompletedYeastDrop } from "./coolingYeastTiming";
 import { hasActualCooling } from "./neglectAfterCooling";
 import {
-    projectPlatoThresholdRecheck, projectCoolingReadinessCheck,
+    projectPlatoThresholdRecheck, projectCoolingReadinessCheck, coolingForecastEndLimit,
     type PlatoForecastTank, type PlatoForecastReading, type PlatoForecastSpecs,
     type PlatoThresholdHint,
 } from "./platoThresholdForecast";
-type SpecChart = Record<string, Record<string, number>>;
 
 type ForecastTank = PlatoForecastTank & { brewDate?: string | null };
 type ForecastSpecs = PlatoForecastSpecs & { fermentationEndPlato?: Record<string, number> };
@@ -174,10 +173,7 @@ function projectedCoolingReadiness(
     curve: StyleProjection,
 ): PlatoThresholdHint[] {
     if (tank.stage?.name !== "בתסיסה" || recordedCooling(readings)) return [];
-    const limit = getFermentationEndPlatoLimit(
-        typeof tank.beerStyle === "string" || typeof tank.beerStyle === "number" ? tank.beerStyle : null,
-        specs as SpecChart,
-    );
+    const limit = coolingForecastEndLimit(tank, specs);
     if (limit === null) return [];
     const lastDropDate = readings.filter((row) => isCompletedYeastDrop(row.notes))
         .map((row) => String(row.id ?? "").slice(0, 10)).filter((date) => utcDay(date) !== null && date <= today)
@@ -185,25 +181,29 @@ function projectedCoolingReadiness(
     const hasYeastDrop = hasRecordedDrop(readings);
 
     const brewedOn = brewDate(tank.brewDate)!;
+    // The first apparently flat day on a style curve is NOT a cooling date.
+    // Even if Plato is predicted to be in range, three real consecutive tests
+    // (or two equal readings at least 48h apart) are needed to establish stability.
+    // Reserve two more calendar days for that verification instead of assuming
+    // future values are already measured.
     for (let age = curve.currentAge + 1; age <= curve.currentAge + MAX_HORIZON_DAYS; age++) {
-        const date = dateForAge(brewedOn, age);
-        if (lastDropDate && date <= lastDropDate) continue;
         const current = curve.platoAtAge(age);
         const following = curve.platoAtAge(age + 1);
-        // Require an actual flat segment in the historical curve: a final-Plato
-        // threshold crossing while still rapidly fermenting is not cooling readiness.
-        if (current === null || following === null || current > limit ||
-            Math.abs(current - following) > 0.35) continue;
+        const third = curve.platoAtAge(age + 2);
+        if (current === null || following === null || third === null ||
+            current > limit || following > limit || third > limit ||
+            Math.abs(current - following) > 0.35 ||
+            Math.abs(following - third) > 0.35) continue;
+        const date = dateForAge(brewedOn, age + 2);
+        if (lastDropDate && date <= lastDropDate) continue;
         return [{
             id: tank.id + (hasYeastDrop ? ":cooling-readiness:" : ":cooling-conditions:") + date,
             tankNumber: String(tank.tankNumber ?? tank.id),
             dueDate: date,
             title: hasYeastDrop ? "צפי לבדיקת מוכנות לקירור" : "צפי לסיום תסיסה לקראת קירור — בדיקת תנאים",
-            basis: curve.evidence + "; סף סיום תסיסה " + limit +
-                "°P, שינוי ממוצע יומי " + Number(Math.abs(current - following).toFixed(2)) +
-                "°P. " + (hasYeastDrop
-                    ? "חובה לאמת יציבות בפועל לפני קירור"
-                    : "מותנה בהורדת שמרים חמה ובאימות יציבות פלאטו בפועל; אין להתחיל קירור על סמך הצפי"),
+            basis: curve.evidence + "; לפי העקומה צפויה יציבות מתחת לסף " + limit +
+                "°P. התאריך כולל זמן לשלוש מדידות רצופות; יש לאמת יציבות בפועל" +
+                (hasYeastDrop ? " לפני קירור" : " ולבצע קודם הורדת שמרים חמה"),
         }];
     }
     return [];

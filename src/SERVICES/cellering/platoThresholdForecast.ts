@@ -2,10 +2,37 @@ import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshol
 import { hasActualCooling } from "./neglectAfterCooling";
 import { isCompletedYeastDrop } from "./coolingYeastTiming";
 import { getFermentationEndPlatoLimit } from "./fermentationEndPlato";
+// Keep the forecast pure: importing warmFermentationTest also pulls the
+// dashboard's TSX types into the standalone forecast test compiler.
+const normalizeWarmBatch = (value: unknown) => String(value ?? "").replace(/^#/, "").trim();
+const parseWarmPlato = (value: unknown): number | null => {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const num = Number(String(value).trim().replace(",", "."));
+  return Number.isFinite(num) && num >= 0 && num <= 40 ? num : null;
+};
 type SpecChart = Record<string, Record<string, number>>;
 export type PlatoForecastTank = BatchDryHopSettings & { id: string; tankNumber?: unknown; beerStyle?: unknown; stage?: { name?: string } | null };
 export type PlatoForecastReading = { id?: string | number | null; plato?: string | number | null; notes?: string | number | null };
 export type PlatoForecastSpecs = { tolorances?: Record<string, number>; fermentationEndPlato?: Record<string, number> };
+
+/** Share the live cooling safeguards: use the style finish threshold and,
+ * where present, a batch-matched warm fermentation test. This projection must
+ * never ignore a stricter warm-test result or borrow one from another batch. */
+export function coolingForecastEndLimit(
+  tank: PlatoForecastTank & { batchNumber?: string | number | null;
+    warmFermentationTest?: { batchNumber?: unknown; plato?: string | number | null } | null },
+  specs: PlatoForecastSpecs,
+): number | null {
+  const styleLimit = getFermentationEndPlatoLimit(
+    typeof tank.beerStyle === "string" || typeof tank.beerStyle === "number" ? tank.beerStyle : null,
+    specs as SpecChart,
+  );
+  const warm = tank.warmFermentationTest;
+  if (!warm || !normalizeWarmBatch(tank.batchNumber) ||
+      normalizeWarmBatch(warm.batchNumber) !== normalizeWarmBatch(tank.batchNumber)) return styleLimit;
+  const testLimit = parseWarmPlato(warm.plato);
+  return testLimit === null ? styleLimit : styleLimit === null ? testLimit : Math.min(styleLimit, testLimit);
+}
 
 /** A date to re-measure, not a prediction that an action is already justified. */
 export type PlatoThresholdHint = {
@@ -146,18 +173,19 @@ export function projectCoolingReadinessCheck(
   if (gap < 1 || gap > 3 || day(today) - day(toDate) > 2) return [];
   const rate = (from - to) / gap;
   if (rate < 0.1 || rate > 4 || to <= 0) return [];
-  const threshold = getFermentationEndPlatoLimit(
-    typeof tank.beerStyle === "string" || typeof tank.beerStyle === "number" ? tank.beerStyle : null,
-    specs as SpecChart,
-  ) ?? 5;
+  const threshold = coolingForecastEndLimit(tank, specs);
+  if (threshold === null) return [];
   const until = to <= threshold ? 0 : Math.ceil((to - threshold) / rate);
-  if (until > 6) return [];
-  const projectedDay = Math.max(day(today), day(toDate) + until);
+  // A projected threshold crossing is not a stable fermentation. Allow time
+  // for three consecutive real Plato readings (or the live 48h alternative),
+  // starting no earlier than the observed/estimated first in-range sample.
+  const projectedDay = Math.max(day(today) + 1, day(toDate) + until + 2);
+  if (projectedDay > day(today) + 7) return [];
   const dueDate = new Date(projectedDay * 86400000).toISOString().slice(0, 10);
   return [{
     id: `${tank.id}:cooling-readiness:${dueDate}`,
     tankNumber: String(tank.tankNumber ?? tank.id), dueDate,
     title: "צפי לבדיקת מוכנות לקירור",
-    basis: "אומדן לפי ירידת פלאטו לאחר הורדת שמרים; יש לוודא סיום תסיסה ויציבות פלאטו לפני קירור",
+    basis: "בדיקת מוכנות בלבד: לאחר הגעה משוערת לפלאטו הסופי נדרשות מדידות יציבות בפועל (3 זהות או 2 בהפרש 48 שעות), הורדת שמרים ביום קודם לפחות ואימות יתר תנאי הקירור",
   }];
 }

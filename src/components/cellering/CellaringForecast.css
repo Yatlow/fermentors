@@ -136,6 +136,15 @@
 }
 .cellar-forecast-conditional { background: #fff3de; color: #96610f; }
 .cellar-forecast-routine { background: #e9f5ee; color: #26754a; }
+.cellar-forecast-routine-tanks {
+  color: #60778a;
+  font-size: .77rem;
+  line-height: 1.45;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.cellar-forecast-routine-conditional { color: #916b34; }
+
 
 .cellar-forecast-item .cellar-forecast-context,
 .cellar-forecast-item .cellar-forecast-overdue {

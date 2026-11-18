@@ -3,7 +3,7 @@ import type { ForecastRoutine } from "./forecastRoutines";
 import type { ScheduledCellarRecommendation, ScheduledCellarActionType } from "./scheduledCellarRecommendations";
 
 export type ForecastSummaryKind =
-    | "carbTest" | "yeastDrop" | "dryHop" | "coolDown"
+    | "carbTest" | "yeastDrop" | "dryHop" | "coolDown" | "coolingCheck"
     | "bottomCarbonation" | "pressureChange" | "diacetyl"
     | "fermentationCheck" | "other";
 
@@ -24,6 +24,7 @@ const LABELS: Record<ForecastSummaryKind, string> = {
     yeastDrop: "הורדות שמרים",
     dryHop: "דרייהופ",
     coolDown: "קירור",
+    coolingCheck: "בדיקות לקראת קירור",
     bottomCarbonation: "גיזוז מלמטה",
     pressureChange: "שינויי לחץ",
     diacetyl: "מנוחות דיאצטיל",
@@ -43,10 +44,13 @@ function scheduledKind(type: ScheduledCellarActionType): ForecastSummaryKind {
  * conditional dry-hop readiness check is never treated as executed dry hop. */
 export function conditionalForecastKind(item: Pick<ConditionalForecast, "title" | "id">): ForecastSummaryKind {
     const title = item.title;
+    // A readiness check is not an actual cooling action.
+    if (/:cooling-(?:readiness|conditions):/.test(item.id)) return "coolingCheck";
+    // The action is yeast removal even when its trigger was dry-hop.
+    if (/שמרים/.test(title)) return "yeastDrop";
     if (/דרייהופ|דרי[ -]?הופ|כשות/.test(title)) return "dryHop";
     if (/גיזוז מלמטה/.test(title)) return "bottomCarbonation";
     if (/גיזוז/.test(title)) return "carbTest";
-    if (/שמרים/.test(title)) return "yeastDrop";
     if (/דיאצטיל|דיאציטיל/.test(title)) return "diacetyl";
     if (/קירור/.test(title)) return "coolDown";
     if (/לחץ/.test(title)) return "pressureChange";
@@ -86,4 +90,36 @@ export function conciseForecastTitle(title: string): string {
     return title.trim()
         .replace(/^צפי ל(.+?) — בדיקת תנאים$/, "בדיקת תנאים: $1")
         .replace(/^בדיקת תנאים ל/, "בדיקת תנאים: ");
+}
+
+/** Clear, operator-facing explanations. Detailed projection math remains in
+ * the original basis for diagnostics, but the UI shows the actionable reason.
+ * This is purely presentational and uses no additional reads. */
+export function conciseForecastExplanation(item: Pick<ConditionalForecast, "id" | "title" | "basis">): string {
+    const id = item.id;
+    if (id.includes(":cooling-readiness:") || id.includes(":cooling-conditions:"))
+        return "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להיות מוכן לקירור.";
+    if (id.includes(":plato-recheck:"))
+        return /דרייהופ/.test(item.title)
+            ? "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להיות מוכן לדרייהופ."
+            : "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להיות מוכן לסגירת מיכל.";
+    if (id.includes(":diacetyl-plato-recheck:"))
+        return "לפי מודל סטטיסטי ובדיקות קודמות המיכל צפוי להתאים למנוחת דיאצטיל.";
+    if (id.includes(":diacetyl-ready:"))
+        return "המדידות האחרונות מתאימות למנוחת דיאצטיל. יש לוודא זאת לפני הביצוע.";
+    if (id.includes(":warm-yeast-after-projected-dry-hop:"))
+        return "אם הדרייהופ יבוצע במועד הצפוי, הורדת השמרים צפויה חמישה ימים אחריו.";
+    if (id.includes(":warm-yeast-after-dry-hop:"))
+        return "הדרייהופ בוצע. הורדת השמרים צפויה כעבור חמישה ימים.";
+    if (id.includes(":non-hoppy-warm-yeast:"))
+        return "לפי בדיקות הסוכר האחרונות המיכל צפוי להיות מוכן להורדת שמרים.";
+    if (id.includes(":yeast-completion-"))
+        return "לפי ההורדות שדווחו, נדרשת השלמת שמרים.";
+    if (id.includes(":carb-retest:"))
+        return "בדיקת הגיזוז האחרונה לא הייתה תקינה ונדרשת בדיקה חוזרת.";
+    if (id.includes(":first-carb:"))
+        return "בדיקת גיזוז ראשונה ביום שאחרי הקירור.";
+    if (id.includes(":first-yeast:"))
+        return "הורדת שמרים יומיים אחרי הקירור.";
+    return item.basis.trim();
 }
