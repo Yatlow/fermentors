@@ -14,6 +14,7 @@ import {
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import { projectKnownYeastCompletions } from "../../SERVICES/cellering/yeastCompletionForecast";
 import { projectCarbonationRetest, projectNonHoppyWarmYeast } from "../../SERVICES/cellering/actionForecast";
+import { validateForecastDependencies } from "../../SERVICES/cellering/forecastDependencies";
 import { anticipatedColdTanksForSunday, forecastRoutinesForDate, type ForecastRoutine } from "../../SERVICES/cellering/forecastRoutines";
 import { localDateKey } from "../../SERVICES/dashboard/healthModel";
 import { summarizeCellaringForecastDay, conciseForecastTitle, conciseForecastExplanation } from "../../SERVICES/cellering/forecastPresentation";
@@ -57,15 +58,17 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                             return null;
                         }) : Promise.resolve(null),
                 ]);
-                return [
+                const nonHoppyYeast = projectNonHoppyWarmYeast(tank, readings, today, specs);
+                const forecasts = [
                     ...projectColdCellarMilestones(tank, readings, today),
                     ...projectYeastAfterDryHop(tank, readings, today),
                     ...projectHybridFermentationMilestones(tank, readings, today, specs, styleAverage),
                     ...projectLagerDiacetylRest(tank, readings, today, specs),
                     ...projectKnownYeastCompletions(tank, readings, today, specs),
                     ...projectCarbonationRetest(tank, readings, today, specs),
-                    ...projectNonHoppyWarmYeast(tank, readings, today, specs),
+                    ...nonHoppyYeast,
                 ];
+                return validateForecastDependencies(tank, readings, today, forecasts, nonHoppyYeast);
             } catch (error) {
                 console.error("Failed to calculate cellar forecast for tank", tank.tankNumber, error);
                 return [] as ConditionalForecast[];
@@ -236,7 +239,8 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                             <span className="cellar-forecast-type cellar-forecast-conditional">
                                 {item.id.includes(":plato-recheck:") || item.id.includes(":diacetyl-plato-recheck:") ||
                                 item.id.includes(":cooling-readiness:") || item.id.includes(":cooling-conditions:") ||
-                                item.id.includes(":non-hoppy-warm-yeast:") ? "צפי" : "לפי כלל"}
+                                (item.id.includes(":non-hoppy-warm-yeast:") ||
+                                 item.id.includes(":warm-yeast-after-projected-dry-hop:")) ? "צפי" : "לפי כלל"}
                             </span>
                             <div className="cellar-forecast-item-copy">
                                 <div className="cellar-forecast-item-title">
