@@ -38,10 +38,13 @@ export function isCellarPressureActionNote(notes: unknown): boolean {
 }
 
 /**
- * Attribute a physical pressure change to a carbonation test only when a real
- * carbonation reading in this batch chronologically precedes the action.
- * No note rewrite, marker, out-of-spec requirement, or UI origin is needed.
- * The caller fetches measurements for ONE batch and only scores today's action.
+ * Associate a physical pressure change with the latest carbonation test at
+ * that action, including a reading on the SAME measurement row. The brew sheet
+ * keeps the morning reading immutable while actions are appended to its note,
+ * so requiring a preceding document misses legitimate adjustments.
+ * The latest completed action wins if several adjustments occurred today.
+ * No fabricated measurement, note rewrite, or extra Firestore read is needed.
+ * The caller supplies measurements for only the current batch.
  */
 type CarbonationPressureMeasurement = CellarActionMeasurement & {
     carbonation?: string | number | null;
@@ -62,22 +65,26 @@ export function completedCarbonationPressureAdjustmentOnDate(
         .sort((a, b) => a.order.localeCompare(b.order));
 
     let previousCarbonation: number | null = null;
+    let latestActionCarbonation: number | null = null;
     for (const { measurement, order } of ordered) {
         const day = order.slice(0, 10);
         if (day > date) break;
 
-        const note = String(measurement.notes ?? "");
-        // Check the action BEFORE reading carbonation from this row: a test and
-        // action in the same undifferentiated row do not prove which came first.
-        if (day === date && previousCarbonation !== null &&
-            isCellarPressureActionNote(note)) {
-            return previousCarbonation;
+        const raw = measurement.carbonation;
+        const parsed = raw === null || raw === undefined || String(raw).trim() === ""
+            ? null : Number(String(raw).replace(",", "."));
+        const sameRowCarbonation = parsed !== null && Number.isFinite(parsed)
+            ? parsed : null;
+
+        // Quick reports can append a pressure adjustment to the very same
+        // row as the test it follows. In that case the row's actual test takes
+        // precedence over yesterday's / an earlier test (e.g. 2.36 -> 2.44).
+        if (day === date && isCellarPressureActionNote(measurement.notes)) {
+            const relevantCarbonation = sameRowCarbonation ?? previousCarbonation;
+            if (relevantCarbonation !== null) latestActionCarbonation = relevantCarbonation;
         }
 
-        const raw = measurement.carbonation;
-        if (raw === null || raw === undefined || String(raw).trim() === "") continue;
-        const carbonation = Number(String(raw).replace(",", "."));
-        if (Number.isFinite(carbonation)) previousCarbonation = carbonation;
+        if (sameRowCarbonation !== null) previousCarbonation = sameRowCarbonation;
     }
-    return null;
+    return latestActionCarbonation;
 }
