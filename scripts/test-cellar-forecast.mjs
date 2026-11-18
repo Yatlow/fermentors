@@ -135,9 +135,9 @@ test("Sunday grouping does not swallow scheduled actions or other-day packaging 
     assert.deepEqual(grouped.otherRows.map(row => row.id), ["w:6:carbTest"]);
     assert.deepEqual(groupSundayRoutines(routines.slice(2)).groups, []);
     const ui = readFileSync(resolve("src/components/cellering/CellaringForecast.tsx"), "utf8");
-    assert.match(ui, /sundayRoutineGroups\\.map/);
-    assert.match(ui, /group\\.conditionalTankNumbers\\.join/);
-    assert.match(ui, /individualRoutines\\.map/);
+    assert.match(ui, /sundayRoutineGroups\.map/);
+    assert.match(ui, /group\.conditionalTankNumbers\.join/);
+    assert.match(ui, /individualRoutines\.map/);
 });
 
 test("Sunday does not duplicate explicitly scheduled or already predicted actions", () => {
