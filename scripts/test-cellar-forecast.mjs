@@ -26,7 +26,7 @@ function moduleDataUrl(file) {
 const dir = resolve("src/SERVICES/cellering");
 const { projectCarbonationRetest, projectNonHoppyWarmYeast } =
     await import(moduleDataUrl(resolve(dir, "actionForecast.ts")));
-const { forecastRoutinesForDate, anticipatedColdTanksForSunday } =
+const { forecastRoutinesForDate, anticipatedColdTanksForSunday, groupSundayRoutines } =
     await import(moduleDataUrl(resolve(dir, "forecastRoutines.ts")));
 const { summarizeCellaringForecastDay, conditionalForecastKind, conciseForecastTitle, conciseForecastExplanation } =
     await import(moduleDataUrl(resolve(dir, "forecastPresentation.ts")));
@@ -98,6 +98,46 @@ test("Sunday routines are two explicit actions per cold tank, never CLT or warm 
     assert.equal(rows.filter((item) => item.actionType === "carbTest").length, 2);
     assert.equal(rows.filter((item) => item.actionType === "yeastDrop").length, 2);
     assert.ok(rows.every((item) => item.source === "sunday"));
+});
+
+test("Sunday routines render as two compact groups while retaining all distinct tank actions", () => {
+    const generated = forecastRoutinesForDate({
+        date: "2026-11-22", weekday: 0,
+        coldTankNumbers: ["12", "2", "9", "7", "4"],
+        anticipatedColdTankNumbers: ["18"],
+        nextWeekPackagingTankNumbers: [], scheduled: [], conditional: [],
+    });
+    const { groups, otherRows } = groupSundayRoutines(generated);
+    assert.deepEqual(otherRows, []);
+    assert.equal(generated.length, 12, "data remains per-tank and per-action");
+    assert.deepEqual(groups.map(group => [group.actionType, group.title]), [
+        ["carbTest", "בדיקות גיזוז"], ["yeastDrop", "הורדות שמרים"],
+    ]);
+    assert.deepEqual(groups[0].tankNumbers, ["2", "4", "7", "9", "12"]);
+    assert.deepEqual(groups[1].tankNumbers, ["2", "4", "7", "9", "12"]);
+    assert.deepEqual(groups[0].conditionalTankNumbers, ["18"]);
+    assert.deepEqual(groups[1].conditionalTankNumbers, ["18"]);
+    const summary = summarizeCellaringForecastDay({
+        scheduledRows: [], conditionalRows: [], routines: generated,
+    });
+    assert.equal(summary.total, 12, "header still counts underlying actions, not display rows");
+    assert.equal(summary.conditionalCount, 2);
+});
+
+test("Sunday grouping does not swallow scheduled actions or other-day packaging routines", () => {
+    const routines = [
+        { id: "s:2:carbTest", tankNumber: "2", actionType: "carbTest", title: "בדיקת גיזוז", source: "sunday" },
+        { id: "s:4:yeastDrop", tankNumber: "4", actionType: "yeastDrop", title: "הורדת שמרים", source: "sunday" },
+        { id: "w:6:carbTest", tankNumber: "6", actionType: "carbTest", title: "בדיקת גיזוז", source: "packaging" },
+    ];
+    const grouped = groupSundayRoutines(routines);
+    assert.deepEqual(grouped.groups.map(group => group.actionType), ["carbTest", "yeastDrop"]);
+    assert.deepEqual(grouped.otherRows.map(row => row.id), ["w:6:carbTest"]);
+    assert.deepEqual(groupSundayRoutines(routines.slice(2)).groups, []);
+    const ui = readFileSync(resolve("src/components/cellering/CellaringForecast.tsx"), "utf8");
+    assert.match(ui, /sundayRoutineGroups\\.map/);
+    assert.match(ui, /group\\.conditionalTankNumbers\\.join/);
+    assert.match(ui, /individualRoutines\\.map/);
 });
 
 test("Sunday does not duplicate explicitly scheduled or already predicted actions", () => {
