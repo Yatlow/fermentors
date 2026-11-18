@@ -186,7 +186,7 @@ function projectedCoolingReadiness(
     // (or two equal readings at least 48h apart) are needed to establish stability.
     // Reserve two more calendar days for that verification instead of assuming
     // future values are already measured.
-    for (let age = curve.currentAge + 1; age <= curve.currentAge + MAX_HORIZON_DAYS - 2; age++) {
+    for (let age = curve.currentAge + 1; age <= curve.currentAge + MAX_HORIZON_DAYS; age++) {
         const current = curve.platoAtAge(age);
         const following = curve.platoAtAge(age + 1);
         const third = curve.platoAtAge(age + 2);
