@@ -474,7 +474,7 @@ test("manager snapshot and tank/dashboard completion gates use numeric pressure 
 });
 
 
-test("carbonation pressure credit uses same-row test or the last preceding numeric test in this batch", async () => {
+test("carbonation pressure credit requires today's test and today's action, regardless of journal row order", async () => {
     const source = readFileSync(new URL("../src/SERVICES/cellering/cellarActionState.ts", import.meta.url), "utf8");
     const js = ts.transpileModule(source, {
         compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
@@ -491,10 +491,11 @@ test("carbonation pressure credit uses same-row test or the last preceding numer
         id: "2026-11-04_0607", notes: "העלאת לחץ ל: 1.6 bar | קירור מיכל ל0.3°"
     }], today), null);
 
-    // A report before its first carbonation test cannot earn treatment credit.
+    // Same-day test and action are a single operational workflow; neither
+    // needs to occupy a previous row in the saved journal.
     assert.equal(completed([
         pressure("2026-11-04_0800"), carbonation("2026-11-04_0900", 2.26)
-    ], today), null);
+    ], today), 2.26);
     assert.equal(completed([pressure("2026-11-04_0930")], today), null);
 
     // Real tests of any result (within or outside spec) qualify if first.
@@ -505,10 +506,10 @@ test("carbonation pressure credit uses same-row test or the last preceding numer
         carbonation("2026-11-04_0830", "2,26"), pressure("2026-11-04_0900")
     ], today), 2.26);
 
-    // A test from a prior day of the same batch can precede today's action.
+    // Yesterday's test must NOT be used to classify today's adjustment.
     assert.equal(completed([
         carbonation("2026-11-01_1030", 2.26), pressure("2026-11-04_0800")
-    ], today), 2.26);
+    ], today), null);
 
     // Unsorted input, later rows and three-digit historical times.
     assert.equal(completed([
@@ -517,11 +518,12 @@ test("carbonation pressure credit uses same-row test or the last preceding numer
         carbonation("2026-11-04_917", 2.4),
     ], today), 2.4);
 
-    // Later actions/tests never retroactively qualify an earlier action.
+    // Persisted timestamps are not a reliable action-vs-test order.
+    // Both reports occurred TODAY, so the actual test determines context.
     assert.equal(completed([
         carbonation("2026-11-04_1200", 2.3),
         pressure("2026-11-04_0800"),
-    ], today), null);
+    ], today), 2.3);
     assert.equal(completed([
         carbonation("2026-11-05_0800", 2.3),
         pressure("2026-11-04_0900"),
@@ -541,8 +543,7 @@ test("carbonation pressure credit uses same-row test or the last preceding numer
         { id: "2026-11-04_0900", notes: "השארת לחץ ללא שינוי לאחר בדיקת גיזוז" },
     ], today), null);
 
-    // The Quick Report appends actual actions to the same reading row,
-    // so its own numeric carbonation must take precedence over older tests.
+    // A same-row action is also valid, but row co-location is NOT required.
     assert.equal(completed([{
         id: "2026-11-04_0900", carbonation: 2.2,
         notes: "העלאת לחץ ל: 1.6 bar",
