@@ -1,4 +1,4 @@
-import { litersPerUnit, type Plan, type Product, type Tank } from "./planningEngine";
+import { type Plan, type Product, type Tank } from "./planningEngine";
 
 export type PlannedDrainConfirmation = {
   tankNumber: string;
@@ -27,7 +27,7 @@ export function reconcileEditedPackagingEmptying(
 ): { packaging: Plan[]; confirmations: PlannedDrainConfirmation[] } {
   const batch = (value: unknown) => String(value ?? "").replace("#", "").trim();
   const keyFor = (run: Plan) =>
-    run.brewId ? `brew:${run.brewId}` :
+    run.brewId ? `brew:${run.brewId}:batch:${batch(run.batchNumber)}` :
       run.tankId ? `physical:${run.tankId}:${batch(run.batchNumber)}` : "";
   const productFor = (run: Plan) =>
     run.nonInventoryType
