@@ -51,9 +51,8 @@ test("Stock and Review never skip the same real Tempo receipts required by Gantt
     [{ ...ipa, tempoDate: "2026-10-21" }]), "2026-10-18");
 });
 
-test("a two-week-old Tempo snapshot receives all later physical receipts once", () => {
-  // Isolate shipment replay from sales; inventory depletion is covered
-  // separately by the chronology invariants.
+test("a two-week-old manually measured Tempo snapshot stays unchanged by outgoing shipments", () => {
+  // Only the human-entered count is authoritative, even when dispatches follow.
   const settings = { ...defaultSettings(), products: [{ ...ipa, monthly: 0 }] };
   const actuals = [
     { id: "older", date: "2026-10-12",
@@ -62,12 +61,12 @@ test("a two-week-old Tempo snapshot receives all later physical receipts once", 
       totals: [{ itemType: "crates", beerStyle: "IPA", totalQuantity: 42 }] },
   ] as any;
   assert.equal(settingsAfterActualShipments(settings, actuals, "2026-10-24")
-    .products[0].tempo, 226);
+    .products[0].tempo, 100);
   const newSnapshot = { ...defaultSettings(), products: [
     { ...ipa, monthly: 0, tempo: 50, tempoDate: "2026-10-18" },
   ] };
   assert.equal(settingsAfterActualShipments(newSnapshot, actuals, "2026-10-24")
-    .products[0].tempo, 92, "October 12 was already in the explicit count");
+    .products[0].tempo, 50, "No outbound shipping receipt should alter the explicit count");
 });
 
 test("unknown actual lines reduce BOTH operational and UI match confidence", () => {
@@ -186,8 +185,8 @@ test("linked first + pending second SAME DAY agrees in daily, stock and weekly p
   }).get(ipa.id);
   assert.equal(opening?.shipmentsBeforeWeek, 84);
   assert.equal(opening?.breweryUnits, 0);
-  assert.equal(opening?.tempoUnits, 168,
-    "actual truck A and future truck B each credit exactly 84 physical crates");
+  assert.equal(opening?.tempoUnits, 84,
+    "only future truck B is projected; actual outbound truck A never inflates the measured Tempo balance");
   const daily = dailyForecast(settingsAfterActualShipments(noSales, completed,
     "2026-10-19"), [physical], [], [week], [], "2026-10-19",
   [], false, completed);
