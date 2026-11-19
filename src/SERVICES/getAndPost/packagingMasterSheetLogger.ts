@@ -8,7 +8,7 @@ import {
 } from "../cooler/Palletservice";
 import type { PalletItemType } from "../cooler/Pallettypes ";
 import { matchPreReportedShippedPallets, matchPreReportedActivePallets } from "../cooler/preReportedPackagingCoverage";
-import { dateKey } from "../planning/planningEngine";
+import { dateKey, sameStyle } from "../planning/planningEngine";
 import { reserveNewPalletsForNearestShipment } from "../planning/planningShipmentReservations";
 import {
     callAppsScriptPost,
@@ -130,7 +130,7 @@ async function ensurePreReportedShippedCoverage(operationId: string): Promise<nu
         const data = entry.data();
         const created = data.createdAt?.toDate?.();
         return created instanceof Date && dateKey(created) === sameDay &&
-            data.itemType === operation.itemType && data.beerStyle === operation.beerStyle;
+            data.itemType === operation.itemType && sameStyle(String(data.beerStyle ?? ""), String(operation.beerStyle ?? ""));
     });
     if (competitors.length) {
         throw new Error("קיימים כמה דיווחי אריזה לאותה אצווה ומוצר היום, ומשטח כבר נשלח. אי אפשר לייחס אותו אוטומטית ללא בדיקת עקיבות.");
@@ -248,7 +248,7 @@ async function ensurePreReportedActiveCoverage(operationId: string): Promise<Exi
         const entry = other.data();
         const at = entry.createdAt?.toDate?.();
         return at instanceof Date && dateKey(at) === createdDay &&
-            entry.itemType === operation.itemType && entry.beerStyle === operation.beerStyle;
+            entry.itemType === operation.itemType && sameStyle(String(entry.beerStyle ?? ""), String(operation.beerStyle ?? ""));
     })) {
         throw new Error("קיימים כמה דיווחי אריזה של אותה אצווה ומוצר היום. משטח ידני לא ישויך אוטומטית לפני בדיקת עקיבות.");
     }
