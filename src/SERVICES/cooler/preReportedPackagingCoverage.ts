@@ -50,6 +50,21 @@ export function matchPreReportedShippedPallets(input: {
     dateKey(new Date(Number(p.createdAtMs))) === localDay &&
     dateKey(new Date(Number(p.shippedAtMs))) === localDay
   );
+  const ambiguousToday = candidates.filter((p) => {
+    if (p.zone !== "shipped" || String(p.packagingOperationId ?? "").trim() ||
+        String(p.batchNumber ?? "").replace("#", "").trim() !== operationBatch.replace("#", "").trim() ||
+        p.itemType !== itemType || String(p.beerStyle ?? "").trim() !== beerStyle.trim()) return false;
+    const createdToday = Number.isFinite(p.createdAtMs) && Number(p.createdAtMs) > 0 &&
+      Number(p.createdAtMs) <= operationCreatedMs &&
+      dateKey(new Date(Number(p.createdAtMs))) === localDay;
+    const shippedToday = Number.isFinite(p.shippedAtMs) && Number(p.shippedAtMs) > 0 &&
+      Number(p.shippedAtMs) <= operationCreatedMs &&
+      dateKey(new Date(Number(p.shippedAtMs))) === localDay;
+    return (createdToday || shippedToday) && !withinWindow.includes(p);
+  });
+  if (ambiguousToday.length) {
+    throw new Error("נמצא משטח מהאצווה שנשלח היום אך חסרה התאמת זמן בטוחה לדיווח האריזה. לא נוצר מלאי כפול; יש לבדוק עקיבות.");
+  }
   // A differing expiry or source tank is ambiguous, not a reason to silently
   // create another copy of the same batch's already departed stock.
   const conflicting = withinWindow.filter((p) =>
