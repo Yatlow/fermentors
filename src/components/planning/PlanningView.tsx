@@ -19,7 +19,7 @@ import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
-import { mergeCompletedDeliveriesBack, pendingPlansAfterActualShipments, settingsAfterActualShipments } from "../../SERVICES/planning/shipmentActuals";
+import { mergeCompletedDeliveriesBack, pendingPlansAfterActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { mergeCompletedPackagingBack, plansAfterActualPackagingCompletion } from "../../SERVICES/planning/packagingActuals";
 import PlanningBoard from "./PlanningBoard";
 import PlanningData from "./PlanningData";
@@ -168,7 +168,8 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
     productionTanks,
   ), [identityAlignedPlans, settings.products, actuals, data.actualShipments, productionTanks]);
   const weeklyPlans = useMemo(() => (tab === "calendar" ? pendingPlansAfterActualShipments(executionPlans, data.actualShipments, settings.products) : identityAlignedPlans), [tab, executionPlans, identityAlignedPlans, data.actualShipments, settings.products]);
-  const calendarSettings = useMemo(() => ((tab === "calendar" || tab === "fiveWeeks" || tab === "schedule") ? settingsAfterActualShipments(settings, data.actualShipments, today) : settings), [tab, settings, data.actualShipments, today]);
+  // Tempo inventory is an explicitly reported snapshot; outgoing shipments never mutate it.
+  const calendarSettings = settings;
   const fiveWeekPlans = useMemo(() => (tab === "fiveWeeks" ? withTentativeFiveWeekTanks(identityAlignedPlans, tanks, calendarSettings) : identityAlignedPlans), [tab, identityAlignedPlans, tanks, calendarSettings]);
   const pendingDailyWork = useMemo(() => {
     const firstWeek = weekStart(today);
@@ -339,7 +340,7 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
     const recommendation = changed.length ? buildWeeklyPlanningModel({
       // The saved decision evidence must be based on the same reconciled Tempo
       // stock shown to planners, not an older explicit stock snapshot.
-      settings: settingsAfterActualShipments(settings, data.actualShipments, today),
+      settings,
       pallets, tanks, plans: recommendationPlans, actuals,
       sources: productionTanks, today, week: canonical.id, holidays,
       shipments: data.actualShipments,
@@ -383,7 +384,7 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
       {data.offline && !data.loading && <p role="status">ממתין לחיבור לשרת.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
       {!data.loading && !data.error && <>
-        {tab === "stock" && <PlanningStock settings={settingsAfterActualShipments(settings, data.actualShipments, today)} pallets={pallets} today={today} plans={stockPlans}/>} 
+        {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} shipments={data.actualShipments} today={today} plans={stockPlans}/>} 
         {tab === "calendar" && <><>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}</><PlanningWeeklyReservations settings={calendarSettings} plans={weeklyPlans} historyPlans={identityAlignedPlans} tanks={tanks} sources={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} holidays={holidays} today={today} disabled={disabled} saveWeek={saveWeeklyPlan} onOpenCoolerMap={onOpenCoolerMap}/><PlanningShipmentStatusPortal plans={identityAlignedPlans} shipments={data.actualShipments} products={settings.products}/></>}
         {tab === "fiveWeeks" && <><>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}</><PlanningGantt onOpenInventoryInput={() => setInventoryInputOpen(true)} settings={calendarSettings} plans={fiveWeekPlans} editorPlans={identityAlignedPlans} historyPlans={identityAlignedPlans} tanks={tanks} sources={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} holidays={holidays} today={today} disabled={disabled} canEdit={canEdit} saveWeek={saveWeeklyPlan} moveCalendarEvent={data.moveCalendarEvent} onOpenCoolerMap={onOpenCoolerMap}/></>}
         {tab === "schedule" && <><>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}</><PlanningBoard settings={calendarSettings} plans={identityAlignedPlans} tanks={tanks} brews={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} today={today} holidays={holidays} disabled={disabled} saveWeek={saveWeeklyPlan}/></>}
