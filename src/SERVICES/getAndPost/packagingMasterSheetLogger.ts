@@ -1,4 +1,4 @@
-import { doc, getDoc, getDocs, getDocsFromServer, collection, setDoc, Timestamp, updateDoc, serverTimestamp, runTransaction, query, where, deleteDoc, writeBatch } from "firebase/firestore";
+import { doc, getDoc, getDocFromServer, getDocs, getDocsFromServer, collection, setDoc, Timestamp, updateDoc, serverTimestamp, runTransaction, query, where, deleteDoc, writeBatch } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import {
     createPalletsFromCustomSplit,
@@ -7,7 +7,7 @@ import {
     type CustomPalletSplitEntry,
 } from "../cooler/Palletservice";
 import type { PalletItemType } from "../cooler/Pallettypes ";
-import { matchPreReportedShippedPallets } from "../cooler/preReportedPackagingCoverage";
+import { matchPreReportedShippedPallets, matchPreReportedActivePallets } from "../cooler/preReportedPackagingCoverage";
 import { dateKey } from "../planning/planningEngine";
 import { reserveNewPalletsForNearestShipment } from "../planning/planningShipmentReservations";
 import {
@@ -166,6 +166,121 @@ async function ensurePreReportedShippedCoverage(operationId: string): Promise<nu
             updatedAt: serverTimestamp(),
         });
         return verified.quantity;
+    });
+}
+
+
+type ExistingManualCoverage = {
+    quantity: number;
+    count: number;
+    locked: boolean;
+};
+const NO_EXISTING_MANUAL_COVERAGE: ExistingManualCoverage = { quantity: 0, count: 0, locked: false };
+
+/**
+ * Claim only same-day unlinked MANUAL pallets that existed before this report.
+ * A placed pallet remains in place. A previously adopted manual pallet remains
+ * linked to this operation on retry. The transaction reads each selected
+ * physical pallet before changing its attribution, so two reports cannot
+ * silently claim the same pallet.
+ */
+async function ensurePreReportedActiveCoverage(operationId: string): Promise<ExistingManualCoverage> {
+    const operationRef = doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId);
+    const operationSnap = await getDocFromServer(operationRef);
+    if (!operationSnap.exists()) throw new Error("דיווח האריזה לא נמצא");
+    const operation = operationSnap.data();
+    const batch = String(operation.batchNumber ?? "").trim();
+    if (!batch) return NO_EXISTING_MANUAL_COVERAGE;
+    const createdAt = operation.createdAt?.toMillis?.();
+    if (!Number.isFinite(createdAt) || createdAt <= 0) {
+        throw new Error("חסר תאריך יצירת דיווח האריזה. לא ניתן לבדוק משטחים ידניים ללא סכנת כפילות.");
+    }
+    const palletDocs = await getDocsFromServer(query(collection(db, "pallets"),
+        where("batchNumber", "==", batch)));
+    const toCandidate = (id: string, data: Record<string, any>) => ({
+        id,
+        zone: data.zone,
+        itemType: data.itemType,
+        beerStyle: data.beerStyle,
+        batchNumber: data.batchNumber,
+        expiryDateStr: data.expiryDateStr,
+        sourceTankNumber: data.sourceTankNumber,
+        packagingOperationId: data.packagingOperationId,
+        packagingSource: data.packagingSource,
+        quantity: data.quantity,
+        createdAtMs: data.createdAt?.toMillis?.(),
+        shippedAtMs: data.shippedAt?.toMillis?.(),
+    });
+    const candidates = palletDocs.docs.map((p) => toCandidate(p.id, p.data()));
+    const parameters = {
+        operationId,
+        operationCreatedMs: createdAt,
+        operationBatch: batch,
+        itemType: String(operation.itemType ?? ""),
+        beerStyle: String(operation.beerStyle ?? ""),
+        expiryDateStr: String(operation.expiryDateStr ?? ""),
+        tankNumber: operation.tankNumber ?? null,
+        expectedQuantity: Math.max(0, Number(operation.quantity ?? 0)),
+        preShippedQuantity: Math.max(0, Number(operation.preShippedQuantity ?? 0)),
+    };
+    const preview = matchPreReportedActivePallets({ ...parameters, candidates });
+    if (preview.palletIds.length === 0) return NO_EXISTING_MANUAL_COVERAGE;
+    const matching = candidates.filter((p) => preview.palletIds.includes(p.id));
+    const hasUnlinked = matching.some((p) => !p.packagingOperationId);
+    const locked = matching.some((p) => p.zone !== "pending");
+    if (!hasUnlinked) {
+        return { quantity: preview.quantity, count: preview.palletIds.length, locked };
+    }
+    if (operation.state !== "awaiting_pallets") {
+        throw new Error("דיווח האריזה כבר הושלם. לא ניתן לקשר אליו משטח ידני חדש.");
+    }
+    const createdDay = dateKey(new Date(createdAt));
+    const competing = await getDocsFromServer(query(collection(db, PACKAGING_OPERATIONS_COLLECTION),
+        where("batchNumber", "==", batch)));
+    if (competing.docs.some((other) => {
+        if (other.id === operationId) return false;
+        const entry = other.data();
+        const at = entry.createdAt?.toDate?.();
+        return at instanceof Date && dateKey(at) === createdDay &&
+            entry.itemType === operation.itemType && entry.beerStyle === operation.beerStyle;
+    })) {
+        throw new Error("קיימים כמה דיווחי אריזה של אותה אצווה ומוצר היום. משטח ידני לא ישויך אוטומטית לפני בדיקת עקיבות.");
+    }
+
+    const palletRefs = preview.palletIds.map((id) => doc(db, "pallets", id));
+    return runTransaction(db, async (tx) => {
+        const liveOperation = await tx.get(operationRef);
+        if (!liveOperation.exists() || liveOperation.data().state !== "awaiting_pallets") {
+            throw new Error("סטטוס דיווח האריזה השתנה. לא נוצר מלאי נוסף.");
+        }
+        const livePallets = await Promise.all(palletRefs.map((ref) => tx.get(ref)));
+        const actualCandidates = livePallets.map((docSnap, i) =>
+            toCandidate(preview.palletIds[i], docSnap.data() ?? {}));
+        const verified = matchPreReportedActivePallets({
+            ...parameters,
+            preShippedQuantity: Math.max(0, Number(liveOperation.data().preShippedQuantity ?? 0)),
+            candidates: actualCandidates,
+        });
+        if (verified.quantity !== preview.quantity ||
+            verified.palletIds.length !== preview.palletIds.length) {
+            throw new Error("הכמות או השיוך של משטח ידני השתנו. יש לרענן ולבדוק לפני דיווח נוסף.");
+        }
+        livePallets.forEach((snap, index) => {
+            if (snap.data()?.packagingOperationId === operationId) return;
+            tx.update(palletRefs[index], {
+                packagingOperationId: operationId,
+                packagingSource: "manual",
+                packagingAppliedQuantity: Number(snap.data()?.quantity),
+                updatedAt: serverTimestamp(),
+            });
+        });
+        // Fences concurrent automatic pallet creation for the same operation.
+        tx.update(operationRef, { updatedAt: serverTimestamp() });
+        return {
+            quantity: verified.quantity,
+            count: verified.palletIds.length,
+            locked: actualCandidates.some((p) => p.zone !== "pending"),
+        };
     });
 }
 
@@ -446,6 +561,9 @@ export type SubmitPackagingRecordResult = {
     /** null אם הכמות לא תקינה / אין צורך במשטחים בכלל */
     palletPlan: PackagingPalletPlan | null;
     preShippedQuantity?: number;
+    preExistingQuantity?: number;
+    preExistingPalletCount?: number;
+    preExistingLocked?: boolean;
 };
 
 type MasterSheetServerResult = {
@@ -685,6 +803,7 @@ export async function submitPackagingRecord(
     };
 
     const preShippedQuantity = await ensurePreReportedShippedCoverage(operationId);
+    const preExisting = await ensurePreReportedActiveCoverage(operationId);
 
     // Safe-by-default: create the standard pallet split as soon as the
     // packaging record exists. If the browser closes or the user abandons the
@@ -716,7 +835,19 @@ export async function submitPackagingRecord(
         success: true,
         palletPlan,
         preShippedQuantity,
-        ...(preShippedQuantity > 0 ? { warnings: [`זוהו ${preShippedQuantity} ${palletPlan.itemType === "kegs" ? "חביות" : "ארגזים"} שנשלחו לפני דיווח האריזה. הן קושרו לדיווח ללא יצירת מלאי כפול וללא שינוי תעודת המשלוח. החלוקה שנשלחה כבר נעולה.`] } : {}),
+        preExistingQuantity: preExisting.quantity,
+        preExistingPalletCount: preExisting.count,
+        preExistingLocked: preExisting.locked,
+        ...(preShippedQuantity > 0 || preExisting.quantity > 0 ? { warnings: [
+            ...(preExisting.quantity > 0 ? [
+                "זוהו " + preExisting.count + " משטחים ידניים קיימים (" + preExisting.quantity + " " +
+                (palletPlan.itemType === "kegs" ? "חביות" : "ארגזים") +
+                "). הם שויכו לדיווח ללא יצירת עותק נוסף. נותרה כמות " +
+                Math.max(0, palletPlan.quantity - preShippedQuantity - preExisting.quantity) +
+                " ליצירה או לאישור בחלוקת המשטחים."
+            ] : []),
+            ...(preShippedQuantity > 0 ? [`זוהו ${preShippedQuantity} ${palletPlan.itemType === "kegs" ? "חביות" : "ארגזים"} שנשלחו לפני דיווח האריזה. הן קושרו לדיווח ללא יצירת מלאי כפול וללא שינוי תעודת המשלוח. החלוקה שנשלחה כבר נעולה.`] : []),
+        ] } : {}),
     };
 }
 
