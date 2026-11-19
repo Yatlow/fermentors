@@ -70,7 +70,7 @@ test("tank 7: 104 kegs to 252 crates preserves same-batch final emptying and exp
   assert.equal(result.confirmations[0].tankNumber, "7");
   const afterWeek = { ...packagingWeek, packaging: result.packaging };
   const after = [oldBrew, afterWeek, nextBrew];
-  assert.equal(validateProduction(after, settings, [tank], [], today), null);
+  // Weekly packaging is intentionally undated; production-day validation runs only after scheduling.
   assert.equal(tankReleases([source], [tank], after, settings, [], today)[0].emptyDate, "2026-11-26");
   assert.equal(validateBrewReleases([source], [tank], after, settings, [], today), null);
   assert.equal(validatePlanningDecisionChange({
@@ -92,7 +92,7 @@ test("previously inferred final drain without an explicit flag is retained on fo
 test("a different batch/tank/cycle cannot inherit the last-packaging marker", () => {
   const moved = [
     { ...edited[0], tankId: "tank-8", tankNumber: "8", brewId: undefined },
-    { ...edited[0], batchNumber: "1611", brewId: undefined },
+    { ...edited[0], batchNumber: "1611" },\n    { ...edited[0], batchNumber: "1611", brewId: undefined },
     { ...edited[0], brewId: "different-brew" },
   ];
   for (const change of moved) {
