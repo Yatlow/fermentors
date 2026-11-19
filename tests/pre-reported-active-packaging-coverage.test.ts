@@ -38,13 +38,18 @@ test("retry sees exactly the already-linked manual pallet", () => {
     { palletIds: ["manual-20"], quantity: 20 });
 });
 
-test("other operations' pallets and old stock cannot cover today's new report", () => {
+test("another operation's pallet and unrelated SKU must not count as coverage", () => {
   assert.deepEqual(matchPreReportedActivePallets(params([
     { ...manual, packagingOperationId: "another-operation" },
-    { ...manual, id: "yesterday", createdAtMs: Date.parse("2026-11-18T08:10:00Z") },
     { ...manual, id: "other-batch", batchNumber: "1618" },
     { ...manual, id: "other-product", itemType: "crates" },
   ])), { palletIds: [], quantity: 0 });
+});
+
+test("unlinked active stock from an older day is ambiguous and blocks new pallets", () => {
+  assert.throws(() => matchPreReportedActivePallets(params([
+    { ...manual, id: "yesterday", createdAtMs: Date.parse("2026-11-18T08:10:00Z") },
+  ])), /עקיבות/);
 });
 
 test("unknown or future timestamps fail closed rather than create duplicate inventory", () => {
