@@ -658,10 +658,10 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                     const liters = Math.round(item.remainderLiters * 10) / 10;
                     const share = Math.round(item.remainderLiters / item.availableLiters * 100);
                     return `מיכל ${item.tankNumber}: כ־${liters} ליטר (${share}%) יישארו לאחר האריזה.`;
-                }).join("\\n");
+                }).join("\n");
                 // Planning a final emptying is not an actual shrinkage report.
                 // Require explicit approval when a format edit leaves >=20 L.
-                if (!window.confirm(`${details}\\n\\nלאשר ריקון מתוכנן של המיכל למרות היתרה? הפחת בפועל יחושב רק בדיווח האריזה.`)) return;
+                if (!window.confirm(`${details}\n\nלאשר ריקון מתוכנן של המיכל למרות היתרה? הפחת בפועל יחושב רק בדיווח האריזה.`)) return;
             }
             await saveWithDisplayedEvidence({
                 ...current,
