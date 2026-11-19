@@ -122,6 +122,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                             </div>
                                         </div>
 
+                                        {(runtime.preShippedQuantity ?? 0) > 0 && <p role="status" className="edit-specs-message warning">כבר נשלחו {runtime.preShippedQuantity} {unit} לפני דיווח האריזה. המשטחים שנשלחו נלקחו בחשבון, אינם נוצרים מחדש ואי אפשר לשנות את החלוקה הפיזית שכבר יצאה. יתרת האריזה נוצרה בממתינים.</p>}
                                         <p className="packagingPalletsRowsHint">
                                             {jobRows.length} משטחים עבור המיכל הזה - כמות, תווית ופעולות לכל משטח בשורה שלו:
                                         </p>
@@ -136,6 +137,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                     <div className="packagingPalletRowQty">
                                                         <TransientNumberInput
                                                             min={0}
+                                                            disabled={(runtime.preShippedQuantity ?? 0) > 0}
                                                             value={row.quantity}
                                                             onNumberChange={(value) => updateRowQuantity(row.id, value)}
                                                         />
@@ -144,6 +146,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                     <input
                                                         type="text"
                                                         className="packagingPalletRowLabel"
+                                                        disabled={(runtime.preShippedQuantity ?? 0) > 0}
                                                         placeholder="תווית משנה (אופציונלי)"
                                                         value={row.subLabel ?? ""}
                                                         onChange={(e) => updateRowSubLabel(row.id, e.target.value)}
@@ -153,7 +156,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                             type="button"
                                                             className="btn-secondary"
                                                             onClick={() => splitRow(row.id)}
-                                                            disabled={row.quantity <= 1}
+                                                            disabled={row.quantity <= 1 || (runtime.preShippedQuantity ?? 0) > 0}
                                                         >
                                                             פצל
                                                         </button>
@@ -161,7 +164,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                             type="button"
                                                             className="btn-secondary cancelBtn"
                                                             onClick={() => removeRow(row.id)}
-                                                            disabled={jobRows.length <= 1}
+                                                            disabled={jobRows.length <= 1 || (runtime.preShippedQuantity ?? 0) > 0}
                                                         >
                                                             מחק
                                                         </button>
@@ -171,7 +174,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                         </div>
 
                                         <div className="packagingPalletsAddRow">
-                                            <button type="button" className="btn-secondary" onClick={() => addRow(jobIndex)}>
+                                            <button type="button" className="btn-secondary" disabled={(runtime.preShippedQuantity ?? 0) > 0} onClick={() => addRow(jobIndex)}>
                                                 הוסף משטח
                                             </button>
                                         </div>
@@ -206,7 +209,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
 
                     {step === "done" && submitWarnings.length > 0 && (
                         <div className="edit-specs-message success">
-                            המשטחים נוצרו בהצלחה ונוספו למפת המקרר.
+                            דיווח האריזה הושלם. המשטחים החדשים, אם נדרשו, נוספו לממתינים לשיבוץ; משטחים שכבר נשלחו לא נוצרו מחדש.
                             <ul>
                                 {submitWarnings.map((w, i) => (
                                     <li key={i}>{w}</li>
