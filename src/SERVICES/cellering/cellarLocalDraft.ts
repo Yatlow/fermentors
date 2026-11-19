@@ -8,8 +8,8 @@ export type CellarDraft = {
 };
 const batchKey = (value: unknown): string => String(value ?? "").replace("#", "").trim();
 
-export function encodeCellarDraft(
-  readings: Record<string, Record<string, unknown>>,
+export function encodeCellarDraft<T extends object>(
+  readings: Record<string, T>,
   tanks: readonly DraftTankIdentity[],
   savedAt: number,
 ): CellarDraft {
