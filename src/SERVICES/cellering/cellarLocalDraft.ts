@@ -17,7 +17,7 @@ export function encodeCellarDraft<T extends object>(
   const entries = Object.entries(readings).flatMap(([tankId, fields]) => {
     const batch = batchByTank.get(tankId);
     if (batch === undefined || !fields || !Object.keys(fields).length) return [];
-    return [[tankId, { batch, fields }] as const];
+    return [[tankId, { batch, fields: { ...fields } as Record<string, unknown> }] as const];
   });
   return { savedAt, readings: Object.fromEntries(entries) };
 }
