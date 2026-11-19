@@ -84,6 +84,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                 const unit = runtime.itemType === "kegs" ? "חביות" : "ארגזים";
                                 const jobRows = rows.filter((r) => r.jobIndex === jobIndex);
                                 const jobValidation = validation.find((v) => v.jobIndex === jobIndex);
+                                const lockedPalletSplit = (runtime.preShippedQuantity ?? 0) > 0 || runtime.preExistingLocked === true;
 
                                 if (runtime.reportedQuantity <= 0) {
                                     return (
@@ -123,6 +124,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                         </div>
 
                                         {(runtime.preShippedQuantity ?? 0) > 0 && <p role="status" className="edit-specs-message warning">כבר נשלחו {runtime.preShippedQuantity} {unit} לפני דיווח האריזה. המשטחים שנשלחו נלקחו בחשבון, אינם נוצרים מחדש ואי אפשר לשנות את החלוקה הפיזית שכבר יצאה. יתרת האריזה נוצרה בממתינים.</p>}
+                                        {(runtime.preExistingQuantity ?? 0) > 0 && <p role="status" className="edit-specs-message warning">זוהו {runtime.preExistingPalletCount} משטחים ידניים שהיו קיימים לפני הדיווח ובהם {runtime.preExistingQuantity} {unit}. הם שויכו לדיווח ולא ייווצרו מחדש. היתרה: {Math.max(0, runtime.reportedQuantity - (runtime.preExistingQuantity ?? 0) - (runtime.preShippedQuantity ?? 0))} {unit}.{runtime.preExistingLocked ? " משטח שכבר שובץ במקרר נשאר במקומו, וחלוקת המשטחים נעולה כדי לשמור על העקיבות." : " אפשר לערוך את חלוקת יתרת המשטחים לפני אישור."}</p>}
                                         <p className="packagingPalletsRowsHint">
                                             {jobRows.length} משטחים עבור המיכל הזה - כמות, תווית ופעולות לכל משטח בשורה שלו:
                                         </p>
@@ -137,7 +139,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                     <div className="packagingPalletRowQty">
                                                         <TransientNumberInput
                                                             min={0}
-                                                            disabled={(runtime.preShippedQuantity ?? 0) > 0}
+                                                            disabled={lockedPalletSplit}
                                                             value={row.quantity}
                                                             onNumberChange={(value) => updateRowQuantity(row.id, value)}
                                                         />
@@ -146,7 +148,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                     <input
                                                         type="text"
                                                         className="packagingPalletRowLabel"
-                                                        disabled={(runtime.preShippedQuantity ?? 0) > 0}
+                                                        disabled={lockedPalletSplit}
                                                         placeholder="תווית משנה (אופציונלי)"
                                                         value={row.subLabel ?? ""}
                                                         onChange={(e) => updateRowSubLabel(row.id, e.target.value)}
@@ -156,7 +158,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                             type="button"
                                                             className="btn-secondary"
                                                             onClick={() => splitRow(row.id)}
-                                                            disabled={row.quantity <= 1 || (runtime.preShippedQuantity ?? 0) > 0}
+                                                            disabled={row.quantity <= 1 || lockedPalletSplit}
                                                         >
                                                             פצל
                                                         </button>
@@ -164,7 +166,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                             type="button"
                                                             className="btn-secondary cancelBtn"
                                                             onClick={() => removeRow(row.id)}
-                                                            disabled={jobRows.length <= 1 || (runtime.preShippedQuantity ?? 0) > 0}
+                                                            disabled={jobRows.length <= 1 || lockedPalletSplit}
                                                         >
                                                             מחק
                                                         </button>
@@ -174,7 +176,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                         </div>
 
                                         <div className="packagingPalletsAddRow">
-                                            <button type="button" className="btn-secondary" disabled={(runtime.preShippedQuantity ?? 0) > 0} onClick={() => addRow(jobIndex)}>
+                                            <button type="button" className="btn-secondary" disabled={lockedPalletSplit} onClick={() => addRow(jobIndex)}>
                                                 הוסף משטח
                                             </button>
                                         </div>
