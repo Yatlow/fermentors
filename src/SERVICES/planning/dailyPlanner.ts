@@ -781,8 +781,11 @@ export function validateDatedPlan(
     if (!r.quantity) continue;
     if (r.date && (!parseDate(r.date) || weekStart(r.date) !== w.id))
       return "תאריך האריזה חייב להיות בתוך השבוע";
-    if (!w.allowExceptions && p.type === "crates" && r.quantity % 84 !== 0)
-      return "יש לתכנן ארגזים במדרגות של 84";
+    // A final clearing run can be a partial pallet (e.g. 10 crates after
+    // a 252-crate day). It must not be rejected by the old 84-crate step rule.
+    if (!w.allowExceptions && p.type === "crates" &&
+        r.quantity % 84 !== 0 && !r.emptyTank)
+      return "יש לתכנן ארגזים במדרגות של 84, למעט אריזת ריקון אחרונה";
     if (!w.allowExceptions && r.date && dayOfWeek(r.date) > 4)
       return "אין אריזה רגילה בשישי או שבת";
     if (r.date) {
