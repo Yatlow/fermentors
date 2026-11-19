@@ -17,6 +17,7 @@ import { bottomCarbonationRecommendation } from "../../SERVICES/cellering/bottom
 import { cellarRecommendationTitle, cellarIgnoredActionTitle, type CellarTitleVariant } from "../../SERVICES/dashboard/cellarRecommendationTitles";
 import { hasActualCooling } from "../../SERVICES/cellering/neglectAfterCooling";
 import { isCompletedYeastDrop } from "../../SERVICES/cellering/coolingYeastTiming";
+import { completedCellarMeasurementDetails } from "../../SERVICES/cellering/completedCellarMeasurementDetails";
 import {
     getMeasurementsByBatch,
     MEASUREMENTS_UPDATED_EVENT,
@@ -581,6 +582,7 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                         const todayRows = measurements.filter(
                             (measurement) => measurementDateKey(measurement) === today
                         );
+                        const completedMeasurementDetails = completedCellarMeasurementDetails(todayRows);
                         const todayNotes = todayRows
                             .map((measurement) => String(measurement.notes ?? ""))
                             .join(" | ");
@@ -895,15 +897,19 @@ export default function HealthDashboard({ brews, specs, recommendationsOnly = fa
                                 `scheduled-${row.id}`,
                                 scheduledActionLabel(row.actionType),
                                 1,
-                                `בוצע לפי החלטת סלרינג${row.note ? ` · ${row.actionType === "pressureChange" ? stripPressureChoiceInstructions(row.note) : row.note}` : ""}`
+                                [
+                                    row.actionType === "carbTest" ? completedMeasurementDetails.carbonation :
+                                    row.actionType === "yeastDrop" ? completedMeasurementDetails.yeast : undefined,
+                                    `בוצע לפי החלטת סלרינג${row.note ? ` · ${row.actionType === "pressureChange" ? stripPressureChoiceInstructions(row.note) : row.note}` : ""}`,
+                                ].filter(Boolean).join(" · ")
                             );
                         });
 
                         if (carbCompletedToday && !completedScheduledCarb) {
-                            addCompleted(`carb-${tank.id}`, "בדיקת גיזוז");
+                            addCompleted(`carb-${tank.id}`, "בדיקת גיזוז", 1, completedMeasurementDetails.carbonation);
                         }
                         if (hasTodayYeast && !completedScheduledYeast) {
-                            addCompleted(`yeast-${tank.id}`, "הורדת שמרים");
+                            addCompleted(`yeast-${tank.id}`, "הורדת שמרים", 1, completedMeasurementDetails.yeast);
                         }
                         // Reports submitted in the app are persisted in the day's measurement notes.
                         // Recognize explicit action labels, avoiding broad words such as "לחץ" or "חום".
