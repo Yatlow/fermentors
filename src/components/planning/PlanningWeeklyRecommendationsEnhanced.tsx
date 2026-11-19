@@ -14,7 +14,7 @@ import { displayStyle, isCoreStyle } from "../../SERVICES/planning/planningPrese
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { brewSizeLabel, weekday } from "../../SERVICES/planning/productionCycle";
-import { reconcileEditedPackagingEmptying } from "../../SERVICES/planning/packagingEmptying";
+import { reconcileEditedPackagingEmptying, splitWeeklyCrateRuns } from "../../SERVICES/planning/packagingEmptying";
 import { shipmentMatchesForPlans } from "../../SERVICES/planning/shipmentActuals";
 import PlanningWeeklyRecommendations from "./PlanningWeeklyRecommendations";
 import "./planningPackagingModal.css";
@@ -656,27 +656,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             // Keep the UI quantity as a weekly total, but never persist a single
             // dated crate run exceeding that day's physical packing capacity.
             // Multiple undated runs are assigned to distinct days in the board.
-            const split: Plan[] = edited.flatMap((run) => {
-                const p = productForPlan(run);
-                if (p?.type !== "crates" || run.quantity <= MAX_CRATES_PER_RUN) return [run];
-                const dailyCap = run.date && weekday(run.date) === 0 ? 168 : MAX_CRATES_PER_RUN;
-                const pieces: Plan[] = [];
-                let remaining = run.quantity;
-                let index = 0;
-                while (remaining > 0) {
-                    const quantity = Math.min(remaining, index === 0 ? dailyCap : MAX_CRATES_PER_RUN);
-                    pieces.push({
-                        ...run,
-                        id: index === 0 ? run.id : `${run.id}:bottles:${index}`,
-                        quantity,
-                        // One existing day may stay fixed; further days must be scheduled.
-                        ...(index === 0 ? {} : { date: undefined, emptyTank: false }),
-                    });
-                    remaining -= quantity;
-                    index++;
-                }
-                return pieces;
-            });
+            const split = splitWeeklyCrateRuns(edited, settings.products);
             const prepared = recomputeEmptyFlags([...untouched, ...split]);
             if (prepared.confirmations.length) {
                 const details = prepared.confirmations.map((item) => {
