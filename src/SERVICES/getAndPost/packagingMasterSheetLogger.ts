@@ -82,12 +82,12 @@ async function ensurePreReportedShippedCoverage(operationId: string): Promise<nu
     if (Number(operation.preShippedQuantity ?? 0) > 0) return Number(operation.preShippedQuantity);
     const batch = String(operation.batchNumber ?? "").replace("#", "").trim();
     if (!batch) return 0;
+    const storageBatch = String(operation.batchNumber ?? "").trim();
     const opDate = operation.createdAt?.toDate?.();
     if (!(opDate instanceof Date) || !Number.isFinite(opDate.getTime())) return 0;
-    const [pallets, otherOperations] = await Promise.all([
-        getDocsFromServer(query(collection(db, "pallets"), where("batchNumber", "==", batch))),
-        getDocsFromServer(query(collection(db, PACKAGING_OPERATIONS_COLLECTION), where("batchNumber", "==", batch))),
-    ]);
+    // One targeted batch read for a typical report. The second query is only
+    // needed if we actually found same-day pallets shipped before reporting.
+    const pallets = await getDocsFromServer(query(collection(db, "pallets"), where("batchNumber", "==", storageBatch)));
     const candidates = pallets.docs.map((entry) => {
         const data = entry.data();
         return {
@@ -117,6 +117,8 @@ async function ensurePreReportedShippedCoverage(operationId: string): Promise<nu
     if (!preview.quantity) return 0;
 
     const sameDay = dateKey(opDate);
+    const otherOperations = await getDocsFromServer(query(
+        collection(db, PACKAGING_OPERATIONS_COLLECTION), where("batchNumber", "==", storageBatch)));
     const competitors = otherOperations.docs.filter((entry) => {
         if (entry.id === operationId) return false;
         const data = entry.data();
