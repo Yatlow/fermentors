@@ -338,8 +338,8 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange, onOpenC
       ? { ...plan, deliveries: [], packaging: [], brews: [] }
       : plan);
     const recommendation = changed.length ? buildWeeklyPlanningModel({
-      // The saved decision evidence must be based on the same reconciled Tempo
-      // stock shown to planners, not an older explicit stock snapshot.
+      // Decision evidence must use the same reported Tempo stock snapshot as
+      // the planner; outbound shipments are not added to that baseline.
       settings,
       pallets, tanks, plans: recommendationPlans, actuals,
       sources: productionTanks, today, week: canonical.id, holidays,
