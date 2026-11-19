@@ -25,6 +25,12 @@ const PACKAGING_LOG_COLLECTION = "packagingLog";
 
 const PACKAGING_OPERATIONS_COLLECTION = "packagingOperations";
 
+// One indexed read covers the plain and #prefixed lot forms used in manual entry.
+const batchVariants = (raw: string): string[] => {
+    const batch = String(raw).trim().replace(/^#/, "");
+    return [...new Set([batch, `#${batch}`])];
+};
+
 async function persistPackagingOperation(params: {
     operationId: string;
     packagingType: PackagingType;
@@ -87,7 +93,7 @@ async function ensurePreReportedShippedCoverage(operationId: string): Promise<nu
     if (!(opDate instanceof Date) || !Number.isFinite(opDate.getTime())) return 0;
     // One targeted batch read for a typical report. The second query is only
     // needed if we actually found same-day pallets shipped before reporting.
-    const pallets = await getDocsFromServer(query(collection(db, "pallets"), where("batchNumber", "==", storageBatch)));
+    const pallets = await getDocsFromServer(query(collection(db, "pallets"), where("batchNumber", "in", batchVariants(storageBatch))));
     const candidates = pallets.docs.map((entry) => {
         const data = entry.data();
         return {
@@ -118,7 +124,7 @@ async function ensurePreReportedShippedCoverage(operationId: string): Promise<nu
 
     const sameDay = dateKey(opDate);
     const otherOperations = await getDocsFromServer(query(
-        collection(db, PACKAGING_OPERATIONS_COLLECTION), where("batchNumber", "==", storageBatch)));
+        collection(db, PACKAGING_OPERATIONS_COLLECTION), where("batchNumber", "in", batchVariants(storageBatch))));
     const competitors = otherOperations.docs.filter((entry) => {
         if (entry.id === operationId) return false;
         const data = entry.data();
@@ -196,7 +202,7 @@ async function ensurePreReportedActiveCoverage(operationId: string): Promise<Exi
         throw new Error("חסר תאריך יצירת דיווח האריזה. לא ניתן לבדוק משטחים ידניים ללא סכנת כפילות.");
     }
     const palletDocs = await getDocsFromServer(query(collection(db, "pallets"),
-        where("batchNumber", "==", batch)));
+        where("batchNumber", "in", batchVariants(batch))));
     const toCandidate = (id: string, data: Record<string, any>) => ({
         id,
         zone: data.zone,
@@ -236,7 +242,7 @@ async function ensurePreReportedActiveCoverage(operationId: string): Promise<Exi
     }
     const createdDay = dateKey(new Date(createdAt));
     const competing = await getDocsFromServer(query(collection(db, PACKAGING_OPERATIONS_COLLECTION),
-        where("batchNumber", "==", batch)));
+        where("batchNumber", "in", batchVariants(batch))));
     if (competing.docs.some((other) => {
         if (other.id === operationId) return false;
         const entry = other.data();
@@ -334,7 +340,7 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
     // item type, style and expiry. This deliberately includes pallets already
     // placed in the cooler as well as pallets still waiting for placement.
     const batchPallets = batchNumber
-        ? await getDocs(query(collection(db, "pallets"), where("batchNumber", "==", batchNumber)))
+        ? await getDocs(query(collection(db, "pallets"), where("batchNumber", "in", batchVariants(batchNumber))))
         : null;
     const operationCreatedMs =
         typeof operation.createdAt?.toMillis === "function" ? operation.createdAt.toMillis() : 0;
