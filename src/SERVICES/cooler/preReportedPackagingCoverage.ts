@@ -1,4 +1,4 @@
-import { dateKey } from "../planning/planningEngine";
+import { dateKey, sameStyle } from "../planning/planningEngine";
 
 export type PreShippedPalletCandidate = {
   id: string;
@@ -42,7 +42,7 @@ export function matchPreReportedShippedPallets(input: {
   const withinWindow = candidates.filter((p) =>
     p.zone === "shipped" && !String(p.packagingOperationId ?? "").trim() &&
     String(p.batchNumber ?? "").replace("#", "").trim() === operationBatch.replace("#", "").trim() &&
-    p.itemType === itemType && String(p.beerStyle ?? "").trim() === beerStyle.trim() &&
+    p.itemType === itemType && sameStyle(String(p.beerStyle ?? ""), beerStyle) &&
     Number.isFinite(p.createdAtMs) && Number.isFinite(p.shippedAtMs) &&
     Number(p.createdAtMs) > 0 && Number(p.shippedAtMs) > 0 &&
     Number(p.createdAtMs) <= Number(p.shippedAtMs) &&
@@ -54,7 +54,7 @@ export function matchPreReportedShippedPallets(input: {
   const ambiguousToday = candidates.filter((p) => {
     if (p.zone !== "shipped" || String(p.packagingOperationId ?? "").trim() ||
         String(p.batchNumber ?? "").replace("#", "").trim() !== operationBatch.replace("#", "").trim() ||
-        p.itemType !== itemType || String(p.beerStyle ?? "").trim() !== beerStyle.trim()) return false;
+        p.itemType !== itemType || !sameStyle(String(p.beerStyle ?? ""), beerStyle)) return false;
     const createdToday = Number.isFinite(p.createdAtMs) && Number(p.createdAtMs) > 0 &&
       Number(p.createdAtMs) <= operationCreatedMs &&
       dateKey(new Date(Number(p.createdAtMs))) === localDay;
@@ -109,7 +109,7 @@ export function matchPreReportedActivePallets(input: {
   const matchingProduct = candidates.filter((p) =>
     ["pending", "cooler", "bottleRoom", "loadingDock"].includes(String(p.zone)) &&
     String(p.batchNumber ?? "").replace("#", "").trim() === operationBatch.replace("#", "").trim() &&
-    p.itemType === itemType && String(p.beerStyle ?? "").trim() === beerStyle.trim()
+    p.itemType === itemType && sameStyle(String(p.beerStyle ?? ""), beerStyle)
   );
   const adopted = matchingProduct.filter((p) =>
     p.packagingOperationId === operationId && p.packagingSource === "manual");
