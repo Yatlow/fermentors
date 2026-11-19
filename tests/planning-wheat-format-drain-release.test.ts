@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import {
   defaultSettings, emptyWeek, type Product, type Tank, type WeekPlan,
 } from "../src/SERVICES/planning/planningEngine";
-import { reconcileEditedPackagingEmptying } from "../src/SERVICES/planning/packagingEmptying";
+import { reconcileEditedPackagingEmptying, splitWeeklyCrateRuns } from "../src/SERVICES/planning/packagingEmptying";
 import {
-  tankReleases, validateBrewReleases,
+  tankReleases, validateBrewReleases, validateProduction,
   type TankSource,
 } from "../src/SERVICES/planning/productionCycle";
 import { validatePlanningDecisionChange } from "../src/SERVICES/planning/planningDecisionSafety";
@@ -125,4 +125,61 @@ test("an undated final commitment cannot release an immature tank or one that is
   assert.match(validateBrewReleases([source], [immature], after, settings, [], today) ?? "", /מיכל 7/);
   const late = [oldBrew, { ...after[1], id: "2026-11-29" }, nextBrew];
   assert.match(validateBrewReleases([source], [tank], late, settings, [], today) ?? "", /מיכל 7/);
+});
+
+test("262 wheat crates replace 104 kegs as 252 + 10 undated runs, clearing tank 7 before the 30 Nov brew", () => {
+  const weekly = { ...edited[0], quantity: 262, emptyTank: undefined };
+  const split = splitWeeklyCrateRuns([weekly], products);
+  assert.deepEqual(split.map((run) => run.quantity), [252, 10]);
+  assert.deepEqual(split.map((run) => run.date), [undefined, undefined]);
+  assert.equal(split[0].id, "wheat-final");
+  assert.equal(split[1].id, "wheat-final:bottles:1");
+
+  const reconciled = reconcileEditedPackagingEmptying(
+    split, packagingWeek.packaging, products, available, [tank],
+  );
+  assert.deepEqual(reconciled.packaging.map((run) => run.emptyTank), [false, true]);
+  assert.equal(reconciled.confirmations.length, 0, "only ~5 L remains, no exceptional waste");
+  const editedWeek = { ...packagingWeek, packaging: reconciled.packaging };
+  const weeks = [oldBrew, editedWeek, nextBrew];
+  assert.equal(tankReleases([source], [tank], weeks, settings, [], today)[0].emptyDate, "2026-11-26");
+  assert.equal(validateBrewReleases([source], [tank], weeks, settings, [], today), null);
+  assert.equal(validatePlanningDecisionChange({
+    before, after: weeks, edited: editedWeek, previous: packagingWeek,
+    settings, tanks: [tank], sources: [source], actuals: [], today,
+  }), null);
+
+  const dated = { ...editedWeek, packaging: [
+    { ...reconciled.packaging[0], date: "2026-11-23" },
+    { ...reconciled.packaging[1], date: "2026-11-24" },
+  ] };
+  assert.equal(validateProduction([oldBrew, dated, nextBrew], settings, [tank], [], today), null);
+  assert.equal(validateBrewReleases(
+    [source], [tank], [oldBrew, dated, nextBrew], settings, [], today,
+  ), null);
+});
+
+test("Sunday pre-assigned 262 crates becomes 168 Sunday + 94 unscheduled, never overbooking Sunday", () => {
+  const single = [{ ...edited[0], date: "2026-11-22", quantity: 262 }];
+  const split = splitWeeklyCrateRuns(single, products);
+  assert.deepEqual(split.map((run) => run.quantity), [168, 94]);
+  assert.deepEqual(split.map((run) => run.date), ["2026-11-22", undefined]);
+  const result = reconcileEditedPackagingEmptying(split, packagingWeek.packaging, products, available, [tank]);
+  assert.equal(result.packaging[1].emptyTank, true);
+  const dated = { ...packagingWeek, packaging: [
+    result.packaging[0], { ...result.packaging[1], date: "2026-11-23" },
+  ] };
+  assert.equal(validateProduction([oldBrew, dated, nextBrew], settings, [tank], [], today), null);
+});
+
+test("a single 262-crate dated shift remains blocked by daily capacity", () => {
+  const impossible = { ...packagingWeek, packaging: [
+    { ...edited[0], quantity: 262, date: "2026-11-23", emptyTank: true },
+  ] };
+  const err = validateProduction([oldBrew, impossible, nextBrew], settings, [tank], [], today);
+  // Daily production capacity is checked by the shared week validator, not
+  // by the tank-source volume validator.
+  assert.equal(err, null);
+  const { planningWeekIssues } = require("../src/SERVICES/planning/planningValidation") as typeof import("../src/SERVICES/planning/planningValidation");
+  assert.match(planningWeekIssues(impossible, settings, [oldBrew, impossible, nextBrew], today).join(";"), /262.*252/);
 });
