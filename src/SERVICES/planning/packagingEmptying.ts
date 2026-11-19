@@ -79,7 +79,10 @@ export function reconcileEditedPackagingEmptying(
            const remaining = base! - oldCycle.reduce((sum, run) => sum + pendingLiters(run), 0);
            return remaining >= -0.01 && remaining < 20;
          })()));
-    const carried = !!oldFinal?.id && final.id === oldFinal.id && originalWasDrained;
+    // A single fully-draining row can become two crate shifts (252 + 10).
+    // The final row then gets a new id, but its batch/cycle identity is still
+    // identical to the original. Carry the *decision*, not the row id.
+    const carried = oldCycle.length > 0 && originalWasDrained;
     const automaticallyEmpty = measurable && nextRemaining >= -0.01 && nextRemaining < 20;
     const emptiesTank = final.emptyTank === true || carried || automaticallyEmpty;
 
@@ -101,4 +104,38 @@ export function reconcileEditedPackagingEmptying(
   }
 
   return { packaging: result, confirmations };
+}
+
+/**
+ * Weekly quantities are not shift quantities. A full tank of wheat can produce
+ * 262 crates, even though a weekday shift can package at most 252. Split into
+ * separate undated commitments so the daily board can schedule distinct days.
+ * Preserve the first row's date when already chosen. Sunday is capped at 168.
+ * The last run inherits final-drain intent when later reconciled by cycle.
+ */
+export function splitWeeklyCrateRuns(
+  runs: Plan[],
+  products: Product[],
+  maxWeekdayCrates = 252,
+): Plan[] {
+  return runs.flatMap((run) => {
+    const type = run.nonInventoryType ??
+      products.find((p) => p.id === run.productId)?.type;
+    const sunday = !!run.date && new Date(`${run.date}T12:00:00Z`).getUTCDay() === 0;
+    const firstCap = sunday ? 168 : maxWeekdayCrates;
+    if (type !== "crates" || run.quantity <= firstCap || !run.id) return [run];
+    const result: Plan[] = [];
+    let remaining = run.quantity;
+    for (let part = 0; remaining > 0; part++) {
+      const count = Math.min(remaining, part === 0 ? firstCap : maxWeekdayCrates);
+      result.push({
+        ...run,
+        id: part === 0 ? run.id : `${run.id}:bottles:${part}`,
+        quantity: count,
+        ...(part > 0 ? { date: undefined, emptyTank: false } : {}),
+      });
+      remaining -= count;
+    }
+    return result;
+  });
 }

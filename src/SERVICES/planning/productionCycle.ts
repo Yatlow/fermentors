@@ -606,8 +606,12 @@ export function validateProductionIssues(
     const dates = [...new Set(history.map((x) => x.date))];
     const types = new Set(history.map((x) => x.type));
     const allowExceptions = plans.find((w) => w.id === r.week)?.allowExceptions;
-    if (!allowExceptions && dates.length > 1 && types.size < 2)
-      { report(`מיכל ${tankLabel}: פיצול לימים שונים מותר רק בין בקבוקים לחביות`); continue; }
+    // A full batch may exceed a single bottle-packing shift (252 crates).
+    // Allow up to two different DAYS of crates for the same cycle, preserving
+    // each day's separate physical capacity gate. Kegs-only splits stay blocked.
+    const allBottleDays = history.every((entry) => entry.type === "crates");
+    if (!allowExceptions && dates.length > 1 && types.size < 2 && !allBottleDays)
+      { report(`מיכל ${tankLabel}: פיצול לימים שונים מותר רק בין בקבוקים לחביות, או בשני ימי בקבוקים`); continue; }
     if (!allowExceptions && dates.length > 2)
       { report(`מיכל ${tankLabel}: ניתן לפצל לכל היותר לשני ימי אריזה`); continue; }
 
