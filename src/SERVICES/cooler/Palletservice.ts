@@ -18,6 +18,7 @@ import {
     serverTimestamp,
     getCountFromServer,
     getDocsFromServer,
+    getDocFromServer,
 } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import {
@@ -423,6 +424,15 @@ export async function createPalletsFromCustomSplit(params: CreatePalletsFromCust
 export async function replacePackagingOperationPallets(params: CreatePalletsFromCustomSplitParams): Promise<string[]> {
     const { itemType, expectedTotalQuantity, beerStyle, batchNumber, expiryDateStr, sourceTankNumber, operationId, splits } = params;
     if (!operationId) throw new Error("חסר מזהה פעולת אריזה");
+
+    const operationSnapshot = await getDocFromServer(doc(db, "packagingOperations", operationId));
+    if (Number(operationSnapshot.data()?.preShippedQuantity ?? 0) > 0) {
+        // The immutable shipped portion is already represented in the final
+        // manifest. Do not rewrite its physical split or create another copy.
+        const linked = await getDocsFromServer(query(collection(db, PALLETS_COLLECTION),
+            where("packagingOperationId", "==", operationId)));
+        return linked.docs.map((entry) => entry.id);
+    }
 
     const expectedTotal = Math.round(expectedTotalQuantity);
     const sanitized = splits
