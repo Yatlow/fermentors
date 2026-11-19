@@ -14,6 +14,7 @@ import { displayStyle, isCoreStyle } from "../../SERVICES/planning/planningPrese
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { brewSizeLabel, weekday } from "../../SERVICES/planning/productionCycle";
+import { reconcileEditedPackagingEmptying } from "../../SERVICES/planning/packagingEmptying";
 import { shipmentMatchesForPlans } from "../../SERVICES/planning/shipmentActuals";
 import PlanningWeeklyRecommendations from "./PlanningWeeklyRecommendations";
 import "./planningPackagingModal.css";
@@ -584,21 +585,13 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         : [];
 
     function recomputeEmptyFlags(packaging: Plan[]) {
-        const usedByCycle = new Map<string, number>();
-        return packaging.map((run) => {
-            if (!run.tankId) return run;
-            const cycle = run.brewId ? `planned:${run.brewId}` : run.tankId;
-            const p = productForPlan(run);
-            if (!p) return run;
-            const base = model.tankAvailableLiters.get(cycle) ?? model.tankAvailableLiters.get(run.tankId) ?? tanks.find((tank) => tank.id === run.tankId)?.liters ?? 0;
-            const original = current.packaging.find((item) => item.id && run.id && item.id === run.id);
-            const completed = original ? completedForPlan(original) : 0;
-            const pending = Math.max(0, run.quantity - completed);
-            const usedBefore = usedByCycle.get(cycle) ?? 0;
-            const usedNow = pending * litersPerUnit(p);
-            usedByCycle.set(cycle, usedBefore + usedNow);
-            return { ...run, emptyTank: base - usedBefore - usedNow < 20 };
-        });
+        const completed = new Map(current.packaging
+            .filter((run) => !!run.id)
+            .map((run) => [run.id!, completedForPlan(run)] as const));
+        return reconcileEditedPackagingEmptying(
+            packaging, current.packaging, settings.products,
+            model.tankAvailableLiters, tanks, completed,
+        );
     }
 
     async function savePackagingModal() {
@@ -659,9 +652,20 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 const completed = completedForPlan(original);
                 if (completed > 0) edited.push({ ...original, quantity: completed, emptyTank: false });
             }
+            const prepared = recomputeEmptyFlags([...untouched, ...edited]);
+            if (prepared.confirmations.length) {
+                const details = prepared.confirmations.map((item) => {
+                    const liters = Math.round(item.remainderLiters * 10) / 10;
+                    const share = Math.round(item.remainderLiters / item.availableLiters * 100);
+                    return `מיכל ${item.tankNumber}: כ־${liters} ליטר (${share}%) יישארו לאחר האריזה.`;
+                }).join("\n");
+                // Planning a final emptying is not an actual shrinkage report.
+                // Require explicit approval when a format edit leaves >=20 L.
+                if (!window.confirm(`${details}\n\nלאשר ריקון מתוכנן של המיכל למרות היתרה? הפחת בפועל יחושב רק בדיווח האריזה.`)) return;
+            }
             await saveWithDisplayedEvidence({
                 ...current,
-                packaging: recomputeEmptyFlags([...untouched, ...edited]),
+                packaging: prepared.packaging,
                 changeReason: `עריכת אריזות ${displayStyle(packStyle)}`,
             });
             setPackStyle(undefined);

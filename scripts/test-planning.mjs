@@ -30,6 +30,7 @@ try {
     "planning-sunday-keg-approval",
     "planning-canonical-availability-regression",
     "planning-winter-split-release-regression",
+    "planning-wheat-format-drain-release",
     "planning-brew-assignment-scope-regression",
     "planning-cycle-packaging-regression",
     "planning-rebrew-cycle-expiry",
