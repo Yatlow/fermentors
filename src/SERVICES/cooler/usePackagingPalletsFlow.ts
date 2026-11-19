@@ -277,8 +277,11 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
             // fails, keep the operation awaiting_pallets so retry/recovery can
             // safely run the same deterministic pallet creation and reservation
             // again without duplication.
-            const reservation = await reserveNewPalletsForNearestShipment(createdPalletIds);
-            if (reservation.blockedReason) {
+            // All pallets may already have left in a pre-report shipment. No
+            // new inventory means there is nothing to reserve or re-read.
+            const reservation = createdPalletIds.length > 0
+                ? await reserveNewPalletsForNearestShipment(createdPalletIds) : null;
+            if (reservation?.blockedReason) {
                 // Packaging DID succeed, so do not mark the whole operation as
                 // failed or retry pallet creation. Surface the operational HOLD
                 // to the employee in the completed report instead.
