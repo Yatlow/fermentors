@@ -425,13 +425,20 @@ export async function replacePackagingOperationPallets(params: CreatePalletsFrom
     const { itemType, expectedTotalQuantity, beerStyle, batchNumber, expiryDateStr, sourceTankNumber, operationId, splits } = params;
     if (!operationId) throw new Error("חסר מזהה פעולת אריזה");
 
-    const operationSnapshot = await getDocFromServer(doc(db, "packagingOperations", operationId));
-    if (Number(operationSnapshot.data()?.preShippedQuantity ?? 0) > 0) {
-        // The immutable shipped portion is already represented in the final
-        // manifest. Do not rewrite its physical split or create another copy.
-        const linked = await getDocsFromServer(query(collection(db, PALLETS_COLLECTION),
-            where("packagingOperationId", "==", operationId)));
-        return linked.docs.map((entry) => entry.id);
+    const [operationSnapshot, linked] = await Promise.all([
+        getDocFromServer(doc(db, "packagingOperations", operationId)),
+        getDocsFromServer(query(collection(db, PALLETS_COLLECTION),
+            where("packagingOperationId", "==", operationId))),
+    ]);
+    if (Number(operationSnapshot.data()?.preShippedQuantity ?? 0) > 0 ||
+        linked.docs.some((pallet) =>
+            pallet.data().packagingSource === "manual" && pallet.data().zone !== "pending")) {
+        // A shipped or physically placed manual pallet cannot be resplit.
+        // Preserve that pallet and the default-created remainder. Only return
+        // automatically created pallet IDs for the shipment reservation flow.
+        return linked.docs
+            .filter((entry) => entry.data().packagingSource !== "manual")
+            .map((entry) => entry.id);
     }
 
     const expectedTotal = Math.round(expectedTotalQuantity);
@@ -453,10 +460,6 @@ export async function replacePackagingOperationPallets(params: CreatePalletsFrom
         throw new Error(`משטח בודד יכול להכיל עד ${maxPerPallet} ${unit}`);
     }
 
-    const linked = await getDocsFromServer(query(
-        collection(db, PALLETS_COLLECTION),
-        where("packagingOperationId", "==", operationId),
-    ));
     const operationRef = doc(db, "packagingOperations", operationId);
     const batch = writeBatch(db);
 
