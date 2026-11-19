@@ -45,6 +45,9 @@ type JobRuntime = {
     sendError?: string;
     sendWarnings?: string[];
     preShippedQuantity?: number;
+    preExistingQuantity?: number;
+    preExistingPalletCount?: number;
+    preExistingLocked?: boolean;
 };
 
 export type FlowStep = "review" | "submitting" | "done" | "error";
@@ -131,6 +134,9 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
                         sendError: result.error,
                         sendWarnings: result.warnings,
                         preShippedQuantity: result.preShippedQuantity,
+                        preExistingQuantity: result.preExistingQuantity,
+                        preExistingPalletCount: result.preExistingPalletCount,
+                        preExistingLocked: result.preExistingLocked,
                     };
                     return next;
                 });
@@ -304,9 +310,32 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
             return;
         }
 
+        const coverageSummary = finalRuntimes.flatMap((runtime, jobIndex) => {
+            const existing = runtime.preExistingQuantity ?? 0;
+            if (!existing) return [];
+            const unit = runtime.itemType === "kegs" ? "חביות" : "ארגזים";
+            const covered = existing + (runtime.preShippedQuantity ?? 0);
+            let remainderCoverage = covered;
+            const newPallets = rows.filter((row) => row.jobIndex === jobIndex)
+                .reduce((count, row) => {
+                    const coveredHere = Math.min(Math.max(0, row.quantity), remainderCoverage);
+                    remainderCoverage -= coveredHere;
+                    return count + (row.quantity > coveredHere ? 1 : 0);
+                }, 0);
+            return [
+                "מיכל " + runtime.job.tankNumber + ": " +
+                (runtime.preExistingPalletCount ?? 0) + " משטחים ידניים קיימים (" +
+                existing + " " + unit + ") נלקחו בחשבון. " +
+                "המערכת יצרה/אישרה " + newPallets + " משטחים נוספים (" +
+                Math.max(0, runtime.reportedQuantity - covered) + " " + unit +
+                "). לא נספר מלאי כפול.",
+            ];
+        });
+
         setSubmitWarnings((current) => [
             ...current,
             ...finalRuntimes.flatMap((r) => r.sendWarnings ?? []),
+            ...coverageSummary,
         ]);
         setStep("done");
     }
