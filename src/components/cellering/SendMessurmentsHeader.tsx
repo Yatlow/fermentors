@@ -364,7 +364,7 @@ export default function SendMessurmentsHeader({
             // The shared HealthDashboard listens to measurement cache updates.
             // Never compute a second, inconsistent list of recommendations here.
             setSendingReading("sent");
-            setNewReadings({});
+            // Keep the local draft until the durable server write is confirmed.
         }
 
         // ------------------------------------------------------------
@@ -479,6 +479,12 @@ export default function SendMessurmentsHeader({
                 if (!allSucceeded) {
                     setWriteWarning(res.filter((r) => !r.success));
                 }
+                // A partial failure keeps only failed tanks in the local draft.
+                setNewReadings((current: Record<string, NewReading>) => {
+                    const next = { ...current };
+                    succeededReadings.forEach((reading) => delete next[String(reading.tankId)]);
+                    return next;
+                });
             } else if (!alreadyHandedToPalletsModal) {
                 // פעולות/אריזה ללא משטחים: אין מסלול מהיר, מחכים כרגיל לתוצאה הסופית.
                 // אם כן נפתח PackagingPalletsModal - הוא מנהל את מצב הסיום בעצמו,
