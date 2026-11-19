@@ -114,11 +114,19 @@ export function matchPreReportedActivePallets(input: {
   const adopted = matchingProduct.filter((p) =>
     p.packagingOperationId === operationId && p.packagingSource === "manual");
   const unlinked = matchingProduct.filter((p) => !String(p.packagingOperationId ?? "").trim());
-  const sameDayUnlinked = unlinked.filter((p) => {
-    // Older days are historical stock, not evidence of this packaging event.
-    return Number.isFinite(p.createdAtMs) && Number(p.createdAtMs) > 0 &&
-      dateKey(new Date(Number(p.createdAtMs))) === date;
-  });
+  const sameDayUnlinked = unlinked.filter((p) =>
+    Number.isFinite(p.createdAtMs) && Number(p.createdAtMs) > 0 &&
+    dateKey(new Date(Number(p.createdAtMs))) === date
+  );
+  // Even an earlier-day manual pallet may physically belong to this report.
+  // Do not silently generate a second copy when attribution is uncertain.
+  const earlierUnlinked = unlinked.filter((p) =>
+    Number.isFinite(p.createdAtMs) && Number(p.createdAtMs) > 0 &&
+    dateKey(new Date(Number(p.createdAtMs))) !== date
+  );
+  if (earlierUnlinked.length) {
+    throw new Error("נמצא משטח ידני מאותה אצווה מתאריך קודם ללא שיוך לדיווח. לא נוצר מלאי נוסף; יש לבדוק עקיבות.");
+  }
   const ambiguous = sameDayUnlinked.filter((p) =>
     Number(p.createdAtMs) > operationCreatedMs ||
     operationCreatedMs - Number(p.createdAtMs) > 8 * 60 * 60 * 1000 ||
