@@ -442,8 +442,10 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             }, 0);
         const available = Math.max(0, base - usedByOthers);
         const additional = Math.floor((available + 1e-8) / litersPerUnit(p));
-        const allowedAdditional = p.type === "crates" ? Math.min(MAX_CRATES_PER_RUN, additional) : additional;
-        return completed + allowedAdditional;
+        // This editor collects a WEEKLY amount, not a single packaging shift.
+        // More than 252 crates are split into separate <=252-crate runs on save.
+        // The daily board will assign each run its own production date.
+        return completed + additional;
     }
 
     function recommendationRemaining(rec: (typeof model.packagingRecommendation)[number], currentRows: PackRow[] = rows) {
@@ -561,8 +563,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                     const p = product(row.productId);
                     if (!p) return row;
                     const maxPending = Math.max(0, Math.floor((remaining + 1e-8) / litersPerUnit(p)));
-                    const capped = p.type === "crates" ? Math.min(MAX_CRATES_PER_RUN, maxPending) : maxPending;
-                    const clampedPending = Math.min(pendingUnits(row), capped);
+                    const clampedPending = Math.min(pendingUnits(row), maxPending);
                     remaining = Math.max(0, remaining - clampedPending * litersPerUnit(p));
                     return clampedPending === pendingUnits(row) ? row : { ...row, quantity: row.completed + clampedPending };
                 });
@@ -652,7 +653,31 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 const completed = completedForPlan(original);
                 if (completed > 0) edited.push({ ...original, quantity: completed, emptyTank: false });
             }
-            const prepared = recomputeEmptyFlags([...untouched, ...edited]);
+            // Keep the UI quantity as a weekly total, but never persist a single
+            // dated crate run exceeding that day's physical packing capacity.
+            // Multiple undated runs are assigned to distinct days in the board.
+            const split: Plan[] = edited.flatMap((run) => {
+                const p = productForPlan(run);
+                if (p?.type !== "crates" || run.quantity <= MAX_CRATES_PER_RUN) return [run];
+                const dailyCap = run.date && weekday(run.date) === 0 ? 168 : MAX_CRATES_PER_RUN;
+                const pieces: Plan[] = [];
+                let remaining = run.quantity;
+                let index = 0;
+                while (remaining > 0) {
+                    const quantity = Math.min(remaining, index === 0 ? dailyCap : MAX_CRATES_PER_RUN);
+                    pieces.push({
+                        ...run,
+                        id: index === 0 ? run.id : `${run.id}:bottles:${index}`,
+                        quantity,
+                        // One existing day may stay fixed; further days must be scheduled.
+                        ...(index === 0 ? {} : { date: undefined, emptyTank: false }),
+                    });
+                    remaining -= quantity;
+                    index++;
+                }
+                return pieces;
+            });
+            const prepared = recomputeEmptyFlags([...untouched, ...split]);
             if (prepared.confirmations.length) {
                 const details = prepared.confirmations.map((item) => {
                     const liters = Math.round(item.remainderLiters * 10) / 10;
@@ -751,7 +776,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                                             updateRow(row.key, { quantity: Math.min(value, max) });
                                         }}
                                     />
-                                    <small>{p?.type === "crates" ? "ארגזים" : "חביות"} · עד {fmt(max)}{row.completed > 0 ? ` · ${fmt(row.completed)} כבר בוצעו` : ""}</small>
+                                    <small>{p?.type === "crates" ? "ארגזים" : "חביות"} · עד {fmt(max)}{row.completed > 0 ? ` · ${fmt(row.completed)} כבר בוצעו` : ""}{p?.type === "crates" && row.quantity > MAX_CRATES_PER_RUN ? ` · ${Math.ceil(row.quantity / MAX_CRATES_PER_RUN)} ימי אריזה (חלוקה אוטומטית)` : ""}</small>
                                 </label>
                                 <button type="button" className="bp-pack-remove" onClick={() => removeRow(row.key)}>{row.completed > 0 ? "השאר רק את מה שבוצע" : "הסר"}</button>
                             </div>;
