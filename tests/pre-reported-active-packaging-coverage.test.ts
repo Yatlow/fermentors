@@ -27,6 +27,12 @@ test("a manual pallet already placed in the cooler covers a late packaging repor
   // The remaining 40 are split into two 20-keg pallets by the existing flow.
 });
 
+test("normalizes #batch IDs and style display casing before matching", () => {
+  assert.deepEqual(matchPreReportedActivePallets(params([
+    { ...manual, batchNumber: "#1617", beerStyle: "ipa" },
+  ])), { palletIds: ["manual-20"], quantity: 20 });
+});
+
 test("pending manual stock is linked and counted without generating a duplicate", () => {
   assert.deepEqual(matchPreReportedActivePallets(params([{ ...manual, zone: "pending" }])),
     { palletIds: ["manual-20"], quantity: 20 });
