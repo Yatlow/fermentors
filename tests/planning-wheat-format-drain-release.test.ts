@@ -9,6 +9,7 @@ import {
   type TankSource,
 } from "../src/SERVICES/planning/productionCycle";
 import { validatePlanningDecisionChange } from "../src/SERVICES/planning/planningDecisionSafety";
+import { planningWeekIssues } from "../src/SERVICES/planning/planningValidation";
 
 const today = "2026-11-19";
 const wheatKegs: Product = {
@@ -180,6 +181,5 @@ test("a single 262-crate dated shift remains blocked by daily capacity", () => {
   // Daily production capacity is checked by the shared week validator, not
   // by the tank-source volume validator.
   assert.equal(err, null);
-  const { planningWeekIssues } = require("../src/SERVICES/planning/planningValidation") as typeof import("../src/SERVICES/planning/planningValidation");
   assert.match(planningWeekIssues(impossible, settings, [oldBrew, impossible, nextBrew], today).join(";"), /262.*252/);
 });
