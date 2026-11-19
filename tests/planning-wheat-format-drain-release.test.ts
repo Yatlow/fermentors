@@ -92,7 +92,8 @@ test("previously inferred final drain without an explicit flag is retained on fo
 test("a different batch/tank/cycle cannot inherit the last-packaging marker", () => {
   const moved = [
     { ...edited[0], tankId: "tank-8", tankNumber: "8", brewId: undefined },
-    { ...edited[0], batchNumber: "1611" },\n    { ...edited[0], batchNumber: "1611", brewId: undefined },
+    { ...edited[0], batchNumber: "1611" },
+    { ...edited[0], batchNumber: "1611", brewId: undefined },
     { ...edited[0], brewId: "different-brew" },
   ];
   for (const change of moved) {
