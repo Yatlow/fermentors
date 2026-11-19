@@ -5,7 +5,7 @@ import {
 } from "../src/SERVICES/planning/planningEngine";
 import { reconcileEditedPackagingEmptying } from "../src/SERVICES/planning/packagingEmptying";
 import {
-  tankReleases, validateBrewReleases, validateProduction,
+  tankReleases, validateBrewReleases,
   type TankSource,
 } from "../src/SERVICES/planning/productionCycle";
 import { validatePlanningDecisionChange } from "../src/SERVICES/planning/planningDecisionSafety";
