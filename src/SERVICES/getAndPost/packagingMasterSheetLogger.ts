@@ -325,6 +325,11 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
         throw new Error("דוח האריזה ופעולת האריזה אינם תואמים. לא בוצע שינוי במשטחים.");
     }
 
+    // Link safe pre-report manual stock before taking the recovery snapshot.
+    // Otherwise the older manual pallet would be excluded by the timestamp filter.
+    const preShippedQuantity = await ensurePreReportedShippedCoverage(operationId);
+    await ensurePreReportedActiveCoverage(operationId);
+
     // Reconcile against the physical active inventory for the exact batch,
     // item type, style and expiry. This deliberately includes pallets already
     // placed in the cooler as well as pallets still waiting for placement.
@@ -352,7 +357,6 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
         return operationCreatedMs > 0 && palletCreatedMs >= operationCreatedMs;
     });
 
-    const preShippedQuantity = await ensurePreReportedShippedCoverage(operationId);
     const inventoryQuantity = preShippedQuantity + exactPhysicalPallets.reduce(
         (sum, palletDoc) => sum + Math.max(0, Number(palletDoc.data().quantity ?? 0) || 0),
         0
