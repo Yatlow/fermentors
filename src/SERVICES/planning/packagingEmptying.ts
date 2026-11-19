@@ -79,7 +79,10 @@ export function reconcileEditedPackagingEmptying(
            const remaining = base! - oldCycle.reduce((sum, run) => sum + pendingLiters(run), 0);
            return remaining >= -0.01 && remaining < 20;
          })()));
-    const carried = !!oldFinal?.id && final.id === oldFinal.id && originalWasDrained;
+    // A single fully-draining row can become two crate shifts (252 + 10).
+    // The final row then gets a new id, but its batch/cycle identity is still
+    // identical to the original. Carry the *decision*, not the row id.
+    const carried = oldCycle.length > 0 && originalWasDrained;
     const automaticallyEmpty = measurable && nextRemaining >= -0.01 && nextRemaining < 20;
     const emptiesTank = final.emptyTank === true || carried || automaticallyEmpty;
 
