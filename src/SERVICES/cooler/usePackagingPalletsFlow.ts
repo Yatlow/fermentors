@@ -44,6 +44,7 @@ type JobRuntime = {
     palletPlan: PackagingPalletPlan | null;
     sendError?: string;
     sendWarnings?: string[];
+    preShippedQuantity?: number;
 };
 
 export type FlowStep = "review" | "submitting" | "done" | "error";
@@ -129,6 +130,7 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
                         palletPlan: result.palletPlan,
                         sendError: result.error,
                         sendWarnings: result.warnings,
+                        preShippedQuantity: result.preShippedQuantity,
                     };
                     return next;
                 });
