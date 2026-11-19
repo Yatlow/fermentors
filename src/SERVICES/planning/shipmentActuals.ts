@@ -7,7 +7,6 @@ import {
   type WeekPlan,
 } from "./planningEngine";
 import type { ShipmentEvent } from "./dailyPlanner";
-import { tempoInventoryBaselineAt } from "./tempoInventoryTimeline";
 
 export type ShipmentActualTotal = {
   itemType: "crates" | "kegs";
@@ -129,28 +128,28 @@ function distinctManifestsConflict(
     candidate.manifest !== winner.manifest);
 }
 
-/**
- * Actual shipments are Tempo receipts for planning purposes.  Apply only shipments
- * that happened after the last explicit Tempo snapshot, so a newly entered stock
- * count remains the source of truth and is never double-counted.
+/** Shipments dispatched TO Tempo today. Informational only: never modify
+ * the manually reported Tempo inventory or its coverage with these shipments.
+ */
+export function todayTempoShipmentQuantity(
+  actualEvents: ShipmentEvent[],
+  product: Product,
+  today: string,
+): number {
+  return (actualEvents as DetailedShipmentEvent[])
+    .filter((shipment) => shipment.date === today)
+    .reduce((total, shipment) => total + Math.max(0, actualQuantity(shipment, product)), 0);
+}
+
+/** @deprecated Tempo stock is a reported snapshot. Outbound shipments are never
+ * added to this quantity. Use settings and show today's dispatch separately.
  */
 export function settingsAfterActualShipments(
   settings: Settings,
-  actualEvents: ShipmentEvent[],
-  throughDate: string,
+  _actualEvents: ShipmentEvent[],
+  _throughDate: string,
 ): Settings {
-  const actuals = actualEvents as DetailedShipmentEvent[];
-  return {
-    ...settings,
-    products: settings.products.map((product) =>
-      tempoInventoryBaselineAt(product, throughDate,
-        actuals.map((shipment) => ({
-          date: shipment.date,
-          occurredAt: shipment.occurredAt,
-          quantity: actualQuantity(shipment, product),
-        }))),
-    ),
-  };
+  return settings;
 }
 
 /** Weighted overlap: 1 is identical, 0 has no SKU/quantity overlap. */

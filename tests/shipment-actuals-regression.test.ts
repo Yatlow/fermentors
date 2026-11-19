@@ -6,6 +6,7 @@ import {
   matchActualShipments,
   pendingDeliveriesForReservationQueue,
   settingsAfterActualShipments,
+  todayTempoShipmentQuantity,
 } from "../src/SERVICES/planning/shipmentActuals";
 
 const product: Product = {
@@ -19,32 +20,41 @@ const product: Product = {
   leadDays: 21,
 };
 
-test("actual shipments are added to Tempo forecast after the last stock snapshot", () => {
+test("Tempo reported stock remains unchanged after outbound shipments", () => {
   const settings = { ...defaultSettings(), products: [product] };
-  const next = settingsAfterActualShipments(settings, [{
+  const events = [{
     id: "shipment-1",
     date: "2026-09-14",
     totals: [{ itemType: "crates", beerStyle: "IPA", totalQuantity: 84 }],
-  } as any], "2026-09-14");
+  }] as any;
+  const next = settingsAfterActualShipments(settings, events, "2026-09-14");
 
-  // Four days of sales occur between the old stock count and receipt.
-  // The correct current balance is 100 - 4*(420/4.2/7) + 84.
-  assert.ok(Math.abs(next.products[0].tempo! -
-    (100 - 4 * (420 / 4.2 / 7) + 84)) < 1e-8);
+  assert.equal(next.products[0].tempo, 100);
+  assert.equal(next.products[0].tempoDate, "2026-09-10");
+  assert.equal(todayTempoShipmentQuantity(events, product, "2026-09-14"), 84);
+  assert.equal(todayTempoShipmentQuantity(events, product, "2026-09-15"), 0);
 });
 
-test("shipment is not added twice when Tempo snapshot is newer than the shipment", () => {
+test("today's informational shipments are SKU specific and do not alter stock", () => {
   const settings = {
     ...defaultSettings(),
     products: [{ ...product, tempo: 150, tempoDate: "2026-09-14" }],
   };
-  const next = settingsAfterActualShipments(settings, [{
+  const events = [{
     id: "shipment-1",
-    date: "2026-09-13",
-    totals: [{ itemType: "crates", beerStyle: "IPA", totalQuantity: 84 }],
-  } as any], "2026-09-14");
+    date: "2026-09-14",
+    totals: [
+      { itemType: "crates", beerStyle: "IPA", totalQuantity: 84 },
+      { itemType: "kegs", beerStyle: "IPA", totalQuantity: 155 },
+      { itemType: "crates", beerStyle: "חיטה", totalQuantity: 12 },
+    ],
+  }] as any;
+  const next = settingsAfterActualShipments(settings, events, "2026-09-14");
 
   assert.equal(next.products[0].tempo, 150);
+  assert.equal(todayTempoShipmentQuantity(events, settings.products[0], "2026-09-14"), 84);
+  assert.equal(todayTempoShipmentQuantity(events, { ...product, type: "kegs" }, "2026-09-14"), 155);
+  assert.equal(todayTempoShipmentQuantity(events, { ...product, style: "לאגר" }, "2026-09-14"), 0);
 });
 
 function delivery(

@@ -15,7 +15,8 @@
     groupKey,
     styleGroups,
     } from "../../SERVICES/planning/planningPresentation";
-    import { shortDate } from "../../SERVICES/planning/dailyPlanner";
+    import { shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
+    import { todayTempoShipmentQuantity } from "../../SERVICES/planning/shipmentActuals";
 
     const fmt = (n: number) => n.toLocaleString("he-IL", { maximumFractionDigits: 0 });
 
@@ -43,9 +44,10 @@
     return "is-fresh";
     }
 
-    export default function PlanningStock({ settings, pallets, today, plans }: {
+    export default function PlanningStock({ settings, pallets, shipments, today, plans }: {
     settings: Settings;
     pallets: Pallet[];
+    shipments: ShipmentEvent[];
     today: string;
     plans: WeekPlan[];
     }) {
@@ -95,6 +97,7 @@
             const usable = usableInv.brewery + usableInv.dock;
             const excluded = Math.max(0, brewery - usable);
             const tempo = product?.tempo ?? null;
+            const todayShipment = product ? todayTempoShipmentQuantity(shipments, product, today) : 0;
             const daily = product ? weeklyDemand(product) / 7 : 0;
             const age = measurementAge(today, product?.tempoDate);
             return {
@@ -105,6 +108,7 @@
             excluded,
             dock: inv.dock,
             tempo,
+            todayShipment,
             daily,
             age,
             // Expired or missing-expiry stock is physically present but is NOT
@@ -118,7 +122,7 @@
 
     return (
         <section>
-        <div className="bp-section-heading"><div><p className="bp-muted">מלאי טמפו כולל את צילום המלאי האחרון ואת המשלוחים שדווחו מאז אותו צילום. מלאי המבשלה מציג את כל המשטחים הפיזיים, כולל בהעמסה וממתינים לשיבוץ; רק משטחים בעלי תוקף מאומת נכללים בחישוב הכיסוי.</p></div></div>
+        <div className="bp-section-heading"><div><p className="bp-muted">מלאי טמפו משקף רק את צילום המלאי שהוזן, בלי להוסיף משלוחים או להפחית מכירות. משלוחים מהיום מוצגים בנפרד ליד הכמות המדווחת, ולא משנים את הכיסוי. מלאי המבשלה מציג את כל המשטחים הפיזיים, כולל בהעמסה וממתינים לשיבוץ; רק משטחים בעלי תוקף מאומת נכללים בחישוב הכיסוי.</p></div></div>
         <div className="bp-stock-snapshot">
             {rows.map((g) => {
             const crates = g.formats.find((f) => f.type === "crates")!;
@@ -134,6 +138,7 @@
                     <div className="bp-stock-metric" key={f.type}>
                     <small>{f.type === "crates" ? "ארגזים" : "חביות"}</small>
                     <div className="bp-stock-pair"><span><b>מבשלה</b> {fmt(f.brewery)} <small>(כשיר: {fmt(f.usable)})</small></span><span><b>טמפו</b> {f.tempo === null ? "—" : fmt(f.tempo)}</span></div>
+                    {f.tempo !== null && f.todayShipment > 0 && <div className="bp-stock-today-shipment">מלאי יחד עם המשלוח מהיום: <strong>{fmt(f.tempo + f.todayShipment)}</strong> <small>(+{fmt(f.todayShipment)} במשלוח היום; לא נכלל במלאי המדווח)</small></div>}
                     <div className="bp-stock-coverage"><span>כיסוי כולל <strong>{f.totalCover.label}</strong></span><span>כיסוי מבשלה <strong>{f.breweryCover.label}</strong></span><span>כיסוי טמפו <strong>{f.tempoCover.label}</strong></span></div>
                     <i className={`bp-stock-freshness ${freshnessClass(f.age)}`}>{f.product?.tempoDate ? `עודכן ${shortDate(f.product.tempoDate)}` : "לא עודכן"}</i>
                     </div>
@@ -147,6 +152,7 @@
                         <span>כשיר לכיסוי מלאי: {fmt(f.usable)}</span>
                         {f.excluded > 0 && <span role="alert">⚠️ {fmt(f.excluded)} יחידות ללא תוקף מאומת או פגות תוקף — אינן נכללות בכיסוי</span>}
                         <span>מלאי בטמפו: {f.tempo === null ? "לא עודכן" : fmt(f.tempo)}</span>
+                        {f.tempo !== null && f.todayShipment > 0 && <span>מלאי יחד עם המשלוח מהיום: {fmt(f.tempo + f.todayShipment)} (כולל +{fmt(f.todayShipment)} שנשלחו היום; ללא שינוי במלאי הבסיס)</span>}
                         <span className={`bp-stock-freshness ${freshnessClass(f.age)}`}>{f.product?.tempoDate ? `עודכן לאחרונה: ${shortDate(f.product.tempoDate)}` : "לא קיימת מדידת טמפו"}</span>
                         <span>כיסוי במבשלה: {f.breweryCover.label}</span>
                         <span>כיסוי בטמפו: {f.tempoCover.label}</span>

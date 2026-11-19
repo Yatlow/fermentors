@@ -196,7 +196,14 @@ export default function SendMessurmentsHeader({
         let readingsToSend = brews
             .filter((fv) => Number(fv.tankNumber) !== 1)
             .map((fv) => {
-                const reading = newReadings[fv.id] ?? {};
+                const draft = newReadings[fv.id] ?? {};
+                // A retained pressure draft must never be silently sent with a
+                // hot-measurement report (or vice versa) after tab switching.
+                const reading: NewReading = reportName === "לחץ"
+                    ? { temp: draft.temp, pressure: draft.pressure }
+                    : reportName === "חם"
+                        ? { plato: draft.plato, pH: draft.pH }
+                        : draft;
                 return {
                     ...reading,
                     id: buildMeasurementId(),
@@ -364,7 +371,7 @@ export default function SendMessurmentsHeader({
             // The shared HealthDashboard listens to measurement cache updates.
             // Never compute a second, inconsistent list of recommendations here.
             setSendingReading("sent");
-            setNewReadings({});
+            // Keep the local draft until the durable server write is confirmed.
         }
 
         // ------------------------------------------------------------
@@ -474,19 +481,51 @@ export default function SendMessurmentsHeader({
                 console.error("Failed resolving scheduled cellar recommendations:", error);
             }
 
+            // Remove only acknowledged fields that have not changed since the
+            // send began. Entries on another cellar tab stay safely drafted.
+            const sentFieldKeys: (keyof NewReading)[] =
+                reportName === "לחץ" ? ["temp", "pressure"] :
+                reportName === "חם" ? ["plato", "pH"] : [];
+            const sentByTank = new Map(readingsToSend.map((reading) => [String(reading.tankId), reading]));
+            const clearAcknowledgedReadings = () => {
+                setNewReadings((current: Record<string, NewReading>) => {
+                    const next = { ...current };
+                    succeededReadings.forEach((reading) => {
+                        const tankId = String(reading.tankId);
+                        const previouslySent = sentByTank.get(tankId);
+                        const existing = next[tankId];
+                        if (!existing || !previouslySent) return;
+                        if (sentFieldKeys.length === 0) {
+                            // Do not discard edits made while a write was in flight.
+                            if (JSON.stringify(existing) === JSON.stringify(newReadings[tankId] ?? {})) delete next[tankId];
+                            return;
+                        }
+                        const remaining = { ...existing };
+                        sentFieldKeys.forEach((key) => {
+                            if (remaining[key] === previouslySent[key]) delete remaining[key];
+                        });
+                        if (Object.keys(remaining).length) next[tankId] = remaining;
+                        else delete next[tankId];
+                    });
+                    return next;
+                });
+            };
+
             if (isFastPath) {
                 // ההמלצות כבר הוצגו למשתמש קודם. כאן רק מוסיפים אזהרה אם צריך.
                 if (!allSucceeded) {
                     setWriteWarning(res.filter((r) => !r.success));
                 }
+                // A partial failure keeps only failed tanks in the local draft.
+                clearAcknowledgedReadings();
             } else if (!alreadyHandedToPalletsModal) {
                 // פעולות/אריזה ללא משטחים: אין מסלול מהיר, מחכים כרגיל לתוצאה הסופית.
                 // אם כן נפתח PackagingPalletsModal - הוא מנהל את מצב הסיום בעצמו,
                 // ולא נוגעים כאן ב-sendingReading/newReadings.
-                setNewReadings({});
+                clearAcknowledgedReadings();
                 setSendingReading(allSucceeded ? "idle" : "error");
             } else {
-                setNewReadings({});
+                clearAcknowledgedReadings();
             }
         }).finally(() => {
             sendInFlightRef.current = false;

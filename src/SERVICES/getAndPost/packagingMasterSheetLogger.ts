@@ -1,4 +1,4 @@
-import { doc, getDoc, getDocs, collection, setDoc, Timestamp, updateDoc, serverTimestamp, runTransaction, query, where, deleteDoc, writeBatch } from "firebase/firestore";
+import { doc, getDoc, getDocFromServer, getDocs, getDocsFromServer, collection, setDoc, Timestamp, updateDoc, serverTimestamp, runTransaction, query, where, deleteDoc, writeBatch } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import {
     createPalletsFromCustomSplit,
@@ -7,6 +7,8 @@ import {
     type CustomPalletSplitEntry,
 } from "../cooler/Palletservice";
 import type { PalletItemType } from "../cooler/Pallettypes ";
+import { matchPreReportedShippedPallets, matchPreReportedActivePallets } from "../cooler/preReportedPackagingCoverage";
+import { dateKey, sameStyle } from "../planning/planningEngine";
 import { reserveNewPalletsForNearestShipment } from "../planning/planningShipmentReservations";
 import {
     callAppsScriptPost,
@@ -22,6 +24,12 @@ const BOTTLES_PER_CRATE = 24;
 const PACKAGING_LOG_COLLECTION = "packagingLog";
 
 const PACKAGING_OPERATIONS_COLLECTION = "packagingOperations";
+
+// One indexed read covers the plain and #prefixed lot forms used in manual entry.
+const batchVariants = (raw: string): string[] => {
+    const batch = String(raw).trim().replace(/^#/, "");
+    return [...new Set([batch, `#${batch}`])];
+};
 
 async function persistPackagingOperation(params: {
     operationId: string;
@@ -66,6 +74,222 @@ async function persistPackagingOperation(params: {
     });
 }
 
+/**
+ * Link an already-dispatched same-day manual pallet to its later packaging
+ * report WITHOUT rewriting the immutable shipped pallet or shipment document.
+ * A competing packaging operation for the same batch/SKU/day is ambiguous.
+ * The quantity is durably claimed on this operation before any auto creation.
+ */
+async function ensurePreReportedShippedCoverage(operationId: string): Promise<number> {
+    const operationRef = doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId);
+    const opSnap = await getDoc(operationRef);
+    if (!opSnap.exists()) throw new Error("פעולת אריזה לא נמצאה");
+    const operation = opSnap.data();
+    if (Number(operation.preShippedQuantity ?? 0) > 0) return Number(operation.preShippedQuantity);
+    const batch = String(operation.batchNumber ?? "").replace("#", "").trim();
+    if (!batch) return 0;
+    const storageBatch = String(operation.batchNumber ?? "").trim();
+    const opDate = operation.createdAt?.toDate?.();
+    if (!(opDate instanceof Date) || !Number.isFinite(opDate.getTime())) return 0;
+    // One targeted batch read for a typical report. The second query is only
+    // needed if we actually found same-day pallets shipped before reporting.
+    const pallets = await getDocsFromServer(query(collection(db, "pallets"), where("batchNumber", "in", batchVariants(storageBatch))));
+    const candidates = pallets.docs.map((entry) => {
+        const data = entry.data();
+        return {
+            id: entry.id,
+            zone: data.zone,
+            itemType: data.itemType,
+            beerStyle: data.beerStyle,
+            batchNumber: data.batchNumber,
+            expiryDateStr: data.expiryDateStr,
+            sourceTankNumber: data.sourceTankNumber,
+            packagingOperationId: data.packagingOperationId,
+            quantity: data.quantity,
+            createdAtMs: data.createdAt?.toMillis?.(),
+            shippedAtMs: data.shippedAt?.toMillis?.(),
+        };
+    });
+    const preview = matchPreReportedShippedPallets({
+        operationCreatedMs: opDate.getTime(),
+        operationBatch: batch,
+        itemType: String(operation.itemType),
+        beerStyle: String(operation.beerStyle ?? ""),
+        expiryDateStr: String(operation.expiryDateStr ?? ""),
+        tankNumber: operation.tankNumber ?? null,
+        expectedQuantity: Number(operation.quantity ?? 0),
+        candidates,
+    });
+    if (!preview.quantity) return 0;
+
+    const sameDay = dateKey(opDate);
+    const otherOperations = await getDocsFromServer(query(
+        collection(db, PACKAGING_OPERATIONS_COLLECTION), where("batchNumber", "in", batchVariants(storageBatch))));
+    const competitors = otherOperations.docs.filter((entry) => {
+        if (entry.id === operationId) return false;
+        const data = entry.data();
+        const created = data.createdAt?.toDate?.();
+        return created instanceof Date && dateKey(created) === sameDay &&
+            data.itemType === operation.itemType && sameStyle(String(data.beerStyle ?? ""), String(operation.beerStyle ?? ""));
+    });
+    if (competitors.length) {
+        throw new Error("קיימים כמה דיווחי אריזה לאותה אצווה ומוצר היום, ומשטח כבר נשלח. אי אפשר לייחס אותו אוטומטית ללא בדיקת עקיבות.");
+    }
+
+    return runTransaction(db, async (tx) => {
+        const liveOperation = await tx.get(operationRef);
+        if (!liveOperation.exists() || liveOperation.data().state !== "awaiting_pallets") {
+            throw new Error("פעולת האריזה אינה זמינה להתאמת משלוח שכבר יצא.");
+        }
+        if (Number(liveOperation.data().preShippedQuantity ?? 0) > 0) {
+            return Number(liveOperation.data().preShippedQuantity);
+        }
+        const palletRefs = preview.palletIds.map((id) => doc(db, "pallets", id));
+        const actual = await Promise.all(palletRefs.map((ref) => tx.get(ref)));
+        const verified = matchPreReportedShippedPallets({
+            operationCreatedMs: opDate.getTime(), operationBatch: batch,
+            itemType: String(operation.itemType), beerStyle: String(operation.beerStyle ?? ""),
+            expiryDateStr: String(operation.expiryDateStr ?? ""), tankNumber: operation.tankNumber ?? null,
+            expectedQuantity: Number(operation.quantity ?? 0),
+            candidates: actual.map((snap, index) => {
+                const data = snap.data();
+                return {
+                    id: preview.palletIds[index], zone: data?.zone, itemType: data?.itemType,
+                    beerStyle: data?.beerStyle, batchNumber: data?.batchNumber, expiryDateStr: data?.expiryDateStr,
+                    sourceTankNumber: data?.sourceTankNumber, packagingOperationId: data?.packagingOperationId,
+                    quantity: data?.quantity, createdAtMs: data?.createdAt?.toMillis?.(),
+                    shippedAtMs: data?.shippedAt?.toMillis?.(),
+                };
+            }),
+        });
+        if (verified.quantity !== preview.quantity || verified.palletIds.length !== preview.palletIds.length) {
+            throw new Error("המשטחים שנשלחו השתנו בזמן התאמת האריזה. יש לרענן ולבדוק.");
+        }
+        tx.update(operationRef, {
+            preShippedPalletIds: verified.palletIds,
+            preShippedQuantity: verified.quantity,
+            preShippedMatchedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        });
+        return verified.quantity;
+    });
+}
+
+
+type ExistingManualCoverage = {
+    quantity: number;
+    count: number;
+    locked: boolean;
+};
+const NO_EXISTING_MANUAL_COVERAGE: ExistingManualCoverage = { quantity: 0, count: 0, locked: false };
+
+/**
+ * Claim only same-day unlinked MANUAL pallets that existed before this report.
+ * A placed pallet remains in place. A previously adopted manual pallet remains
+ * linked to this operation on retry. The transaction reads each selected
+ * physical pallet before changing its attribution, so two reports cannot
+ * silently claim the same pallet.
+ */
+async function ensurePreReportedActiveCoverage(operationId: string): Promise<ExistingManualCoverage> {
+    const operationRef = doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId);
+    const operationSnap = await getDocFromServer(operationRef);
+    if (!operationSnap.exists()) throw new Error("דיווח האריזה לא נמצא");
+    const operation = operationSnap.data();
+    const batch = String(operation.batchNumber ?? "").trim();
+    if (!batch) return NO_EXISTING_MANUAL_COVERAGE;
+    const createdAt = operation.createdAt?.toMillis?.();
+    if (!Number.isFinite(createdAt) || createdAt <= 0) {
+        throw new Error("חסר תאריך יצירת דיווח האריזה. לא ניתן לבדוק משטחים ידניים ללא סכנת כפילות.");
+    }
+    const palletDocs = await getDocsFromServer(query(collection(db, "pallets"),
+        where("batchNumber", "in", batchVariants(batch))));
+    const toCandidate = (id: string, data: Record<string, any>) => ({
+        id,
+        zone: data.zone,
+        itemType: data.itemType,
+        beerStyle: data.beerStyle,
+        batchNumber: data.batchNumber,
+        expiryDateStr: data.expiryDateStr,
+        sourceTankNumber: data.sourceTankNumber,
+        packagingOperationId: data.packagingOperationId,
+        packagingSource: data.packagingSource,
+        quantity: data.quantity,
+        createdAtMs: data.createdAt?.toMillis?.(),
+        shippedAtMs: data.shippedAt?.toMillis?.(),
+    });
+    const candidates = palletDocs.docs.map((p) => toCandidate(p.id, p.data()));
+    const parameters = {
+        operationId,
+        operationCreatedMs: createdAt,
+        operationBatch: batch,
+        itemType: String(operation.itemType ?? ""),
+        beerStyle: String(operation.beerStyle ?? ""),
+        expiryDateStr: String(operation.expiryDateStr ?? ""),
+        tankNumber: operation.tankNumber ?? null,
+        expectedQuantity: Math.max(0, Number(operation.quantity ?? 0)),
+        preShippedQuantity: Math.max(0, Number(operation.preShippedQuantity ?? 0)),
+    };
+    const preview = matchPreReportedActivePallets({ ...parameters, candidates });
+    if (preview.palletIds.length === 0) return NO_EXISTING_MANUAL_COVERAGE;
+    const matching = candidates.filter((p) => preview.palletIds.includes(p.id));
+    const hasUnlinked = matching.some((p) => !p.packagingOperationId);
+    const locked = matching.some((p) => p.zone !== "pending");
+    if (!hasUnlinked) {
+        return { quantity: preview.quantity, count: preview.palletIds.length, locked };
+    }
+    if (operation.state !== "awaiting_pallets") {
+        throw new Error("דיווח האריזה כבר הושלם. לא ניתן לקשר אליו משטח ידני חדש.");
+    }
+    const createdDay = dateKey(new Date(createdAt));
+    const competing = await getDocsFromServer(query(collection(db, PACKAGING_OPERATIONS_COLLECTION),
+        where("batchNumber", "in", batchVariants(batch))));
+    if (competing.docs.some((other) => {
+        if (other.id === operationId) return false;
+        const entry = other.data();
+        const at = entry.createdAt?.toDate?.();
+        return at instanceof Date && dateKey(at) === createdDay &&
+            entry.itemType === operation.itemType && sameStyle(String(entry.beerStyle ?? ""), String(operation.beerStyle ?? ""));
+    })) {
+        throw new Error("קיימים כמה דיווחי אריזה של אותה אצווה ומוצר היום. משטח ידני לא ישויך אוטומטית לפני בדיקת עקיבות.");
+    }
+
+    const palletRefs = preview.palletIds.map((id) => doc(db, "pallets", id));
+    return runTransaction(db, async (tx) => {
+        const liveOperation = await tx.get(operationRef);
+        if (!liveOperation.exists() || liveOperation.data().state !== "awaiting_pallets") {
+            throw new Error("סטטוס דיווח האריזה השתנה. לא נוצר מלאי נוסף.");
+        }
+        const livePallets = await Promise.all(palletRefs.map((ref) => tx.get(ref)));
+        const actualCandidates = livePallets.map((docSnap, i) =>
+            toCandidate(preview.palletIds[i], docSnap.data() ?? {}));
+        const verified = matchPreReportedActivePallets({
+            ...parameters,
+            preShippedQuantity: Math.max(0, Number(liveOperation.data().preShippedQuantity ?? 0)),
+            candidates: actualCandidates,
+        });
+        if (verified.quantity !== preview.quantity ||
+            verified.palletIds.length !== preview.palletIds.length) {
+            throw new Error("הכמות או השיוך של משטח ידני השתנו. יש לרענן ולבדוק לפני דיווח נוסף.");
+        }
+        livePallets.forEach((snap, index) => {
+            if (snap.data()?.packagingOperationId === operationId) return;
+            tx.update(palletRefs[index], {
+                packagingOperationId: operationId,
+                packagingSource: "manual",
+                packagingAppliedQuantity: Number(snap.data()?.quantity),
+                updatedAt: serverTimestamp(),
+            });
+        });
+        // Fences concurrent automatic pallet creation for the same operation.
+        tx.update(operationRef, { updatedAt: serverTimestamp() });
+        return {
+            quantity: verified.quantity,
+            count: verified.palletIds.length,
+            locked: actualCandidates.some((p) => p.zone !== "pending"),
+        };
+    });
+}
+
 export async function savePackagingPalletSplits(operationId: string, splits: CustomPalletSplitEntry[]): Promise<void> {
     await updateDoc(doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId), {
         palletSplits: splits.map((split) => ({ quantity: Math.round(split.quantity), subLabel: split.subLabel ?? null })),
@@ -107,11 +331,16 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
         throw new Error("דוח האריזה ופעולת האריזה אינם תואמים. לא בוצע שינוי במשטחים.");
     }
 
+    // Link safe pre-report manual stock before taking the recovery snapshot.
+    // Otherwise the older manual pallet would be excluded by the timestamp filter.
+    const preShippedQuantity = await ensurePreReportedShippedCoverage(operationId);
+    await ensurePreReportedActiveCoverage(operationId);
+
     // Reconcile against the physical active inventory for the exact batch,
     // item type, style and expiry. This deliberately includes pallets already
     // placed in the cooler as well as pallets still waiting for placement.
     const batchPallets = batchNumber
-        ? await getDocs(query(collection(db, "pallets"), where("batchNumber", "==", batchNumber)))
+        ? await getDocs(query(collection(db, "pallets"), where("batchNumber", "in", batchVariants(batchNumber))))
         : null;
     const operationCreatedMs =
         typeof operation.createdAt?.toMillis === "function" ? operation.createdAt.toMillis() : 0;
@@ -134,7 +363,7 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
         return operationCreatedMs > 0 && palletCreatedMs >= operationCreatedMs;
     });
 
-    const inventoryQuantity = exactPhysicalPallets.reduce(
+    const inventoryQuantity = preShippedQuantity + exactPhysicalPallets.reduce(
         (sum, palletDoc) => sum + Math.max(0, Number(palletDoc.data().quantity ?? 0) || 0),
         0
     );
@@ -198,12 +427,13 @@ export async function markPackagingPalletsCompleted(operationId: string): Promis
         collection(db, "pallets"),
         where("packagingOperationId", "==", operationId),
     ));
-    const coveredQuantity = linkedSnapshot.docs.reduce((sum, palletDoc) => {
+    const linkedQuantity = linkedSnapshot.docs.reduce((sum, palletDoc) => {
         const pallet = palletDoc.data();
         const applied = pallet.packagingAppliedQuantity;
         return sum + Math.max(0, Number(applied == null ? pallet.quantity : applied) || 0);
     }, 0);
 
+    const coveredQuantity = linkedQuantity + Math.max(0, Number(operation.preShippedQuantity ?? 0));
     if (coveredQuantity < expectedQuantity) {
         throw new Error(
             `לא ניתן להשלים את פעולת האריזה: נוצרו/קושרו ${coveredQuantity} מתוך ${expectedQuantity} פריטים`
@@ -340,6 +570,10 @@ export type SubmitPackagingRecordResult = {
     error?: string;
     /** null אם הכמות לא תקינה / אין צורך במשטחים בכלל */
     palletPlan: PackagingPalletPlan | null;
+    preShippedQuantity?: number;
+    preExistingQuantity?: number;
+    preExistingPalletCount?: number;
+    preExistingLocked?: boolean;
 };
 
 type MasterSheetServerResult = {
@@ -578,6 +812,9 @@ export async function submitPackagingRecord(
         tankNumber,
     };
 
+    const preShippedQuantity = await ensurePreReportedShippedCoverage(operationId);
+    const preExisting = await ensurePreReportedActiveCoverage(operationId);
+
     // Safe-by-default: create the standard pallet split as soon as the
     // packaging record exists. If the browser closes or the user abandons the
     // editor, physical inventory is still represented in Firestore.
@@ -607,6 +844,20 @@ export async function submitPackagingRecord(
     return {
         success: true,
         palletPlan,
+        preShippedQuantity,
+        preExistingQuantity: preExisting.quantity,
+        preExistingPalletCount: preExisting.count,
+        preExistingLocked: preExisting.locked,
+        ...(preShippedQuantity > 0 || preExisting.quantity > 0 ? { warnings: [
+            ...(preExisting.quantity > 0 ? [
+                "זוהו " + preExisting.count + " משטחים ידניים קיימים (" + preExisting.quantity + " " +
+                (palletPlan.itemType === "kegs" ? "חביות" : "ארגזים") +
+                "). הם שויכו לדיווח ללא יצירת עותק נוסף. נותרה כמות " +
+                Math.max(0, palletPlan.quantity - preShippedQuantity - preExisting.quantity) +
+                " ליצירה או לאישור בחלוקת המשטחים."
+            ] : []),
+            ...(preShippedQuantity > 0 ? [`זוהו ${preShippedQuantity} ${palletPlan.itemType === "kegs" ? "חביות" : "ארגזים"} שנשלחו לפני דיווח האריזה. הן קושרו לדיווח ללא יצירת מלאי כפול וללא שינוי תעודת המשלוח. החלוקה שנשלחה כבר נעולה.`] : []),
+        ] } : {}),
     };
 }
 
@@ -619,6 +870,8 @@ export async function createPalletsForPlan(
     plan: PackagingPalletPlan,
     splits: CustomPalletSplitEntry[]
 ): Promise<string[]> {
+    const operationDoc = await getDoc(doc(db, PACKAGING_OPERATIONS_COLLECTION, plan.operationId));
+    const preShippedCoverage = Math.max(0, Number(operationDoc.data()?.preShippedQuantity ?? 0));
     const linked = await getDocs(query(
         collection(db, "pallets"),
         where("packagingOperationId", "==", plan.operationId),
@@ -628,7 +881,7 @@ export async function createPalletsForPlan(
     // replace a particular split; their applied quantity is consumed from the
     // first still-uncreated approved splits.
     const createdSplitIndexes = new Set<number>();
-    let manualCoverage = 0;
+    let manualCoverage = preShippedCoverage;
     linked.docs.forEach((palletDoc) => {
         const data = palletDoc.data();
         if (data.packagingSource === "manual") {

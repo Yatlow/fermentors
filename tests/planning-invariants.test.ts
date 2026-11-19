@@ -27,7 +27,7 @@ test("Tempo ledger clamps each chronological sales interval to zero", () => {
   ]), 30);
 });
 
-test("same-day Tempo snapshot includes only later physically timestamped receipts", () => {
+test("historical ledger may model receipts, while reported Tempo snapshot remains unchanged", () => {
   const baseline: Product = { ...stock, tempo: 20, tempoDate: "2026-10-03",
     tempoSnapshotAt: "2026-10-03T10:00:00+03:00" };
   const receipts = [
@@ -35,16 +35,17 @@ test("same-day Tempo snapshot includes only later physically timestamped receipt
     { date: "2026-10-03", occurredAt: "2026-10-03T11:00:00+03:00", quantity: 30 },
   ];
   assert.equal(tempoInventoryAt(baseline, "2026-10-03", receipts), 50);
-  // Replaying the same receipts on a derived current-day baseline must be idempotent.
+  // Outgoing shipments must never be treated as those hypothetical receipts
+  // when displayed as actual reported Tempo stock.
   const settings = { ...defaultSettings(), products: [baseline] };
   const actuals = receipts.map((receipt, index) => ({
     id: "shipment-" + index, ...receipt,
     totals: [{ itemType: "crates" as const, beerStyle: "IPA", totalQuantity: receipt.quantity }],
   }));
   const first = settingsAfterActualShipments(settings, actuals, "2026-10-03");
-  assert.equal(first.products[0].tempo, 50);
+  assert.equal(first.products[0].tempo, 20);
   assert.equal(settingsAfterActualShipments(first, actuals, "2026-10-03")
-    .products[0].tempo, 50);
+    .products[0].tempo, 20);
 });
 
 test("older Tempo snapshots without precise time conservatively skip same-day receipts", () => {
@@ -54,15 +55,15 @@ test("older Tempo snapshots without precise time conservatively skip same-day re
   ]), 20);
 });
 
-test("reconciliation on an old stock count replays sales and physical receipts", () => {
+test("an old manually counted Tempo stock is still the last reported quantity", () => {
   const settings = { ...defaultSettings(), products: [stock] };
   const shipments = [{
     id: "physical", date: "2026-10-03",
     totals: [{ itemType: "crates", beerStyle: "IPA", totalQuantity: 100 }],
   }] as any;
   const current = settingsAfterActualShipments(settings, shipments, "2026-10-05");
-  assert.equal(current.products[0].tempo, 80);
-  assert.equal(current.products[0].tempoDate, "2026-10-05");
+  assert.equal(current.products[0].tempo, 0);
+  assert.equal(current.products[0].tempoDate, "2026-10-01");
 });
 
 test("physical packaging can be completed across the week boundary, never twice", () => {
