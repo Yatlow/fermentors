@@ -9,6 +9,7 @@ export type PreShippedPalletCandidate = {
   expiryDateStr?: string | null;
   sourceTankNumber?: string | number | null;
   packagingOperationId?: string | null;
+  packagingSource?: string | null;
   quantity?: number;
   createdAtMs?: number;
   shippedAtMs?: number;
@@ -81,4 +82,67 @@ export function matchPreReportedShippedPallets(input: {
     throw new Error("נמצאו משטחים שנשלחו לפני דיווח האריזה בכמות שאינה תואמת לדיווח. לא נוצר מלאי נוסף; יש לבדוק את המשלוח.");
   }
   return { palletIds: matched.map((p) => p.id), quantity };
+}
+
+/** Match manual pallets that are still physically in stock but were created
+ * before their packaging report. Excludes all pallets tied to another operation.
+ * The caller must claim these documents transactionally before creating stock.
+ */
+export function matchPreReportedActivePallets(input: {
+  operationId: string;
+  operationCreatedMs: number;
+  operationBatch: string;
+  itemType: string;
+  beerStyle: string;
+  expiryDateStr: string;
+  tankNumber: string | number | null;
+  expectedQuantity: number;
+  preShippedQuantity: number;
+  candidates: PreShippedPalletCandidate[];
+}): PreShippedMatch {
+  const { operationId, operationCreatedMs, operationBatch, itemType, beerStyle,
+    expiryDateStr, tankNumber, expectedQuantity, preShippedQuantity, candidates } = input;
+  if (!Number.isFinite(operationCreatedMs) || operationCreatedMs <= 0) {
+    throw new Error("חסרה שעת יצירת דיווח האריזה. לא ניתן לשייך משטח ידני ישן בבטחה.");
+  }
+  const date = dateKey(new Date(operationCreatedMs));
+  const matchingProduct = candidates.filter((p) =>
+    ["pending", "cooler", "bottleRoom", "loadingDock"].includes(String(p.zone)) &&
+    String(p.batchNumber ?? "").replace("#", "").trim() === operationBatch.replace("#", "").trim() &&
+    p.itemType === itemType && String(p.beerStyle ?? "").trim() === beerStyle.trim()
+  );
+  const adopted = matchingProduct.filter((p) =>
+    p.packagingOperationId === operationId && p.packagingSource === "manual");
+  const unlinked = matchingProduct.filter((p) => !String(p.packagingOperationId ?? "").trim());
+  const sameDayUnlinked = unlinked.filter((p) => {
+    // Older days are historical stock, not evidence of this packaging event.
+    return Number.isFinite(p.createdAtMs) && Number(p.createdAtMs) > 0 &&
+      dateKey(new Date(Number(p.createdAtMs))) === date;
+  });
+  const ambiguous = sameDayUnlinked.filter((p) =>
+    Number(p.createdAtMs) > operationCreatedMs ||
+    operationCreatedMs - Number(p.createdAtMs) > 8 * 60 * 60 * 1000 ||
+    p.id.startsWith("pkg_")
+  );
+  if (ambiguous.length || unlinked.some((p) => !Number.isFinite(p.createdAtMs))) {
+    throw new Error("נמצאו משטחים מאותה אצווה עם זמן יצירה לא חד־משמעי. לא ייווצר מלאי נוסף לפני בדיקת עקיבות.");
+  }
+  const selected = [...adopted, ...sameDayUnlinked.filter((p) => !ambiguous.includes(p))];
+  if (selected.some((p) =>
+    (expiryDateStr && String(p.expiryDateStr ?? "").trim() !== expiryDateStr) ||
+    (p.sourceTankNumber != null && tankNumber != null &&
+      String(p.sourceTankNumber) !== String(tankNumber))
+  )) {
+    throw new Error("נמצא משטח קיים מאותה אצווה עם פרטי תוקף או מיכל שאינם תואמים. יש לבדוק עקיבות לפני יצירת משטחים.");
+  }
+  if (selected.some((p) =>
+    !Number.isInteger(Number(p.quantity)) || Number(p.quantity) <= 0
+  )) {
+    throw new Error("משטח קיים מכיל כמות לא תקינה. לא ניתן להמשיך ביצירת משטחים.");
+  }
+  const quantity = selected.reduce((sum, p) => sum + Number(p.quantity), 0);
+  if (preShippedQuantity + quantity > expectedQuantity) {
+    throw new Error("כמות המשטחים הקיימים והמשטחים שנשלחו גבוהה מכמות האריזה שדווחה. לא נוצר מלאי נוסף.");
+  }
+  return { palletIds: selected.map((p) => p.id), quantity };
 }
