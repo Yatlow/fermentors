@@ -865,7 +865,13 @@ export function validateBrewReleaseIssues(
 ): PlanningValidationIssue[] {
   const issues: PlanningValidationIssue[] = [];
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today);
-  const schedules = projectTankSchedules(plans, settings, today, tanks);
+  // Match the same Thursday release forecast used by tankReleases. An
+  // undated weekly FINAL packaging decision must release its canonical
+  // physical batch for a subsequent Monday brew, without persisting a guessed
+  // packaging date. Previously the release check used the undated raw plan
+  // and saw that old batch as occupying the tank forever.
+  const releasePlans = forecastUndatedTankReleasePackaging(plans, tanks, settings);
+  const schedules = projectTankSchedules(releasePlans, settings, today, tanks);
 
   for (const b of plans.filter((w) => !editedWeekId || w.id === editedWeekId).flatMap((w) => w.brews).filter((b) => b.date >= today)) {
     if (!b.tankId) continue;
